@@ -3367,25 +3367,26 @@ static V mk(float wx, float wy, float wz, const float *c, float emit)
     /* Cono circular de linterna con borde suave, no un corte cuadrado. */
     float cone = 0.0f;
     if (d > 0.001f) {
-        float edge = (ca - 0.78f) / (0.97f - 0.78f);
+        float edge = (ca - 0.72f) / (0.96f - 0.72f);
         if (edge < 0.0f) edge = 0.0f;
         if (edge > 1.0f) edge = 1.0f;
         cone = edge * edge * (3.0f - 2.0f * edge);
     }
 
-    float amb = 1.0f - d / amb_r;
+    float amb = 1.0f - d / (amb_r * 0.72f);
     if (amb < 0) amb = 0;
     amb *= amb;
+    /* Limita la luz ambiente para conservar negros profundos. */
 
     float fl = 0.0f;
     if (flash_on) {
         /* Luz central intensa y caida gradual por distancia, como una linterna real. */
-        float fd = 1.0f - d / 20.0f;
+        float fd = 1.0f - d / 13.5f;
         if (fd < 0.0f) fd = 0.0f;
-        fl = cone * fd;
+        fl = cone * fd * fd;
     }
 
-    float L = 0.008f + amb * 0.12f + fl * 1.35f + emit;
+    float L = 0.0025f + amb * 0.045f + fl * 1.65f + emit;
     if (L > 1.0f) L = 1.0f;
     v.r = c[0] * L; v.g = c[1] * L; v.b = c[2] * L;
     return v;
@@ -3808,7 +3809,7 @@ int main(void)
             // Luz ambiente parpadeante
             float flick = 0.85f + 0.15f * sinf(t * 13.0f) * sinf(t * 7.3f);
             if ((frame_no / 6) % 41 == 0) flick = 0.35f;
-            amb_r = 9.0f * flick;
+            amb_r = 6.0f * flick;
 
             // Monstruo
             if (frame_no % 15 == 0) compute_flow((int)(px / CS), (int)(pz / CS));
@@ -3857,7 +3858,7 @@ int main(void)
             {
                 int moving = (fwd != 0.0f || str != 0.0f);
                 int running = ((paddata & PAD_R1) || fwd > 0.88f);
-                draw_view_arm(t, moving, running);
+                /* Conserva la linterna original; no dibujar el brazo cubico superpuesto. */
                 draw_flashlight(t, moving || running);
             }
 
