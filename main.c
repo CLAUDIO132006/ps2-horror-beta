@@ -3309,7 +3309,7 @@ static const int note_cell[3][2] = { {5, 5}, {12, 3}, {8, 9} };
 static GSGLOBAL *gsGlobal;
 static char padBuf[256] __attribute__((aligned(64)));
 
-static float px, pz, yaw;
+static float px, pz, yaw, pitch;
 static float fx, fz, rx, rz;       // base de camara
 static float amb_r = 9.0f;         // radio de luz ambiente (parpadea)
 static int   flash_on = 1;
@@ -3352,22 +3352,38 @@ static V mk(float wx, float wy, float wz, const float *c, float emit)
     v.z = dx * fx + dz * fz;
     v.y = wy - EYE;
 
+    /* Pitch vertical de camara: permite mirar arriba/abajo sin limitar el yaw.
+       La rotacion ocurre en espacio de camara, antes de proyectar. */
+    {
+        float cp = cosf(pitch), sp = sinf(pitch);
+        float old_y = v.y, old_z = v.z;
+        v.y = old_y * cp - old_z * sp;
+        v.z = old_y * sp + old_z * cp;
+    }
+
     float d  = sqrtf(v.x * v.x + v.y * v.y + v.z * v.z);
     float ca = (d > 0.001f) ? v.z / d : 0.0f;
+    /* Cono circular de linterna con borde suave, no un corte cuadrado. */
+    float cone = 0.0f;
+    if (d > 0.001f) {
+        float edge = (ca - 0.72f) / (0.94f - 0.72f);
+        if (edge < 0.0f) edge = 0.0f;\n        if (edge > 1.0f) edge = 1.0f;
+        cone = edge * edge * (3.0f - 2.0f * edge);
+    }
 
     float amb = 1.0f - d / amb_r;
     if (amb < 0) amb = 0;
     amb *= amb;
 
     float fl = 0.0f;
-    if (flash_on && ca > 0.8f) {
-        fl = (ca - 0.8f) / 0.2f;
-        float fd = 1.0f - d / 24.0f;
-        if (fd < 0) fd = 0;
-        fl *= fd;
+    if (flash_on) {
+        /* Luz central intensa y caida gradual por distancia, como una linterna real. */
+        float fd = 1.0f - d / 20.0f;
+        if (fd < 0.0f) fd = 0.0f;
+        fl = cone * fd;
     }
 
-    float L = 0.03f + amb * 0.5f + fl * 0.9f + emit;
+    float L = 0.025f + amb * 0.30f + fl * 1.15f + emit;
     if (L > 1.0f) L = 1.0f;
     v.r = c[0] * L; v.g = c[1] * L; v.b = c[2] * L;
     return v;
@@ -3655,7 +3671,7 @@ static void update_monster(float dt, int notes)
 // ---------------- Reinicio ----------------
 static void reset_game(void)
 {
-    px = 1.5f * CS; pz = 1.5f * CS; yaw = 1.5708f;
+    px = 1.5f * CS; pz = 1.5f * CS; yaw = 1.5708f; pitch = 0.0f;
     sx_ = 14.5f * CS; sz_ = 7.5f * CS;
     for (int i = 0; i < 3; i++) notes_got[i] = 0;
     state = 0; state_timer = 0; flash_on = 1;
@@ -3712,11 +3728,16 @@ int main(void)
 
             float lh = (pad.ljoy_h - 128) / 128.0f, lv = (pad.ljoy_v - 128) / 128.0f;
             float rh = (pad.rjoy_h - 128) / 128.0f;
+            float rv = (pad.rjoy_v - 128) / 128.0f;
             if (fabsf(lh) > 0.2f) str = lh;
             if (fabsf(lv) > 0.2f) fwd = -lv;
             if (fabsf(rh) > 0.2f) turn = rh;
+            /* Stick derecho vertical: mirar arriba y abajo. */
+            if (fabsf(rv) > 0.2f) pitch -= rv * 1.8f * dt;
             if (paddata & PAD_RIGHT) turn = 0.7f;
             if (paddata & PAD_LEFT)  turn = -0.7f;
+            if (paddata & PAD_UP) pitch += 0.8f * dt;
+            if (paddata & PAD_DOWN) pitch -= 0.8f * dt;
             if (newp & PAD_L1) flash_on = !flash_on;
             if (newp & PAD_START) reset_game();
         }
