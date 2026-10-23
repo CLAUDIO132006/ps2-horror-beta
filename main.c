@@ -3288,19 +3288,19 @@ static const unsigned char light_lens[] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
 
 static const char *map[MH] = {
     "################",
-    "#S.....#.......#",
-    "#.####.#.#####.#",
-    "#.#....#.#...#.#",
-    "#.#.####.#.#.#.#",
-    "#.#......#.#...#",
-    "#.########.#####",
-    "#..........#...#",
-    "######.#####.#.#",
-    "#....#.....#.#.#",
-    "#.##.#####.#.#.#",
-    "#.#......#.#...#",
-    "#.######.#.#####",
-    "#........#....E#"
+    "#S....#.....#..#",
+    "#.....#.....#..#",
+    "###.###.###.#..#",
+    "#...#...#...#..#",
+    "#...#...#......#",
+    "#.###.###.####.#",
+    "#..............#",
+    "#.####.###.###.#",
+    "#....#...#.....#",
+    "####.#...#.###.#",
+    "#....#.........#",
+    "#......###.....#",
+    "#.............E#"
 };
 
 static const int note_cell[3][2] = { {5, 5}, {12, 3}, {8, 9} };
@@ -3367,26 +3367,25 @@ static V mk(float wx, float wy, float wz, const float *c, float emit)
     /* Cono circular de linterna con borde suave, no un corte cuadrado. */
     float cone = 0.0f;
     if (d > 0.001f) {
-        float edge = (ca - 0.72f) / (0.96f - 0.72f);
+        float edge = (ca - 0.78f) / (0.97f - 0.78f);
         if (edge < 0.0f) edge = 0.0f;
         if (edge > 1.0f) edge = 1.0f;
         cone = edge * edge * (3.0f - 2.0f * edge);
     }
 
-    float amb = 1.0f - d / (amb_r * 0.72f);
+    float amb = 1.0f - d / amb_r;
     if (amb < 0) amb = 0;
     amb *= amb;
-    /* Limita la luz ambiente para conservar negros profundos. */
 
     float fl = 0.0f;
     if (flash_on) {
         /* Luz central intensa y caida gradual por distancia, como una linterna real. */
-        float fd = 1.0f - d / 13.5f;
+        float fd = 1.0f - d / 12.0f;
         if (fd < 0.0f) fd = 0.0f;
-        fl = cone * fd * fd;
+        fl = cone * fd;
     }
 
-    float L = 0.0025f + amb * 0.045f + fl * 1.65f + emit;
+    float L = 0.003f + amb * 0.025f + fl * 1.55f + emit;
     if (L > 1.0f) L = 1.0f;
     v.r = c[0] * L; v.g = c[1] * L; v.b = c[2] * L;
     return v;
@@ -3580,10 +3579,10 @@ static void draw_view_arm(float t, int moving, int running)
     const float cuff[3] = {34.f,37.f,42.f};
     const float skin[3] = {118.f,82.f,61.f};
     // Antebrazo desde la esquina inferior derecha hacia la linterna.
-    view_box(0.205f+bob, -0.355f+lift, 0.505f, 0.070f, 0.085f, 0.205f, sleeve);
-    view_box(0.225f+bob, -0.285f+lift, 0.355f, 0.061f, 0.050f, 0.070f, cuff);
+    view_box(0.205f+bob, -0.355f+lift, 0.505f, 0.052f, 0.060f, 0.180f, sleeve);
+    view_box(0.225f+bob, -0.285f+lift, 0.355f, 0.047f, 0.035f, 0.055f, cuff);
     // Mano sencilla alrededor del cuerpo de la linterna.
-    view_box(0.245f+bob, -0.238f+lift, 0.405f, 0.052f, 0.045f, 0.065f, skin);
+    view_box(0.245f+bob, -0.238f+lift, 0.405f, 0.038f, 0.030f, 0.048f, skin);
 }
 
 // Linterna (modelo Light.obj), fijada a la camara
@@ -3632,17 +3631,17 @@ static void draw_level(void)
             int n = (ddx * ddx + ddz * ddz <= 2) ? 2 : 1;   // mas detalle cerca
 
             int alt = (cx + cz) & 1;
-            float fl[3] = { alt ? 150.f : 120.f, alt ? 140.f : 112.f, alt ? 125.f : 100.f };
-            float ce[3] = { 110.f, 110.f, 120.f };
-            float wa[3] = { 190.f, 170.f, 150.f };
+            float fl[3] = { alt ? 64.f : 48.f, alt ? 67.f : 50.f, alt ? 42.f : 34.f };
+            float wa[3] = { 92.f, 82.f, 70.f };
+            float ce[3] = { 0.f, 0.f, 0.f };
             float q[4][3];
 
             // Suelo
             float f[4][3] = { {x0,0,z0}, {x1,0,z0}, {x1,0,z1}, {x0,0,z1} };
             quad_sub(f, fl, n, 0.0f);
-            // Techo
-            float c[4][3] = { {x0,WH,z0}, {x1,WH,z0}, {x1,WH,z1}, {x0,WH,z1} };
-            quad_sub(c, ce, n, 0.0f);
+            // Cielo abierto: ya no se dibuja techo sobre cada celda transitable.
+            // Las caras verticales alrededor de los bloques solidos representan
+            // fachadas de casas abandonadas junto a las calles.
 
             // Paredes hacia celdas solidas
             if (cz - 1 < 0 || map[cz - 1][cx] == '#') {
@@ -3713,7 +3712,7 @@ static void update_monster(float dt, int notes)
 static void reset_game(void)
 {
     px = 1.5f * CS; pz = 1.5f * CS; yaw = 1.5708f; pitch = 0.0f; jump_y = 0.0f; jump_v = 0.0f;
-    sx_ = 14.5f * CS; sz_ = 7.5f * CS;
+    sx_ = 12.5f * CS; sz_ = 11.5f * CS;
     for (int i = 0; i < 3; i++) notes_got[i] = 0;
     state = 0; state_timer = 0; flash_on = 1;
 }
@@ -3809,7 +3808,7 @@ int main(void)
             // Luz ambiente parpadeante
             float flick = 0.85f + 0.15f * sinf(t * 13.0f) * sinf(t * 7.3f);
             if ((frame_no / 6) % 41 == 0) flick = 0.35f;
-            amb_r = 6.0f * flick;
+            amb_r = 9.0f * flick;
 
             // Monstruo
             if (frame_no % 15 == 0) compute_flow((int)(px / CS), (int)(pz / CS));
@@ -3858,7 +3857,7 @@ int main(void)
             {
                 int moving = (fwd != 0.0f || str != 0.0f);
                 int running = ((paddata & PAD_R1) || fwd > 0.88f);
-                /* Conserva la linterna original; no dibujar el brazo cubico superpuesto. */
+                draw_view_arm(t, moving, running);
                 draw_flashlight(t, moving || running);
             }
 
