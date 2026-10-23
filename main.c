@@ -3547,7 +3547,45 @@ static void draw_monster(float t)
             MAN_EYE_Y - 0.015f + bob, MAN_EYE_Y + 0.015f + bob, eye, 1.0f);
 }
 
-// Linterna en la mano (modelo Light.obj), fija a la camara
+// Brazo de primera persona en espacio de camara. Se anima por transformacion
+// procedural porque el OBJ de Skinny Man no contiene esqueleto/animaciones.
+static void view_box(float cx, float cy, float cz, float hx, float hy, float hz,
+                     const float *col)
+{
+    float p[8][3] = {
+        {cx-hx,cy-hy,cz-hz},{cx+hx,cy-hy,cz-hz},
+        {cx+hx,cy+hy,cz-hz},{cx-hx,cy+hy,cz-hz},
+        {cx-hx,cy-hy,cz+hz},{cx+hx,cy-hy,cz+hz},
+        {cx+hx,cy+hy,cz+hz},{cx-hx,cy+hy,cz+hz}
+    };
+    static const int f[6][4] = {{0,1,2,3},{4,7,6,5},{0,4,5,1},
+                                 {3,2,6,7},{0,3,7,4},{1,5,6,2}};
+    for (int i=0;i<6;i++) {
+        V a={p[f[i][0]][0],p[f[i][0]][1],p[f[i][0]][2],col[0],col[1],col[2]};
+        V b={p[f[i][1]][0],p[f[i][1]][1],p[f[i][1]][2],col[0],col[1],col[2]};
+        V c={p[f[i][2]][0],p[f[i][2]][1],p[f[i][2]][2],col[0],col[1],col[2]};
+        V d={p[f[i][3]][0],p[f[i][3]][1],p[f[i][3]][2],col[0],col[1],col[2]};
+        tri_cam(a,b,c); tri_cam(a,c,d);
+    }
+}
+
+static void draw_view_arm(float t, int moving, int running)
+{
+    float amp = running ? 0.035f : (moving ? 0.015f : 0.0025f);
+    float phase = t * (running ? 13.0f : 7.0f);
+    float bob = moving ? sinf(phase)*amp : sinf(t*1.4f)*amp;
+    float lift = running ? fabsf(cosf(phase))*0.025f : (moving ? fabsf(cosf(phase))*0.008f : 0.0f);
+    const float sleeve[3] = {52.f,55.f,61.f};
+    const float cuff[3] = {34.f,37.f,42.f};
+    const float skin[3] = {118.f,82.f,61.f};
+    // Antebrazo desde la esquina inferior derecha hacia la linterna.
+    view_box(0.205f+bob, -0.355f+lift, 0.505f, 0.070f, 0.085f, 0.205f, sleeve);
+    view_box(0.225f+bob, -0.285f+lift, 0.355f, 0.061f, 0.050f, 0.070f, cuff);
+    // Mano sencilla alrededor del cuerpo de la linterna.
+    view_box(0.245f+bob, -0.238f+lift, 0.405f, 0.052f, 0.045f, 0.065f, skin);
+}
+
+// Linterna (modelo Light.obj), fijada a la camara
 static void draw_flashlight(float t, int moving)
 {
     float sway = moving ? sinf(t * 8.0f) * 0.008f : sinf(t * 1.5f) * 0.002f;
@@ -3816,7 +3854,12 @@ int main(void)
             }
             // Monstruo
             draw_monster(t);
-            draw_flashlight(t, (fwd != 0.0f || str != 0.0f));
+            {
+                int moving = (fwd != 0.0f || str != 0.0f);
+                int running = ((paddata & PAD_R1) || fwd > 0.88f);
+                draw_view_arm(t, moving, running);
+                draw_flashlight(t, moving || running);
+            }
 
             // HUD: notas recogidas
             for (int i = 0; i < 3; i++) {
