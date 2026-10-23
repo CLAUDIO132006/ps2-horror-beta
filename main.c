@@ -3367,7 +3367,8 @@ static V mk(float wx, float wy, float wz, const float *c, float emit)
     float cone = 0.0f;
     if (d > 0.001f) {
         float edge = (ca - 0.72f) / (0.94f - 0.72f);
-        if (edge < 0.0f) edge = 0.0f;\n        if (edge > 1.0f) edge = 1.0f;
+        if (edge < 0.0f) edge = 0.0f;
+        if (edge > 1.0f) edge = 1.0f;
         cone = edge * edge * (3.0f - 2.0f * edge);
     }
 
