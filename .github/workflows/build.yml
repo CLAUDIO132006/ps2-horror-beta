@@ -10,7 +10,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Compilar con ps2dev
-        run: docker run --rm -v "$PWD:/src" -w /src ps2dev/ps2dev make
+        run: docker run --rm -v "$PWD:/src" -w /src ps2dev/ps2dev sh -c "apk add --no-cache make && make"
       - name: Guardar el ELF
         uses: actions/upload-artifact@v4
         with:
