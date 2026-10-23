@@ -3310,6 +3310,7 @@ static GSGLOBAL *gsGlobal;
 static char padBuf[256] __attribute__((aligned(64)));
 
 static float px, pz, yaw, pitch;
+static float jump_y = 0.0f, jump_v = 0.0f;
 static float fx, fz, rx, rz;       // base de camara
 static float amb_r = 9.0f;         // radio de luz ambiente (parpadea)
 static int   flash_on = 1;
@@ -3350,7 +3351,7 @@ static V mk(float wx, float wy, float wz, const float *c, float emit)
     float dx = wx - px, dz = wz - pz;
     v.x = dx * rx + dz * rz;
     v.z = dx * fx + dz * fz;
-    v.y = wy - EYE;
+    v.y = wy - EYE - jump_y;
 
     /* Pitch vertical de camara: permite mirar arriba/abajo sin limitar el yaw.
        La rotacion ocurre en espacio de camara, antes de proyectar. */
@@ -3366,7 +3367,7 @@ static V mk(float wx, float wy, float wz, const float *c, float emit)
     /* Cono circular de linterna con borde suave, no un corte cuadrado. */
     float cone = 0.0f;
     if (d > 0.001f) {
-        float edge = (ca - 0.72f) / (0.94f - 0.72f);
+        float edge = (ca - 0.78f) / (0.97f - 0.78f);
         if (edge < 0.0f) edge = 0.0f;
         if (edge > 1.0f) edge = 1.0f;
         cone = edge * edge * (3.0f - 2.0f * edge);
@@ -3384,7 +3385,7 @@ static V mk(float wx, float wy, float wz, const float *c, float emit)
         fl = cone * fd;
     }
 
-    float L = 0.025f + amb * 0.30f + fl * 1.15f + emit;
+    float L = 0.008f + amb * 0.12f + fl * 1.35f + emit;
     if (L > 1.0f) L = 1.0f;
     v.r = c[0] * L; v.g = c[1] * L; v.b = c[2] * L;
     return v;
@@ -3672,7 +3673,7 @@ static void update_monster(float dt, int notes)
 // ---------------- Reinicio ----------------
 static void reset_game(void)
 {
-    px = 1.5f * CS; pz = 1.5f * CS; yaw = 1.5708f; pitch = 0.0f;
+    px = 1.5f * CS; pz = 1.5f * CS; yaw = 1.5708f; pitch = 0.0f; jump_y = 0.0f; jump_v = 0.0f;
     sx_ = 14.5f * CS; sz_ = 7.5f * CS;
     for (int i = 0; i < 3; i++) notes_got[i] = 0;
     state = 0; state_timer = 0; flash_on = 1;
@@ -3740,7 +3741,11 @@ int main(void)
             if (paddata & PAD_UP) pitch += 0.8f * dt;
             if (paddata & PAD_DOWN) pitch -= 0.8f * dt;
             if (newp & PAD_L1) flash_on = !flash_on;
+            /* Cruz (X): salto con impulso, sin permitir saltos infinitos en el aire. */
+            if ((newp & PAD_CROSS) && jump_y <= 0.001f) jump_v = 4.2f;
             if (newp & PAD_START) reset_game();
+            /* Limites naturales de inclinacion vertical: +60 arriba, -75 abajo. */
+            pitch = clampf(pitch, -1.3090f, 1.0472f);
         }
 
         // ---- Camara ----
@@ -3751,12 +3756,17 @@ int main(void)
         int notes = notes_got[0] + notes_got[1] + notes_got[2];
         if (state == 0) {
             yaw += turn * 2.4f * dt;
-            float speed = (paddata & PAD_R1) ? 5.0f : 2.8f;
+            int auto_run = (fwd > 0.88f);
+            float speed = ((paddata & PAD_R1) || auto_run) ? 5.0f : 2.8f;
             float mx = (fx * fwd + rx * str) * speed * dt;
             float mz = (fz * fwd + rz * str) * speed * dt;
             if (!blocked(px + mx, pz, 0.35f)) px += mx;
             if (!blocked(px, pz + mz, 0.35f)) pz += mz;
 
+            // Salto sencillo con gravedad; se aplica a la altura de la vista.
+            jump_v -= 9.8f * dt;
+            jump_y += jump_v * dt;
+            if (jump_y < 0.0f) { jump_y = 0.0f; jump_v = 0.0f; }
             // Luz ambiente parpadeante
             float flick = 0.85f + 0.15f * sinf(t * 13.0f) * sinf(t * 7.3f);
             if ((frame_no / 6) % 41 == 0) flick = 0.35f;
