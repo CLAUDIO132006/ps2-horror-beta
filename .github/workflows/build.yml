@@ -1,0 +1,18 @@
+name: Build ELF
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compilar con ps2dev
+        run: docker run --rm -v "$PWD:/src" -w /src ps2dev/ps2dev make
+      - name: Guardar el ELF
+        uses: actions/upload-artifact@v4
+        with:
+          name: horror_beta
+          path: horror_beta.elf
