@@ -2,10 +2,10 @@
 //  HORROR BETA 0.2 - BOSQUE  (PS2 homebrew, PS2SDK + gsKit)
 //
 //  Controles (DualShock 2):
-//    Stick izq  : moverse        Stick der / D-pad izq-der : mirar
-//    R1         : correr         L1 : linterna ON/OFF
-//    X (cruz)   : subir/bajar la escalera de la alcantarilla
-//    START      : reiniciar
+//    Stick izq  : moverse (empujalo al tope para CORRER, gasta estamina)
+//    Stick der / D-pad : mirar (izq-der y arriba 80 / abajo 70 grados)
+//    X (cruz)   : saltar  (junto a un pozo: subir/bajar la escalera)
+//    L1         : linterna ON/OFF       START : reiniciar
 //
 //  Objetivo: encuentra las 3 notas (cabana, cueva, alcantarilla)
 //  y llega a la caseta de la antena. Algo te esta buscando...
@@ -28,6 +28,512 @@
 #define MAN_HAND_X 0.550f
 #define MAN_HAND_Y 1.514f
 #define MAN_HAND_Z 0.672f
+
+static const unsigned char man_w[][4] = {
+    {0, 0, 255, 255},
+    {0, 0, 255, 255},
+    {0, 0, 255, 255},
+    {0, 0, 255, 255},
+    {0, 0, 255, 255},
+    {0, 0, 255, 255},
+    {0, 0, 255, 255},
+    {0, 0, 255, 255},
+    {0, 0, 255, 255},
+    {0, 0, 255, 255},
+    {0, 0, 255, 255},
+    {0, 0, 255, 255},
+    {0, 0, 255, 255},
+    {0, 0, 255, 255},
+    {0, 0, 255, 255},
+    {0, 0, 255, 255},
+    {0, 0, 255, 255},
+    {0, 0, 255, 255},
+    {0, 0, 255, 255},
+    {0, 0, 255, 255},
+    {0, 0, 255, 255},
+    {0, 0, 255, 255},
+    {0, 0, 255, 255},
+    {0, 0, 255, 255},
+    {0, 0, 255, 255},
+    {0, 0, 255, 255},
+    {0, 0, 255, 255},
+    {0, 0, 255, 255},
+    {0, 0, 255, 255},
+    {0, 0, 255, 255},
+    {0, 0, 255, 255},
+    {0, 0, 255, 255},
+    {0, 0, 255, 255},
+    {0, 0, 255, 255},
+    {0, 0, 255, 255},
+    {0, 0, 255, 255},
+    {0, 0, 255, 255},
+    {0, 0, 255, 255},
+    {255, 0, 0, 0},
+    {255, 0, 0, 0},
+    {0, 0, 255, 255},
+    {0, 0, 255, 255},
+    {0, 0, 255, 255},
+    {0, 0, 255, 255},
+    {0, 0, 224, 255},
+    {0, 0, 252, 255},
+    {0, 0, 245, 255},
+    {255, 0, 0, 0},
+    {255, 0, 0, 0},
+    {255, 0, 0, 0},
+    {255, 0, 0, 0},
+    {255, 0, 0, 0},
+    {255, 0, 0, 0},
+    {255, 0, 0, 0},
+    {255, 0, 0, 0},
+    {255, 0, 0, 0},
+    {255, 0, 0, 0},
+    {0, 0, 200, 255},
+    {0, 0, 148, 255},
+    {0, 0, 171, 255},
+    {0, 0, 135, 255},
+    {0, 0, 202, 255},
+    {0, 0, 149, 255},
+    {0, 0, 138, 255},
+    {0, 0, 113, 255},
+    {0, 0, 95, 255},
+    {255, 0, 0, 0},
+    {255, 0, 0, 0},
+    {255, 0, 0, 0},
+    {255, 0, 0, 0},
+    {255, 0, 0, 0},
+    {255, 0, 0, 0},
+    {255, 0, 0, 0},
+    {255, 0, 0, 0},
+    {255, 0, 0, 0},
+    {255, 0, 0, 0},
+    {255, 0, 0, 0},
+    {255, 0, 0, 0},
+    {255, 0, 0, 0},
+    {255, 0, 0, 0},
+    {255, 0, 0, 0},
+    {255, 0, 0, 0},
+    {255, 0, 0, 0},
+    {255, 0, 0, 0},
+    {255, 0, 0, 0},
+    {255, 0, 0, 0},
+    {255, 0, 0, 0},
+    {255, 0, 0, 0},
+    {255, 0, 0, 0},
+    {255, 0, 0, 0},
+    {255, 0, 0, 0},
+    {255, 0, 0, 0},
+    {255, 0, 0, 0},
+    {222, 0, 0, 0},
+    {223, 0, 0, 0},
+    {232, 0, 0, 0},
+    {126, 0, 0, 0},
+    {0, 0, 22, 255},
+    {0, 0, 17, 255},
+    {0, 0, 28, 255},
+    {0, 0, 36, 255},
+    {0, 0, 77, 255},
+    {0, 0, 26, 255},
+    {0, 0, 4, 255},
+    {0, 0, 29, 255},
+    {0, 0, 24, 255},
+    {255, 0, 0, 0},
+    {255, 0, 0, 0},
+    {255, 0, 0, 0},
+    {255, 0, 0, 0},
+    {255, 0, 0, 0},
+    {255, 0, 0, 0},
+    {255, 0, 0, 0},
+    {255, 0, 0, 0},
+    {255, 0, 0, 0},
+    {255, 0, 0, 0},
+    {255, 0, 0, 0},
+    {255, 0, 0, 0},
+    {255, 0, 0, 0},
+    {255, 0, 0, 0},
+    {255, 0, 0, 0},
+    {216, 0, 0, 0},
+    {205, 0, 0, 0},
+    {108, 0, 0, 0},
+    {91, 0, 0, 0},
+    {12, 0, 0, 36},
+    {28, 0, 0, 15},
+    {3, 0, 0, 61},
+    {0, 0, 0, 211},
+    {0, 0, 0, 141},
+    {0, 0, 0, 176},
+    {0, 0, 0, 228},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {255, 0, 0, 0},
+    {255, 0, 0, 0},
+    {251, 0, 0, 0},
+    {252, 0, 0, 0},
+    {186, 0, 0, 0},
+    {189, 0, 0, 0},
+    {180, 0, 0, 0},
+    {84, 0, 0, 0},
+    {92, 0, 0, 0},
+    {74, 0, 0, 0},
+    {0, 0, 0, 122},
+    {15, 0, 0, 30},
+    {3, 0, 0, 62},
+    {0, 0, 0, 196},
+    {0, 0, 0, 170},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {88, 0, 0, 0},
+    {0, 0, 0, 93},
+    {2, 0, 0, 65},
+    {0, 0, 0, 92},
+    {0, 0, 0, 190},
+    {0, 0, 0, 127},
+    {0, 0, 0, 173},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 252, 0, 0},
+    {0, 189, 0, 0},
+    {0, 186, 0, 0},
+    {0, 92, 0, 0},
+    {0, 90, 0, 0},
+    {0, 80, 0, 0},
+    {0, 0, 0, 122},
+    {0, 7, 0, 48},
+    {0, 6, 0, 50},
+    {0, 0, 0, 79},
+    {0, 0, 0, 186},
+    {0, 0, 0, 163},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 255, 0, 0},
+    {0, 255, 0, 0},
+    {0, 255, 0, 0},
+    {0, 255, 0, 0},
+    {0, 255, 0, 0},
+    {0, 255, 0, 0},
+    {0, 255, 0, 0},
+    {0, 255, 0, 0},
+    {0, 255, 0, 0},
+    {0, 255, 0, 0},
+    {0, 250, 0, 0},
+    {0, 251, 0, 0},
+    {0, 202, 0, 0},
+    {0, 175, 0, 0},
+    {0, 64, 0, 0},
+    {0, 59, 0, 0},
+    {0, 2, 0, 69},
+    {0, 0, 0, 87},
+    {0, 0, 0, 200},
+    {0, 0, 0, 213},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 255, 0, 0},
+    {0, 255, 0, 0},
+    {0, 255, 0, 0},
+    {0, 255, 0, 0},
+    {0, 255, 0, 0},
+    {0, 255, 0, 0},
+    {0, 255, 0, 0},
+    {0, 255, 0, 0},
+    {0, 255, 0, 0},
+    {0, 255, 0, 0},
+    {0, 255, 0, 0},
+    {0, 255, 0, 0},
+    {0, 255, 0, 0},
+    {0, 255, 0, 0},
+    {0, 255, 0, 0},
+    {0, 255, 0, 0},
+    {0, 255, 0, 0},
+    {0, 255, 0, 0},
+    {0, 255, 0, 0},
+    {0, 255, 0, 0},
+    {0, 255, 0, 0},
+    {0, 255, 0, 0},
+    {0, 255, 0, 0},
+    {0, 225, 0, 0},
+    {0, 223, 0, 0},
+    {0, 215, 0, 0},
+    {0, 138, 0, 0},
+    {0, 126, 0, 0},
+    {0, 137, 0, 0},
+    {0, 30, 0, 12},
+    {0, 28, 0, 15},
+    {0, 6, 0, 49},
+    {0, 0, 0, 141},
+    {0, 0, 0, 176},
+    {0, 0, 0, 251},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 255, 0, 0},
+    {0, 255, 0, 0},
+    {0, 255, 0, 0},
+    {0, 255, 0, 0},
+    {0, 255, 0, 0},
+    {0, 255, 0, 0},
+    {0, 255, 0, 0},
+    {0, 255, 0, 0},
+    {0, 255, 0, 0},
+    {0, 255, 0, 0},
+    {0, 255, 0, 0},
+    {0, 255, 0, 0},
+    {0, 255, 0, 0},
+    {0, 255, 0, 0},
+    {0, 255, 0, 0},
+    {0, 255, 0, 0},
+    {0, 255, 0, 0},
+    {0, 255, 0, 0},
+    {0, 255, 0, 0},
+    {0, 255, 0, 0},
+    {0, 255, 0, 0},
+    {0, 255, 0, 0},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 255, 0, 0},
+    {0, 255, 0, 0},
+    {0, 255, 0, 0},
+    {0, 255, 0, 0},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255},
+    {0, 0, 0, 255}
+};
 
 static const float man_v[][3] = {
     {-0.786, 1.146, -0.055},
@@ -4101,6 +4607,11 @@ static GSGLOBAL *gsGlobal;
 static char padBuf[256] __attribute__((aligned(64)));
 
 static float px, pz, yaw, foot_y, cam_y;
+static float pitch, cpitch = 1.0f, spitch = 0.0f;   // mirar arriba/abajo
+static float stamina = 1.0f, stam_delay;
+static int   exhausted;
+static float jump_h, jump_vy;
+static float mon_phase, mon_spd, mon_runf;           // animacion del monstruo
 static int   cur_layer;                 // 0 superficie, 1 alcantarilla
 static int   climbing, climb_dir, last_ladder;
 static float fx, fz, rx, rz;
@@ -4237,10 +4748,11 @@ static V mk(float wx, float wy, float wz, const float *c, float emit)
 {
     V v;
     float dx = wx - px, dz = wz - pz;
-    v.x = dx * rx + dz * rz;
-    v.z = dx * fx + dz * fz;
-    v.y = wy - cam_y;
-    float d = sqrtf(v.x * v.x + v.y * v.y + v.z * v.z);
+    float vx = dx * rx + dz * rz, vz = dx * fx + dz * fz, vy = wy - cam_y;
+    v.x = vx;
+    v.y = vy * cpitch - vz * spitch;          // inclinacion de la camara
+    v.z = vy * spitch + vz * cpitch;
+    float d = sqrtf(vx * vx + vy * vy + vz * vz);
     // Caida suave con la distancia. El circulo de la linterna lo dibuja
     // despues draw_spot_overlay() (oscurecimiento en pantalla).
     float reach = flash_on ? amb_r : amb_r * 0.28f;
@@ -4419,8 +4931,11 @@ static void pyr_rot(float cx, float cz, float hw, float y0, float y1, const floa
 static int in_view(float wx, float wz, float rad, float maxd)
 {
     float dx = wx - px, dz = wz - pz;
+    float d2 = dx * dx + dz * dz;
     float lim = maxd + rad;
-    if (dx * dx + dz * dz > lim * lim) return 0;
+    if (d2 > lim * lim) return 0;
+    float keep = 2.5f + 8.0f * fabsf(spitch) + rad;   // mirando abajo se ve lo cercano
+    if (d2 < keep * keep) return 1;
     float cz = dx * fx + dz * fz;
     if (cz < -rad) return 0;
     float cx = dx * rx + dz * rz;
@@ -4539,46 +5054,89 @@ static void draw_shafts(void)
 }
 
 // ---------------- Cielo ----------------
-#define NSTAR 70
+#define NSTAR 110
 static void draw_stars(void)
 {
     static float az[NSTAR], el[NSTAR];
     static int inited = 0;
     if (!inited) {
-        unsigned int s = 12345u;
+        unsigned int sd = 12345u;
         for (int i = 0; i < NSTAR; i++) {
-            s = s * 1664525u + 1013904223u; az[i] = (s >> 8) / 16777216.0f * 6.2831853f;
-            s = s * 1664525u + 1013904223u; el[i] = 0.12f + (s >> 8) / 16777216.0f * 1.2f;
+            sd = sd * 1664525u + 1013904223u; az[i] = (sd >> 8) / 16777216.0f * 6.2831853f;
+            sd = sd * 1664525u + 1013904223u; el[i] = asinf(0.05f + 0.95f * ((sd >> 8) / 16777216.0f));
         }
         inited = 1;
     }
     for (int i = 0; i < NSTAR; i++) {
         float dx = cosf(el[i]) * sinf(az[i]), dy = sinf(el[i]), dz = cosf(el[i]) * cosf(az[i]);
-        float cz = dx * fx + dz * fz;
-        if (cz < 0.1f) continue;
+        float cz0 = dx * fx + dz * fz;
         float cx = dx * rx + dz * rz;
-        float sx = W * 0.5f + cx / cz * FOCAL, sy = H * 0.5f - dy / cz * FOCAL;
+        float cyv = dy * cpitch - cz0 * spitch, czv = dy * spitch + cz0 * cpitch;
+        if (czv < 0.1f) continue;
+        float sx = W * 0.5f + cx / czv * FOCAL, sy = H * 0.5f - cyv / czv * FOCAL;
         if (sx < 0 || sx > W - 2 || sy < 0 || sy > H - 2) continue;
         int b = 150 + (i * 37) % 105;
         gsKit_prim_sprite(gsGlobal, sx, sy, sx + 2.0f, sy + 2.0f, 0, GS_SETREG_RGBAQ(b, b, b, 0x80, 0));
     }
 }
 
-// ---------------- Monstruo (modelo Skinny_Man) ----------------
+// ---------------- Monstruo (modelo Skinny_Man) con animacion de caminar / correr ----------------
+static void rot_blend(float *y, float *z, float py, float c, float sn, float w)
+{
+    float ry = *y - py, rz = *z;
+    float ny = py + ry * c - rz * sn, nz = rz * c + ry * sn;
+    *y += (ny - *y) * w;
+    *z += (nz - *z) * w;
+}
+
+typedef struct { float lc, ls, ac, as, uc, us, bob; } MonPose;
+
+static MonPose mon_pose(void)
+{
+    MonPose m;
+    float sp = mon_spd;
+    float amp  = (0.42f + 0.45f * mon_runf) * clampf(sp * 0.8f, 0.0f, 1.0f);
+    float lean = clampf(sp * 0.03f, 0.0f, 0.09f) + 0.24f * mon_runf;
+    float swing = sinf(mon_phase);
+    float la = -amp * swing;                 // pierna A hacia adelante cuando swing>0
+    float aa =  amp * 0.9f * swing;          // brazo A opuesto a la pierna A
+    m.lc = cosf(la); m.ls = sinf(la);
+    m.ac = cosf(aa); m.as = sinf(aa);
+    m.uc = cosf(lean); m.us = sinf(lean);
+    m.bob = (0.02f + 0.05f * mon_runf) * fabsf(sinf(mon_phase)) * clampf(sp, 0.0f, 1.0f);
+    return m;
+}
+
+// Punto fijo al cuerpo superior (ojos, linterna): aplica la inclinacion del torso
+static void mon_upper(const MonPose *m, float *y, float *z)
+{
+    rot_blend(y, z, 1.0f, m->uc, m->us, 1.0f);
+    *y += m->bob;
+}
+
 static void draw_monster(float t)
 {
+    (void)t;
     float ddx = sx_ - px, ddz = sz_ - pz;
     if (ddx * ddx + ddz * ddz > 26.0f * 26.0f) return;
     float a = atan2f(px - sx_, pz - sz_);
     float s = sinf(a), c = cosf(a);
-    float bob = 0.03f * sinf(t * 5.0f) + mon_y;
+    MonPose pm = mon_pose();
+    float lcB = pm.lc, lsB = -pm.ls;         // pierna B: angulo opuesto
 
     static float w[MAN_NV][3];
     for (int i = 0; i < MAN_NV; i++) {
-        float lx = man_v[i][0], lz = man_v[i][2];
-        w[i][0] = sx_ + lx * c + lz * s;
-        w[i][1] = man_v[i][1] + bob;
-        w[i][2] = sz_ - lx * s + lz * c;
+        float x = man_v[i][0], y = man_v[i][1], z = man_v[i][2];
+        float wa = man_w[i][0] * (1.0f / 255.0f), wb = man_w[i][1] * (1.0f / 255.0f);
+        float wr = man_w[i][2] * (1.0f / 255.0f), wu = man_w[i][3] * (1.0f / 255.0f);
+        if (wa > 0.0f) rot_blend(&y, &z, 1.0f, pm.lc, pm.ls, wa);
+        if (wb > 0.0f) rot_blend(&y, &z, 1.0f, lcB, lsB, wb);
+        if (wr > 0.0f) rot_blend(&y, &z, 1.75f, pm.ac, pm.as, wr);
+        if (wu > 0.0f) rot_blend(&y, &z, 1.0f, pm.uc, pm.us, wu);
+        y += pm.bob * wu;
+        w[i][0] = sx_ + x * c + z * s;
+        w[i][1] = y + mon_y;
+        w[i][2] = sz_ - x * s + z * c;
     }
     for (int k = 0; k < MAN_NT; k++) {
         float col[3] = { (float)man_c[k][0], (float)man_c[k][1], (float)man_c[k][2] };
@@ -4588,12 +5146,13 @@ static void draw_monster(float t)
         V vc = mk(w[i2][0], w[i2][1], w[i2][2], col, 0.0f);
         tri_cam(va, vb, vc);
     }
-    static float lw[LIGHT_NV][3];
+    static float lw[LIGHT_NV][3];                // linterna en la mano: sigue al torso
     for (int i = 0; i < LIGHT_NV; i++) {
         float lx = light_v[i][0] + MAN_HAND_X, ly = light_v[i][1] + MAN_HAND_Y;
         float lz = light_v[i][2] + MAN_HAND_Z;
+        mon_upper(&pm, &ly, &lz);
         lw[i][0] = sx_ + lx * c + lz * s;
-        lw[i][1] = ly + bob;
+        lw[i][1] = ly + mon_y;
         lw[i][2] = sz_ - lx * s + lz * c;
     }
     for (int k = 0; k < LIGHT_NT; k++) {
@@ -4607,10 +5166,10 @@ static void draw_monster(float t)
         tri_cam(va, vb, vc);
     }
     float eye[3] = { 255.f, 30.f, 30.f };
-    box_rot(sx_, sz_, a, -0.045f, MAN_EYE_Z + 0.01f, 0.02f, 0.01f,
-            MAN_EYE_Y - 0.015f + bob, MAN_EYE_Y + 0.015f + bob, eye, 1.0f);
-    box_rot(sx_, sz_, a,  0.045f, MAN_EYE_Z + 0.01f, 0.02f, 0.01f,
-            MAN_EYE_Y - 0.015f + bob, MAN_EYE_Y + 0.015f + bob, eye, 1.0f);
+    float ey = MAN_EYE_Y, ez = MAN_EYE_Z + 0.01f;
+    mon_upper(&pm, &ey, &ez);
+    box_rot(sx_, sz_, a, -0.045f, ez, 0.02f, 0.01f, ey - 0.015f + mon_y, ey + 0.015f + mon_y, eye, 1.0f);
+    box_rot(sx_, sz_, a,  0.045f, ez, 0.02f, 0.01f, ey - 0.015f + mon_y, ey + 0.015f + mon_y, eye, 1.0f);
 }
 
 // Linterna en tu mano (modelo Light.obj), fija a la camara
@@ -4647,13 +5206,20 @@ static void draw_flashlight(float t, int moving)
 }
 
 // ---------------- Linterna: circulo de luz + brillos ----------------
-#define SPOT_SEG 28
-#define SPOT_NR  9
+#define SPOT_SEG   40
+#define SPOT_STEPS 7
+#define SPOT_NR    (SPOT_STEPS + 3)      // centro, borde claro, pasos del borde suave, exterior
 
+// Haz de linterna: oscurece todo menos un CIRCULO con borde suave
 static void draw_spot_overlay(void)
 {
-    static const float rr[SPOT_NR] = { 0.00f, 0.32f, 0.45f, 0.58f, 0.72f, 0.88f, 1.10f, 1.50f, 0.0f };
-    static const float aa[SPOT_NR] = { 0.00f, 0.00f, 0.05f, 0.18f, 0.38f, 0.62f, 0.82f, 0.91f, 0.93f };
+    float clear_r = flash_on ? 0.17f : 0.03f;     // radio totalmente claro (fraccion del ancho)
+    float soft_r  = flash_on ? 0.20f : 0.08f;     // ancho del borde suave
+    float dark    = flash_on ? 0.88f : 0.95f;     // oscuridad fuera del haz
+    float fl = 0.88f + 0.12f * light_flick;
+    clear_r *= fl; soft_r *= fl;
+    dark += (1.0f - dark) * (1.0f - light_flick) * 0.4f;
+
     static float ct[SPOT_SEG + 1], st[SPOT_SEG + 1];
     static int inited = 0;
     if (!inited) {
@@ -4663,17 +5229,18 @@ static void draw_spot_overlay(void)
         }
         inited = 1;
     }
-    float R = W * 0.36f * (flash_on ? 1.0f : 0.28f) * (0.8f + 0.2f * light_flick);
-    float cx = W * 0.5f, cy = H * 0.52f;
+    float cx = W * 0.5f, cy = H * 0.54f;
     static float X[SPOT_NR][SPOT_SEG + 1], Y[SPOT_NR][SPOT_SEG + 1];
     u64 col[SPOT_NR];
     for (int i = 0; i < SPOT_NR; i++) {
-        float r = (i == SPOT_NR - 1) ? W * 0.95f : rr[i] * R;
-        float a = aa[i];
-        if (i > 1) {
-            if (!flash_on) a = a * 1.05f + 0.03f;
-            a += (1.0f - a) * (1.0f - light_flick) * 0.5f;
-        }
+        float r, a;
+        if (i == 0)                 { r = 0.0f;               a = 0.0f; }
+        else if (i == 1)            { r = clear_r * W;        a = 0.0f; }
+        else if (i <= SPOT_STEPS + 1) {
+            float u = (float)(i - 1) / SPOT_STEPS;
+            r = (clear_r + soft_r * u) * W;
+            a = dark * (u * u * (3.0f - 2.0f * u));
+        } else                      { r = W * 1.1f;           a = dark; }
         a = clampf(a, 0.0f, 1.0f);
         col[i] = GS_SETREG_RGBAQ(4, 6, 14, (int)(a * 128.0f), 0x00);
         for (int j = 0; j <= SPOT_SEG; j++) { X[i][j] = cx + ct[j] * r; Y[i][j] = cy + st[j] * r; }
@@ -4708,7 +5275,8 @@ static int los_to(float x1, float z1, float margin)
 static void draw_glow(float wx, float wy, float wz, float rad, int r, int g, int b, int ac)
 {
     float dx = wx - px, dz = wz - pz;
-    float cxv = dx * rx + dz * rz, czv = dx * fx + dz * fz, cyv = wy - cam_y;
+    float cxv = dx * rx + dz * rz, cz0 = dx * fx + dz * fz, cy0 = wy - cam_y;
+    float cyv = cy0 * cpitch - cz0 * spitch, czv = cy0 * spitch + cz0 * cpitch;
     if (czv < 0.3f) return;
     float sx = W * 0.5f + cxv / czv * FOCAL;
     float sy = H * 0.5f - cyv / czv * FOCAL;
@@ -4732,13 +5300,15 @@ static void draw_glows(float t)
     if (mlayer == cur_layer && ddx * ddx + ddz * ddz < 26.0f * 26.0f && los_to(sx_, sz_, 0.0f)) {
         float a = atan2f(px - sx_, pz - sz_);
         float s = sinf(a), c = cosf(a);
-        float bob = 0.03f * sinf(t * 5.0f) + mon_y;
+        MonPose pm = mon_pose();
         for (int e = -1; e <= 1; e += 2) {
-            float lx = 0.045f * e, lz = MAN_EYE_Z + 0.02f;
-            draw_glow(sx_ + lx * c + lz * s, MAN_EYE_Y + bob, sz_ - lx * s + lz * c, 0.06f, 255, 40, 40, 115);
+            float lx = 0.045f * e, ly = MAN_EYE_Y, lz = MAN_EYE_Z + 0.02f;
+            mon_upper(&pm, &ly, &lz);
+            draw_glow(sx_ + lx * c + lz * s, ly + mon_y, sz_ - lx * s + lz * c, 0.06f, 255, 40, 40, 115);
         }
-        float lx = MAN_HAND_X, lz = MAN_HAND_Z + 0.2f;
-        draw_glow(sx_ + lx * c + lz * s, MAN_HAND_Y + bob, sz_ - lx * s + lz * c, 0.16f, 255, 250, 210, 105);
+        float lx = MAN_HAND_X, ly = MAN_HAND_Y, lz = MAN_HAND_Z + 0.2f;
+        mon_upper(&pm, &ly, &lz);
+        draw_glow(sx_ + lx * c + lz * s, ly + mon_y, sz_ - lx * s + lz * c, 0.16f, 255, 250, 210, 105);
     }
     int got = notes_got[0] + notes_got[1] + notes_got[2];
     for (int i = 0; i < 3; i++) {
@@ -4817,13 +5387,19 @@ static void update_monster(float dt, int notes)
     }
     float ex = gx - sx_, ez = gz - sz_;
     float len = sqrtf(ex * ex + ez * ez);
+    float spd_now = 0.0f;
     if (len > 0.01f) {
         float speed = 1.8f + 0.5f * notes;
         float pdx = px - sx_, pdz = pz - sz_;
-        if (mlayer == pl && pdx * pdx + pdz * pdz < 15.0f * 15.0f) speed *= 1.3f;
+        if (mlayer == pl && pdx * pdx + pdz * pdz < 15.0f * 15.0f) speed *= 1.7f;   // te ve: corre
+        if (speed > 4.6f) speed = 4.6f;                                           // tu corres a 5.2
         sx_ += ex / len * speed * dt;
         sz_ += ez / len * speed * dt;
+        spd_now = speed;
     }
+    mon_spd  += (spd_now - mon_spd) * clampf(dt * 6.0f, 0.0f, 1.0f);
+    mon_runf += (((mon_spd > 2.6f) ? 1.0f : 0.0f) - mon_runf) * clampf(dt * 5.0f, 0.0f, 1.0f);
+    mon_phase += mon_spd * dt * 2.8f;
 }
 
 // ---------------- Reinicio ----------------
@@ -4834,6 +5410,9 @@ static void reset_game(void)
     sx_ = MON_X; sz_ = MON_Z; mlayer = 0; mon_y = 0.0f; mon_wait = 0.0f;
     for (int i = 0; i < 3; i++) notes_got[i] = 0;
     state = 0; state_timer = 0; flash_on = 1;
+    pitch = 0.0f; cpitch = 1.0f; spitch = 0.0f;
+    stamina = 1.0f; stam_delay = 0.0f; exhausted = 0; jump_h = 0.0f; jump_vy = 0.0f;
+    mon_phase = 0.0f; mon_spd = 0.0f; mon_runf = 0.0f;
 }
 
 // ---------------- Main ----------------
@@ -4884,7 +5463,7 @@ int main(void)
         if (frame_no >= HEADLESS_FRAMES) break;
         HEADLESS_HOOK();
 #endif
-        float fwd = 0, str = 0, turn = 0;
+        float fwd = 0, str = 0, turn = 0, look = 0, mag = 0;
         u32 newp = 0;
         if (padRead(0, 0, &pad)) {
             paddata = 0xffff ^ pad.btns;
@@ -4894,12 +5473,16 @@ int main(void)
             if (newp & PAD_START) reset_game();
         }
         float lh = (pad.ljoy_h - 128) / 128.0f, lv = (pad.ljoy_v - 128) / 128.0f;
-        float rh = (pad.rjoy_h - 128) / 128.0f;
-        if (fabsf(lh) > 0.2f) str = lh;
-        if (fabsf(lv) > 0.2f) fwd = -lv;
+        float rh = (pad.rjoy_h - 128) / 128.0f, rv = (pad.rjoy_v - 128) / 128.0f;
+        mag = sqrtf(lh * lh + lv * lv);
+        if (mag > 0.2f) { fwd = -lv / mag; str = lh / mag; }     // direccion (unitaria)
+        if (mag > 1.0f) mag = 1.0f;
         if (fabsf(rh) > 0.2f) turn = rh;
+        if (fabsf(rv) > 0.2f) look = -rv;                        // arriba en el stick = mirar arriba
         if (paddata & PAD_RIGHT) turn = 0.7f;
         if (paddata & PAD_LEFT)  turn = -0.7f;
+        if (paddata & PAD_UP)    look = 0.7f;
+        if (paddata & PAD_DOWN)  look = -0.7f;
 
         fx = sinf(yaw); fz = cosf(yaw);
         rx = cosf(yaw); rz = -sinf(yaw);
@@ -4908,8 +5491,27 @@ int main(void)
         int near_ladder = -1;
         if (state == 0) {
             yaw += turn * 2.4f * dt;
+            pitch = clampf(pitch + look * 1.7f * dt, -1.2217f, 1.3963f);   // -70 / +80 grados
+            cpitch = cosf(pitch); spitch = sinf(pitch);
             if (!climbing) {
-                float speed = (paddata & PAD_R1) ? 5.0f : 2.8f;
+                // velocidad segun cuanto empujes el stick; al tope = correr (gasta estamina)
+                float speed = 0.0f;
+                int running = 0;
+                if (mag > 0.2f) {
+                    float a = (mag - 0.2f) / 0.7f;
+                    if (a > 1.0f) a = 1.0f;
+                    speed = 0.8f + 2.0f * a;                       // 0.8 .. 2.8 m/s
+                    if (mag > 0.9f && !exhausted && stamina > 0.0f) { running = 1; speed = 5.2f; }
+                }
+                if (running) {
+                    stamina -= 0.2f * dt; stam_delay = 1.0f;
+                    if (stamina <= 0.0f) { stamina = 0.0f; exhausted = 1; }
+                } else if (stam_delay > 0.0f) stam_delay -= dt;
+                else {
+                    stamina += 0.15f * dt;
+                    if (stamina > 1.0f) stamina = 1.0f;
+                    if (exhausted && stamina >= 0.35f) exhausted = 0;
+                }
                 float mx = (fx * fwd + rx * str) * speed * dt;
                 float mz = (fz * fwd + rz * str) * speed * dt;
                 if (!blocked(px + mx, pz, 0.35f)) px += mx;
@@ -4920,11 +5522,18 @@ int main(void)
                     int ok = cur_layer == 0 ? (foot_y > -0.01f) : (foot_y < SEWER_Y + 0.01f);
                     if (ok && ex * ex + ez * ez < 2.4f * 2.4f) near_ladder = i;
                 }
-                if (near_ladder >= 0 && (newp & PAD_CROSS)) {
+                if (near_ladder >= 0 && jump_h <= 0.0f && (newp & PAD_CROSS)) {
                     climbing = 1; climb_dir = cur_layer ? 1 : -1; last_ladder = near_ladder;
+                    jump_h = 0.0f; jump_vy = 0.0f;
                     px = (manholes[near_ladder][0] + 0.5f) * CS;
                     pz = (manholes[near_ladder][1] + 0.5f) * CS - 0.25f;
                     yaw = 0.0f;
+                } else if ((newp & PAD_CROSS) && jump_h <= 0.0f && stamina >= 0.1f) {
+                    jump_vy = 4.6f; jump_h = 0.001f; stamina -= 0.1f; stam_delay = 1.0f;   // salto
+                }
+                if (jump_h > 0.0f) {
+                    jump_vy -= 12.0f * dt; jump_h += jump_vy * dt;
+                    if (jump_h <= 0.0f) { jump_h = 0.0f; jump_vy = 0.0f; }
                 }
             } else {                                    // subiendo / bajando por la escalera
                 float spd = 1.7f * dt;
@@ -4956,7 +5565,7 @@ int main(void)
                 if (ex * ex + ez * ez < 2.5f * 2.5f) { state = 2; state_timer = 240; }
             }
         } else if (--state_timer <= 0) reset_game();
-        cam_y = foot_y + EYE;
+        cam_y = foot_y + jump_h + EYE;
 
         // ---- Render ----
         if (state == 1) gsKit_clear(gsGlobal, GS_SETREG_RGBAQ(0x60, 0x00, 0x00, 0x80, 0x00));
@@ -4994,6 +5603,15 @@ int main(void)
                 u64 c = notes_got[i] ? GS_SETREG_RGBAQ(255, 230, 80, 0x80, 0)
                                      : GS_SETREG_RGBAQ(50, 50, 50, 0x80, 0);
                 gsKit_prim_sprite(gsGlobal, 20.0f + i * 24.0f, 20.0f, 36.0f + i * 24.0f, 36.0f, 16777000, c);
+            }
+            {                                                   // HUD: estamina
+                u64 bg = GS_SETREG_RGBAQ(25, 25, 25, 0x80, 0);
+                u64 fg = exhausted ? (((frame_no / 8) & 1) ? GS_SETREG_RGBAQ(210, 60, 40, 0x80, 0)
+                                                           : GS_SETREG_RGBAQ(110, 40, 30, 0x80, 0))
+                                   : GS_SETREG_RGBAQ(90, 210, 110, 0x80, 0);
+                gsKit_prim_sprite(gsGlobal, 20.0f, 44.0f, 120.0f, 50.0f, 16777000, bg);
+                if (stamina > 0.01f)
+                    gsKit_prim_sprite(gsGlobal, 20.0f, 44.0f, 20.0f + 100.0f * stamina, 50.0f, 16777000, fg);
             }
             if (near_ladder >= 0 && !climbing && ((frame_no / 20) & 1)) {   // aviso: pulsa X
                 u64 wc = GS_SETREG_RGBAQ(255, 255, 255, 0x80, 0);
