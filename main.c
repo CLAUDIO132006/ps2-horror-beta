@@ -26,6 +26,10 @@
 #include <audsrv.h>
 extern unsigned char audsrv_irx[];
 extern unsigned int  size_audsrv_irx;
+#ifdef USE_FREESD
+extern unsigned char freesd_irx[];
+extern unsigned int  size_freesd_irx;
+#endif
 #endif
 // Generado desde Skinny_Man_Lores.obj y Light.obj (reducidos para PS2)
 #define MAN_NV 503
@@ -5883,6 +5887,7 @@ static void reset_game(void)
 }
 
 // ---------------- Sonido (todo sintetizado en codigo) ----------------
+static int audio_state;      // 0 no incluido en esta version, 1 fallo al iniciar, 2 activo
 enum { SFX_DIRT, SFX_HARD, SFX_WATER, SFX_CLICK, SFX_SCREAM, SFX_N };
 #ifdef USE_AUDIO
 #define SR 22050
@@ -5966,18 +5971,38 @@ static void synth_all(void)
     for (int i = 0; i < 8; i++) voices[i].id = -1;
 }
 
+// Espera (con limite) a que el modulo de audio del IOP responda. Sin esto, audsrv_init() puede
+// quedarse esperando para siempre y la pantalla se queda negra.
+static int audsrv_present(void)
+{
+    SifRpcClientData_t cd;
+    memset(&cd, 0, sizeof(cd));
+    for (int i = 0; i < 300; i++) {
+        if (SifBindRpc(&cd, 0x870884, 0) >= 0 && cd.server != 0) return 1;
+        for (volatile int k = 0; k < 150000; k++) ;
+    }
+    return 0;
+}
+
 static void audio_init(void)
 {
     int ret = 0;
+    audio_state = 1;
     synth_all();
+#ifdef USE_FREESD
+    SifExecModuleBuffer(freesd_irx, size_freesd_irx, 0, NULL, &ret);
+#else
     SifLoadModule("rom0:LIBSD", 0, NULL);
+#endif
     SifExecModuleBuffer(audsrv_irx, size_audsrv_irx, 0, NULL, &ret);
+    if (!audsrv_present()) return;                    // el modulo no arranco: seguimos sin sonido
     if (audsrv_init() != 0) return;
     audsrv_fmt_t fmt;
     fmt.freq = SR; fmt.bits = 16; fmt.channels = 1;
     if (audsrv_set_format(&fmt) != 0) return;
     audsrv_set_volume(100);
     audio_ok = 1;
+    audio_state = 2;
 }
 
 static void sfx_play(int id, float vol)
@@ -5997,10 +6022,11 @@ static void audio_update(void)
 {
     if (!audio_ok) return;
     int queued = audsrv_queued();
+    if (queued < 0) queued = 0;
     const int target = 3200;
     if (queued >= target) return;
     int n = (target - queued) / 2;
-    if (n > 1024) n = 1024;
+    if (n > 800) n = 800;
     static short out[1024];
     float master = snd_on ? vol_lv / 5.0f : 0.0f;
     for (int i = 0; i < n; i++) {
@@ -6308,7 +6334,10 @@ static void menu_frame(u32 newp, float lv, int frame)
     }
     draw_text_c(H - 34.0f, screen == SC_OPT ? "IZQ/DER: CAMBIAR   O: ATRAS" : "ARRIBA/ABAJO: MOVER   X: ELEGIR", 2, hint_c);
     if (screen != SC_PAUSE) draw_text_c(H - 58.0f, "LUZ AL REVES? PULSA SELECT", 2, hint_c);
-    draw_text(W - 40.0f, 8.0f, "V4", 2, hint_c);
+    if (screen == SC_OPT)
+        draw_text_c(H - 82.0f, audio_state == 2 ? "AUDIO: ACTIVO" : (audio_state == 1 ? "AUDIO: NO ARRANCO" : "AUDIO: NO INCLUIDO"),
+                    2, audio_state == 2 ? GS_SETREG_RGBAQ(90, 210, 110, 0x80, 0) : GS_SETREG_RGBAQ(220, 90, 60, 0x80, 0));
+    draw_text(W - 40.0f, 8.0f, "V5", 2, hint_c);
 }
 
 // ---------------- Main ----------------
@@ -6323,7 +6352,6 @@ int main(void)
     while (padGetState(0, 0) != PAD_STATE_STABLE &&
            padGetState(0, 0) != PAD_STATE_FINDCTP1) ;
     padSetMainMode(0, 0, PAD_MMODE_DUALSHOCK, PAD_MMODE_LOCK);
-    audio_init();
 
     gsGlobal = gsKit_init_global_custom(1024 * 1024, 1024 * 256);
     gsGlobal->PSM = GS_PSM_CT24;
@@ -6343,6 +6371,12 @@ int main(void)
     W = (float)gsGlobal->Width;
     H = (float)gsGlobal->Height;
     FOCAL = W * 0.7f;
+
+    gsKit_clear(gsGlobal, SKY);                      // primer cuadro: asi nunca ves pantalla negra
+    draw_text_c(H * 0.5f - 10.0f, "CARGANDO...", 3, GS_SETREG_RGBAQ(200, 200, 205, 0x80, 0));
+    gsKit_queue_exec(gsGlobal);
+    gsKit_sync_flip(gsGlobal);
+    audio_init();                                    // el sonido se inicia despues y nunca bloquea
 
     build_solid_grid();
     reset_game();
@@ -6497,7 +6531,7 @@ int main(void)
 
         last_t = t; last_moving = (fwd != 0.0f || str != 0.0f); last_near = near_ladder; last_notes = notes;
         render_game(t, last_moving, near_ladder, notes);
-        draw_text(W - 40.0f, 8.0f, "V4", 2, GS_SETREG_RGBAQ(120, 120, 130, 0x80, 0));
+        draw_text(W - 40.0f, 8.0f, "V5", 2, GS_SETREG_RGBAQ(120, 120, 130, 0x80, 0));
         audio_update();
         gsKit_queue_exec(gsGlobal);
         gsKit_sync_flip(gsGlobal);
