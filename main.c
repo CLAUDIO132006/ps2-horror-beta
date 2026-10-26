@@ -1,5 +1,5 @@
 // ============================================================
-//  HORROR BETA 0.2 - BOSQUE  (PS2 homebrew, PS2SDK + gsKit)
+//  HORROR BETA 0.3 - BOSQUE  (PS2 homebrew, PS2SDK + gsKit)
 //
 //  Controles (DualShock 2):
 //    Stick izq  : moverse (empujalo al tope para CORRER, gasta estamina)
@@ -22,6 +22,9 @@
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
+#if !(defined(_EE) || defined(__mips__) || defined(__mips))
+#include <time.h>         // solo para compilar pruebas en PC (en PS2 el FPS usa el contador del CPU)
+#endif
 #ifdef USE_AUDIO
 #include <audsrv.h>
 extern unsigned char audsrv_irx[];
@@ -6268,7 +6271,7 @@ static const unsigned char vm_c[][3] = {
     {148, 113, 85}
 };
 
-static const unsigned char vm_lens[] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
+static const unsigned char vm_lens[] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2};
 
 // Generado por mkworld.py - NO editar a mano
 #define MW 96
@@ -7521,6 +7524,10 @@ static int   exhausted;
 static float jump_h, jump_vy;
 static float mon_phase, mon_spd, mon_runf;           // animacion del monstruo
 static float crouch_f;                 // 0 de pie .. 1 agachado
+static float walk_ph, walk_amp, step_imp;   // caminata: fase (pi = un paso), intensidad 0..1, golpe de la pisada
+static int   walk_step;                     // numero de paso (para sincronizar el sonido con la camara)
+static float mon_thud;                      // sacudida de camara por las pisadas del monstruo
+static float cam_rc = 1.0f, cam_rs = 0.0f;  // balanceo (roll) de la camara: cos / sin
 static int   crouched, blend_flip;
 // ---- opciones (GRAFICOS: 0 bajo, 1 medio, 2 alto) ----
 static int   gfx = 1, snd_on = 1, vol_lv = 4;
@@ -7729,8 +7736,10 @@ static void emit_tri(V a, V b, V c)
     int Z[3];
     u64 col[3];
     for (int i = 0; i < 3; i++) {
-        X[i] = clampf(W * 0.5f + t[i].x / t[i].z * FOCAL, -1000.0f, W + 1000.0f);
-        Y[i] = clampf(H * 0.5f - t[i].y / t[i].z * FOCAL, -1000.0f, H + 1000.0f);
+        float qx = t[i].x, qy = t[i].y;
+        if (!vm_mode) { float rx_ = qx * cam_rc - qy * cam_rs; qy = qx * cam_rs + qy * cam_rc; qx = rx_; }   // roll
+        X[i] = clampf(W * 0.5f + qx / t[i].z * FOCAL, -1000.0f, W + 1000.0f);
+        Y[i] = clampf(H * 0.5f - qy / t[i].z * FOCAL, -1000.0f, H + 1000.0f);
         if (vm_mode) Z[i] = 16777215 - (int)(clampf((t[i].z - 0.2f) / 0.5f, 0.0f, 1.0f) * 110.0f);
         else if (force_z >= 0) Z[i] = force_z;
         else {                                   // 1/z: lineal en pantalla (profundidad correcta)
@@ -8023,6 +8032,7 @@ static void draw_stars(void)
         float cx = dx * rx + dz * rz;
         float cyv = dy * cpitch - cz0 * spitch, czv = dy * spitch + cz0 * cpitch;
         if (czv < 0.1f) continue;
+        { float qx = cx * cam_rc - cyv * cam_rs; cyv = cx * cam_rs + cyv * cam_rc; cx = qx; }
         float sx = W * 0.5f + cx / czv * FOCAL, sy = H * 0.5f - cyv / czv * FOCAL;
         if (sx < 0 || sx > W - 2 || sy < 0 || sy > H - 2) continue;
         int b = 150 + (i * 37) % 105;
@@ -8047,28 +8057,34 @@ static Xf xf_rot(Xf p, float py, float pz, float ang)
 }
 
 // Huesos: 0 cuerpo, 1 cabeza, 2/3 brazo A (arriba/abajo), 4/5 brazo B, 6/7 pata A, 8/9 pata B
+// Movimiento a lo Tank (Left 4 Dead 2): joroba hacia delante, zancada ancha y pesada, cabeza que se
+// arrastra y brazos que llegan con retraso. El cuerpo sube/baja segun se abren las patas, asi los
+// pies quedan sobre el suelo (ni se hunden ni flotan).
 static void mon_bones(Xf X[10])
 {
     float ph = mon_phase, f = mon_runf;
-    float m = clampf(mon_spd * 0.8f, 0.0f, 1.0f);
-    float A = (0.30f + 0.32f * f) * m;                              // amplitud (camina -> corre)
+    float m = clampf(mon_spd * 0.8f, 0.0f, 1.0f);                   // 0 quieto .. 1 en marcha
+    float A = (0.40f + 0.24f * f) * m;                              // amplitud de zancada (camina -> corre)
     float pA = ph, pB = ph + PI_F * (1.0f - f);                     // caminar: diagonal / correr: galope
     float lB = ph + f * 1.7f, lA = ph + PI_F * (1.0f - f) + f * 1.7f;
-    float bob = (0.02f + 0.07f * f) * (0.5f + 0.5f * sinf(2.0f * ph)) * m;
-    float pitch = 0.05f * f * sinf(2.0f * ph) * m;
+    float lean = (0.05f + 0.09f * f) * m;                           // joroba: el torso cae hacia delante
+    float breath = 0.012f * sinf(frame_no * 0.045f) * (1.0f - m);   // respira cuando esta quieto
+    float pitch = lean + 0.035f * (0.6f + f) * sinf(2.0f * ph + 0.4f) * m + breath;   // cabeceo en cada apoyo
+    float bob = -0.5f * (1.0f - cosf(0.9f * A * sinf(ph)))          // baja al abrirse las patas
+              + (0.13f + 0.05f * f) * m;                            // compensa la inclinacion del torso
     Xf id; id.c = 1.0f; id.s = 0.0f; id.ty = 0.0f; id.tz = 0.0f;
     Xf root = xf_rot(id, PIV_BODY_Y, PIV_BODY_Z, pitch);
     root.ty += bob;
     X[0] = root;
-    X[1] = xf_rot(root, PIV_NECK_Y, PIV_NECK_Z, -0.5f * pitch + 0.05f * sinf(2.0f * ph + 1.0f) * m);
+    X[1] = xf_rot(root, PIV_NECK_Y, PIV_NECK_Z, -0.5f * pitch + 0.10f * f * m + 0.07f * sinf(2.0f * ph - 0.8f) * m);
     X[2] = xf_rot(root, PIV_SHA_Y, PIV_SHA_Z, -A * sinf(pA));
-    X[3] = xf_rot(X[2], PIV_ELA_Y, PIV_ELA_Z, 1.1f * A * fmaxf(0.0f, sinf(pA)));
+    X[3] = xf_rot(X[2], PIV_ELA_Y, PIV_ELA_Z, 1.1f * A * fmaxf(0.0f, sinf(pA - 0.5f)));
     X[4] = xf_rot(root, PIV_SHB_Y, PIV_SHB_Z, -A * sinf(pB));
-    X[5] = xf_rot(X[4], PIV_ELB_Y, PIV_ELB_Z, 1.1f * A * fmaxf(0.0f, sinf(pB)));
+    X[5] = xf_rot(X[4], PIV_ELB_Y, PIV_ELB_Z, 1.1f * A * fmaxf(0.0f, sinf(pB - 0.5f)));
     X[6] = xf_rot(root, PIV_HIPA_Y, PIV_HIPA_Z, -0.9f * A * sinf(lA));
-    X[7] = xf_rot(X[6], PIV_KNA_Y, PIV_KNA_Z, 1.2f * A * fmaxf(0.0f, sinf(lA)));
+    X[7] = xf_rot(X[6], PIV_KNA_Y, PIV_KNA_Z, 1.2f * A * fmaxf(0.0f, sinf(lA - 0.4f)));
     X[8] = xf_rot(root, PIV_HIPB_Y, PIV_HIPB_Z, -0.9f * A * sinf(lB));
-    X[9] = xf_rot(X[8], PIV_KNB_Y, PIV_KNB_Z, 1.2f * A * fmaxf(0.0f, sinf(lB)));
+    X[9] = xf_rot(X[8], PIV_KNB_Y, PIV_KNB_Z, 1.2f * A * fmaxf(0.0f, sinf(lB - 0.4f)));
 }
 
 static void draw_monster(float t)
@@ -8081,6 +8097,9 @@ static void draw_monster(float t)
     Xf X[10];
     mon_bones(X);
 
+    float mm = clampf(mon_spd * 0.8f, 0.0f, 1.0f);
+    float sway  = (0.05f + 0.07f * mon_runf) * mm * sinf(mon_phase);          // el torso se escora al cargar el peso
+    float twist = (0.10f + 0.08f * mon_runf) * mm * sinf(mon_phase + 0.5f);   // hombros y caderas giran en contra
     static float w[MON_NV][3];
     for (int i = 0; i < MON_NV; i++) {
         float y = mon_v[i][1], z = mon_v[i][2];
@@ -8090,6 +8109,9 @@ static void draw_monster(float t)
         float y1 = q->c * y - q->s * z + q->ty, z1 = q->s * y + q->c * z + q->tz;
         float yy = y1 + (y0 - y1) * wa, zz = z1 + (z0 - z1) * wa;
         float x = mon_v[i][0];
+        float hh = clampf((y - 0.6f) / 1.2f, 0.0f, 1.0f);                     // 0 patas .. 1 hombros y cabeza
+        zz += x * twist * (2.0f * hh - 1.0f);
+        x += sway * hh;
         w[i][0] = sx_ + x * c + zz * s;
         w[i][1] = yy + mon_y;
         w[i][2] = sz_ - x * s + zz * c;
@@ -8106,16 +8128,29 @@ static void draw_monster(float t)
     for (int e = 0; e < 2; e++) {
         float lx = e ? EYE1_X : EYE0_X, ly = e ? EYE1_Y : EYE0_Y, lz = e ? EYE1_Z : EYE0_Z;
         float yy = X[1].c * ly - X[1].s * lz + X[1].ty, zz = X[1].s * ly + X[1].c * lz + X[1].tz;
+        zz += lx * twist; lx += sway;                              // los ojos siguen el balanceo de la cabeza
         box_rot(sx_, sz_, a, lx, zz, 0.028f, 0.012f, yy - 0.02f + mon_y, yy + 0.02f + mon_y, eye, 1.0f);
     }
 }
 
-// Tu linterna en la mano: la mano y el brazo son los de Steve (Steve.obj), fijos a la camara
+// Tu linterna en la mano: brazo de Steve (Steve.obj) + mano de bloque como en el render de Steve
+// (puño cuadrado, sin dedos), fijos a la camara. Se mueve con cada paso.
+static const float hand_box[6] = { -0.052f, 0.060f, -0.058f, 0.062f, -0.100f, 0.034f };   // x0 x1 y0 y1 z0 z1
+static const float hand_col[6][3] = {                       // tonos de la piel de Steve
+    {192.f, 147.f, 110.f}, {125.f, 93.f, 68.f}, {137.f, 105.f, 79.f},   // arriba, abajo, izquierda
+    {148.f, 113.f, 85.f},  {161.f, 121.f, 88.f}, {135.f, 101.f, 74.f}   // derecha, frente, atras
+};
+static const unsigned char hand_face[6][4] = { {2,3,7,6}, {0,1,5,4}, {0,2,6,4}, {1,3,7,5}, {4,5,7,6}, {0,1,3,2} };
+
 static void draw_flashlight(float t, int moving)
 {
-    float sway = moving ? sinf(t * 8.0f) * 0.008f : sinf(t * 1.5f) * 0.002f;
-    const float ox = 0.24f, oy = -0.22f + sway, oz = 0.45f;
-    const float ang = -0.12f;
+    (void)moving;
+    float wa = walk_amp, sp = sinf(walk_ph);
+    const float ox = 0.24f + 0.012f * wa * sinf(walk_ph + 0.6f);
+    const float oy = -0.22f + sinf(t * 1.5f) * 0.002f * (1.0f - wa)
+                   + 0.010f * wa * sinf(2.0f * walk_ph + 0.9f) - 0.030f * step_imp;   // la mano acompaña cada paso
+    const float oz = 0.45f;
+    const float ang = -0.12f + 0.035f * wa * sp;
     float ca = cosf(ang), sa = sinf(ang);
     static float cv[VM_NV][3];
     for (int i = 0; i < VM_NV; i++) {
@@ -8126,8 +8161,9 @@ static void draw_flashlight(float t, int moving)
     }
     vm_mode = 1;
     for (int k = 0; k < VM_NT; k++) {
+        if (vm_lens[k] == 2) continue;                        // dedos del modelo anterior: ahora es un puño de bloque
         float r = (float)vm_c[k][0], g = (float)vm_c[k][1], b = (float)vm_c[k][2];
-        if (vm_lens[k]) {
+        if (vm_lens[k] == 1) {
             float f = flash_on ? 1.0f : 0.3f;
             r = 255.f * f; g = 248.f * f; b = 200.f * f;
         }
@@ -8138,6 +8174,19 @@ static void draw_flashlight(float t, int moving)
             v[j].r = r; v[j].g = g; v[j].b = b;
         }
         tri_cam(v[0], v[1], v[2]);
+    }
+    for (int f = 0; f < 6; f++) {                            // el puño: un bloque de piel con la linterna dentro
+        V q[4];
+        for (int j = 0; j < 4; j++) {
+            int ci = hand_face[f][j];
+            float x = hand_box[(ci & 1) ? 1 : 0], y = hand_box[(ci & 2) ? 3 : 2], z = hand_box[(ci & 4) ? 5 : 4];
+            q[j].x = x * ca + z * sa + ox;
+            q[j].y = y + oy;
+            q[j].z = -x * sa + z * ca + oz;
+            q[j].r = hand_col[f][0]; q[j].g = hand_col[f][1]; q[j].b = hand_col[f][2];
+        }
+        tri_cam(q[0], q[1], q[2]);
+        tri_cam(q[0], q[2], q[3]);
     }
     vm_mode = 0;
 }
@@ -8226,6 +8275,7 @@ static void draw_glow(float wx, float wy, float wz, float rad, int r, int g, int
     float cxv = dx * rx + dz * rz, cz0 = dx * fx + dz * fz, cy0 = wy - cam_y;
     float cyv = cy0 * cpitch - cz0 * spitch, czv = cy0 * spitch + cz0 * cpitch;
     if (czv < 0.3f) return;
+    { float qx = cxv * cam_rc - cyv * cam_rs; cyv = cxv * cam_rs + cyv * cam_rc; cxv = qx; }
     float sx = W * 0.5f + cxv / czv * FOCAL;
     float sy = H * 0.5f - cyv / czv * FOCAL;
     float rp = clampf(rad / czv * FOCAL, 2.0f, 60.0f);
@@ -8345,7 +8395,18 @@ static void update_monster(float dt, int notes)
     }
     mon_spd  += (spd_now - mon_spd) * clampf(dt * 6.0f, 0.0f, 1.0f);
     mon_runf += (((mon_spd > 2.6f) ? 1.0f : 0.0f) - mon_runf) * clampf(dt * 5.0f, 0.0f, 1.0f);
-    mon_phase += mon_spd * dt * 2.8f;
+    mon_phase += mon_spd * dt * (3.0f - 1.2f * mon_runf);     // cadencia ligada a la velocidad: los pies no patinan
+    {   // pisadas pesadas: cada apoyo sacude la camara si el monstruo esta cerca
+        static int last_foot = 0;
+        int fs = (int)floorf(mon_phase / PI_F);
+        if (fs != last_foot) {
+            last_foot = fs;
+            float tdx = sx_ - px, tdz = sz_ - pz;
+            float td = sqrtf(tdx * tdx + tdz * tdz);
+            if (mlayer == cur_layer && mon_spd > 1.0f && td < 16.0f)
+                mon_thud = fmaxf(mon_thud, (1.0f - td / 16.0f) * (0.45f + 0.55f * mon_runf));
+        }
+    }
 }
 
 // ---------------- Reinicio ----------------
@@ -8360,6 +8421,8 @@ static void reset_game(void)
     stamina = 1.0f; stam_delay = 0.0f; exhausted = 0; jump_h = 0.0f; jump_vy = 0.0f;
     mon_phase = 0.0f; mon_spd = 0.0f; mon_runf = 0.0f;
     crouched = 0; crouch_f = 0.0f;
+    walk_ph = 0.0f; walk_amp = 0.0f; step_imp = 0.0f; walk_step = 0; mon_thud = 0.0f;
+    cam_rc = 1.0f; cam_rs = 0.0f;
 }
 
 // ---------------- Sonido (todo sintetizado en codigo) ----------------
@@ -8638,6 +8701,38 @@ static void draw_text(float x, float y, const char *str, int sc, u64 col)
 static float text_w(const char *str, int sc) { return (float)strlen(str) * 6.0f * sc - sc; }
 static void draw_text_c(float y, const char *str, int sc, u64 col) { draw_text((W - text_w(str, sc)) * 0.5f, y, str, sc, col); }
 
+// ---------------- Contador de FPS en tiempo real (arriba a la derecha) ----------------
+#if defined(_EE) || defined(__mips__) || defined(__mips)
+static inline unsigned int cpu_count(void) { unsigned int v; __asm__ volatile("mfc0 %0, $9" : "=r"(v)); return v; }
+#define FPS_TICKS_PER_SEC 294912000.0f           // el contador COUNT del EE avanza a 294.912 MHz
+#else
+static inline unsigned int cpu_count(void)        // PC (solo pruebas): microsegundos de reloj real
+{ struct timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts); return (unsigned int)(ts.tv_sec * 1000000u + ts.tv_nsec / 1000u); }
+#define FPS_TICKS_PER_SEC 1000000.0f
+#endif
+static float fps_val;
+static void fps_update(void)                      // llamar una vez por cuadro
+{
+    static unsigned int last = 0, acc = 0;
+    static int n = 0, started = 0;
+    unsigned int now = cpu_count();
+    if (!started) { last = now; started = 1; return; }
+    acc += now - last; last = now; n++;           // resta sin signo: tolera el desbordamiento del contador
+    if ((float)acc >= FPS_TICKS_PER_SEC * 0.5f) { // se refresca cada medio segundo
+        fps_val = (float)n * FPS_TICKS_PER_SEC / (float)acc;
+        acc = 0; n = 0;
+    }
+}
+static void fps_draw(void)
+{
+    char buf[16];
+    int v = (int)(fps_val + 0.5f);
+    snprintf(buf, sizeof(buf), "FPS %d", v);
+    u64 col = v >= 45 ? GS_SETREG_RGBAQ(90, 210, 110, 0x80, 0)
+            : (v >= 28 ? GS_SETREG_RGBAQ(230, 190, 60, 0x80, 0) : GS_SETREG_RGBAQ(220, 60, 40, 0x80, 0));
+    draw_text(W - text_w(buf, 2) - 10.0f, 8.0f, buf, 2, col);
+}
+
 // Dibuja todo el juego (usado tambien como fondo de la pausa)
 static void render_game(float t, int moving, int near_ladder, int notes)
 {
@@ -8707,10 +8802,11 @@ static void render_game(float t, int moving, int near_ladder, int notes)
 // Fondo del menu principal: cielo, estrellas y el monstruo caminando en su lugar
 static void menu_bg_main(void)
 {
+    cam_rc = 1.0f; cam_rs = 0.0f;
     px = 0.0f; pz = 0.0f; yaw = 0.0f; pitch = 0.0f; cpitch = 1.0f; spitch = 0.0f;
     fx = 0.0f; fz = 1.0f; rx = 1.0f; rz = 0.0f; cam_y = 1.5f; foot_y = 0.0f;
     flash_on = 1; amb_r = 30.0f; light_flick = 1.0f; cur_layer = 0; climbing = 0;
-    sx_ = 1.0f; sz_ = 3.6f; mon_y = 0.0f; mon_spd = 1.6f; mon_runf = 0.0f; mon_phase += 1.6f * (1.0f / 60.0f) * 2.8f;
+    sx_ = 1.0f; sz_ = 3.6f; mon_y = 0.0f; mon_spd = 1.6f; mon_runf = 0.0f; mon_phase += 1.6f * (1.0f / 60.0f) * 3.0f;
     gsKit_clear(gsGlobal, SKY);
     draw_stars();
     draw_monster(0.0f);
@@ -8813,7 +8909,8 @@ static void menu_frame(u32 newp, float lv, int frame)
     if (screen == SC_OPT)
         draw_text_c(H - 82.0f, audio_state == 2 ? "AUDIO: ACTIVO" : (audio_state == 1 ? "AUDIO: NO ARRANCO" : "AUDIO: NO INCLUIDO"),
                     2, audio_state == 2 ? GS_SETREG_RGBAQ(90, 210, 110, 0x80, 0) : GS_SETREG_RGBAQ(220, 90, 60, 0x80, 0));
-    draw_text(W - 40.0f, 8.0f, "V6", 2, hint_c);
+    fps_draw();
+    draw_text(W - 40.0f, 26.0f, "V7", 2, hint_c);
 }
 
 // ---------------- Main ----------------
@@ -8868,6 +8965,7 @@ int main(void)
 
     while (1) {
         frame_no++;
+        fps_update();
         float t = frame_no * dt;
 #ifdef HEADLESS_FRAMES
         if (frame_no >= HEADLESS_FRAMES) break;
@@ -8912,6 +9010,8 @@ int main(void)
             yaw += turn * 2.4f * dt;
             pitch = clampf(pitch + look * 1.7f * dt, -1.2217f, 1.3963f);   // -70 / +80 grados
             cpitch = cosf(pitch); spitch = sinf(pitch);
+            step_imp -= step_imp * clampf(dt * 12.0f, 0.0f, 1.0f);         // la pisada se disipa rapido
+            mon_thud -= mon_thud * clampf(dt * 7.0f, 0.0f, 1.0f);
             if (newp & PAD_CIRCLE) crouched = !crouched;                   // agacharse (alternar)
             crouch_f += ((crouched ? 1.0f : 0.0f) - crouch_f) * clampf(dt * 8.0f, 0.0f, 1.0f);
             if (!climbing) {
@@ -8932,12 +9032,19 @@ int main(void)
                 if (!blocked(px + mx, pz, 0.35f)) px += mx;
                 if (!blocked(px, pz + mz, 0.35f)) pz += mz;
                 float moved = sqrtf((px - ox) * (px - ox) + (pz - oz) * (pz - oz));
-                static float step_dist = 0.0f;
-                if (jump_h <= 0.0f && moved > 0.0f) {                // pasos
-                    step_dist += moved;
-                    float thr = running ? 1.5f : (crouched ? 0.9f : 1.25f);
-                    if (step_dist >= thr) { step_dist = 0.0f; play_step(running ? 1.0f : (crouched ? 0.3f : 0.65f)); }
+                float tgt = 0.0f;                                    // intensidad del balanceo al andar
+                if (jump_h <= 0.0f && moved > 0.0f) {                // pasos: camara, mano y sonido van a la par
+                    float stride = running ? 1.5f : (crouched ? 0.9f : 1.25f);   // metros por paso
+                    walk_ph += moved / stride * PI_F;                // pi = un paso
+                    int sn = (int)(walk_ph / PI_F);
+                    if (sn != walk_step) {
+                        walk_step = sn;
+                        step_imp = running ? 1.0f : (crouched ? 0.35f : 0.65f); // golpe de la pisada
+                        play_step(running ? 1.0f : (crouched ? 0.3f : 0.65f));
+                    }
+                    tgt = running ? 1.0f : (crouched ? 0.35f : clampf(0.3f + 0.12f * moved / dt, 0.3f, 0.65f));
                 }
+                walk_amp += (tgt - walk_amp) * clampf(dt * (tgt > walk_amp ? 10.0f : 6.0f), 0.0f, 1.0f);
                 if (running && moved > speed * dt * 0.5f) {        // solo gasta si de verdad corres
                     stamina -= 0.07f * dt; stam_delay = 0.5f;          // ~14 s corriendo
                     if (stamina <= 0.0f) { stamina = 0.0f; exhausted = 1; }
@@ -8966,9 +9073,10 @@ int main(void)
                 }
                 if (jump_h > 0.0f) {
                     jump_vy -= 12.0f * dt; jump_h += jump_vy * dt;
-                    if (jump_h <= 0.0f) { jump_h = 0.0f; jump_vy = 0.0f; play_step(0.9f); }   // aterrizaje
+                    if (jump_h <= 0.0f) { jump_h = 0.0f; jump_vy = 0.0f; play_step(0.9f); step_imp = 1.0f; }   // aterrizaje
                 }
             } else {                                    // subiendo / bajando por la escalera
+                walk_amp -= walk_amp * clampf(dt * 8.0f, 0.0f, 1.0f);
                 float spd = 1.7f * dt;
                 float cx = (manholes[last_ladder][0] + 0.5f) * CS, cz = (manholes[last_ladder][1] + 0.5f) * CS;
                 if (climb_dir < 0) {
@@ -9001,13 +9109,26 @@ int main(void)
             js_update();
             if (--state_timer <= 0) reset_game();
         } else if (--state_timer <= 0) reset_game();
-        fx = sinf(yaw); fz = cosf(yaw); rx = cosf(yaw); rz = -sinf(yaw);   // camara final del frame
-        cpitch = cosf(pitch); spitch = sinf(pitch);
-        cam_y = foot_y + jump_h + EYE - 0.65f * crouch_f;
+        // camara final del frame, con el balanceo del andar (cada paso se siente) y las pisadas del monstruo
+        float cyaw = yaw, cpt = pitch, bob_y = 0.0f, roll = 0.0f;
+        if (state == 0) {
+            float wa = walk_amp, ps = sinf(walk_ph);
+            bob_y = 0.065f * wa * (fabsf(ps) - 0.64f)             // sube y baja, lo mas bajo al pisar
+                  - 0.035f * step_imp - 0.07f * mon_thud          // golpe de la pisada / del monstruo
+                  + 0.004f * sinf(t * 1.7f) * (1.0f - wa);        // respiracion
+            cyaw += 0.010f * wa * ps;                             // vaiven lateral
+            roll  = 0.014f * wa * ps + 0.010f * mon_thud * cosf(mon_phase);
+            cpt  += -0.022f * step_imp - 0.035f * mon_thud + 0.006f * wa * cosf(2.0f * walk_ph);   // cabeceo
+        }
+        fx = sinf(cyaw); fz = cosf(cyaw); rx = cosf(cyaw); rz = -sinf(cyaw);
+        cpitch = cosf(cpt); spitch = sinf(cpt);
+        cam_rc = cosf(roll); cam_rs = sinf(roll);
+        cam_y = foot_y + jump_h + EYE - 0.65f * crouch_f + bob_y;
 
         last_t = t; last_moving = (fwd != 0.0f || str != 0.0f); last_near = near_ladder; last_notes = notes;
         render_game(t, last_moving, near_ladder, notes);
-        draw_text(W - 40.0f, 8.0f, "V6", 2, GS_SETREG_RGBAQ(120, 120, 130, 0x80, 0));
+        fps_draw();
+        draw_text(W - 40.0f, 26.0f, "V7", 2, GS_SETREG_RGBAQ(120, 120, 130, 0x80, 0));
         audio_update();
         gsKit_queue_exec(gsGlobal);
         gsKit_sync_flip(gsGlobal);
