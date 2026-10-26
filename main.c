@@ -7546,6 +7546,8 @@ static float mon_thud;                      // sacudida de camara por las pisada
 static float cam_rc = 1.0f, cam_rs = 0.0f;  // balanceo (roll) de la camara: cos / sin
 static int   crouched, blend_flip;
 static int   p_moving, p_near;              // datos de HUD de cada jugador
+static float vel_x, vel_z;                  // velocidad al caminar (con inercia)
+static float step_kick, walk_spd;           // golpe de pisada (sin suavizar) / rapidez real suavizada
 // ---- opciones (GRAFICOS: 0 bajo, 1 medio, 2 alto) ----
 static int   gfx = 1, snd_on = 1, vol_lv = 4;
 static const int   gfx_R[3]     = { 6, 8, 10 };            // celdas dibujadas alrededor
@@ -7583,7 +7585,8 @@ static short bqx[MW * MH], bqz[MW * MH];
 // variables globales de siempre (player_load) y despues se guarda (player_save).
 #define PL_FLOATS(F) F(px) F(pz) F(yaw) F(foot_y) F(cam_y) F(pitch) F(cpitch) F(spitch) \
     F(stamina) F(stam_delay) F(jump_h) F(jump_vy) F(crouch_f) F(walk_ph) F(walk_amp) \
-    F(step_imp) F(mon_thud) F(cam_rc) F(cam_rs) F(fx) F(fz) F(rx) F(rz) F(amb_r) F(light_flick)
+    F(step_imp) F(mon_thud) F(cam_rc) F(cam_rs) F(fx) F(fz) F(rx) F(rz) F(amb_r) F(light_flick) \
+    F(vel_x) F(vel_z) F(step_kick) F(walk_spd)
 #define PL_INTS(F) F(exhausted) F(walk_step) F(crouched) F(cur_layer) F(climbing) F(climb_dir) \
     F(last_ladder) F(flash_on) F(p_moving) F(p_near)
 typedef struct {
@@ -8500,6 +8503,7 @@ static void reset_game(void)
         crouched = 0; crouch_f = 0.0f;
         walk_ph = 0.0f; walk_amp = 0.0f; step_imp = 0.0f; walk_step = 0; mon_thud = 0.0f;
         cam_rc = 1.0f; cam_rs = 0.0f; p_moving = 0; p_near = -1;
+        vel_x = 0.0f; vel_z = 0.0f; step_kick = 0.0f; walk_spd = 0.0f;
         fx = sinf(yaw); fz = cosf(yaw); rx = cosf(yaw); rz = -sinf(yaw);
         cam_y = EYE; amb_r = 22.0f; light_flick = 1.0f;
         player_save(i);
@@ -9024,7 +9028,7 @@ static void menu_frame(u32 newp, float lv, int frame)
             snprintf(line, sizeof(line), i == menu_sel ? "> %s <" : "%s", it[i]);
             draw_text_c(190.0f + i * 44.0f, line, 3, i == menu_sel ? sel_c : norm_c);
         }
-    } else {
+    } else if (screen == SC_OPT) {
         draw_text_c(40.0f, "OPCIONES", 5, sel_c);
         static const char *gq[3] = { "BAJO", "MEDIO", "ALTO" };
         char vt[8]; vt[0] = (char)('0' + vol_lv); vt[1] = '\0';
@@ -9114,7 +9118,8 @@ static void player_move(float dt, float t, const PadIn *in)
     yaw += turn * 2.4f * dt * (sens_h / 5.0f);
     pitch = clampf(pitch + look * 1.7f * dt * (sens_v / 5.0f), -1.2217f, 1.3963f);   // -70 / +80 grados
     cpitch = cosf(pitch); spitch = sinf(pitch);
-    step_imp -= step_imp * clampf(dt * 12.0f, 0.0f, 1.0f);         // la pisada se disipa rapido
+    step_kick -= step_kick * clampf(dt * 7.0f, 0.0f, 1.0f);        // el golpe de la pisada se disipa...
+    step_imp += (step_kick - step_imp) * clampf(dt * 20.0f, 0.0f, 1.0f);   // ...y la camara lo sigue suave (sin sacudida seca)
     mon_thud -= mon_thud * clampf(dt * 7.0f, 0.0f, 1.0f);
     if (newp & PAD_CIRCLE) crouched = !crouched;                   // agacharse (alternar)
     crouch_f += ((crouched ? 1.0f : 0.0f) - crouch_f) * clampf(dt * 8.0f, 0.0f, 1.0f);
@@ -9130,12 +9135,16 @@ static void player_move(float dt, float t, const PadIn *in)
         }
         if (crouched && speed > 1.5f) speed = 1.5f;        // agachado: lento
         if (exhausted && speed > 2.0f) speed = 2.0f;       // cansado
-        float mx = (fx * fwd + rx * str) * speed * dt;
-        float mz = (fz * fwd + rz * str) * speed * dt;
+        // inercia: la velocidad sube y baja suave en vez de saltar de golpe
+        float tvx = (fx * fwd + rx * str) * speed, tvz = (fz * fwd + rz * str) * speed;
+        float kk = clampf(dt * (speed > 0.01f ? 9.0f : 12.0f), 0.0f, 1.0f);
+        vel_x += (tvx - vel_x) * kk; vel_z += (tvz - vel_z) * kk;
+        float mx = vel_x * dt, mz = vel_z * dt;
         float ox = px, oz = pz;
         if (!blocked(px + mx, pz, 0.35f)) px += mx;
         if (!blocked(px, pz + mz, 0.35f)) pz += mz;
         float moved = sqrtf((px - ox) * (px - ox) + (pz - oz) * (pz - oz));
+        walk_spd += (moved / dt - walk_spd) * clampf(dt * 8.0f, 0.0f, 1.0f);   // rapidez real, suavizada (no parpadea contra paredes)
         float tgt = 0.0f;                                    // intensidad del balanceo al andar
         if (jump_h <= 0.0f && moved > 0.0f) {                // pasos: camara, mano y sonido van a la par
             float stride = running ? 1.5f : (crouched ? 0.9f : 1.25f);   // metros por paso
@@ -9143,11 +9152,12 @@ static void player_move(float dt, float t, const PadIn *in)
             int sn = (int)(walk_ph / PI_F);
             if (sn != walk_step) {
                 walk_step = sn;
-                step_imp = running ? 1.0f : (crouched ? 0.35f : 0.65f); // golpe de la pisada
+                step_kick = running ? 1.0f : (crouched ? 0.35f : 0.65f); // golpe de la pisada
                 play_step(running ? 1.0f : (crouched ? 0.3f : 0.65f));
             }
-            tgt = running ? 1.0f : (crouched ? 0.35f : clampf(0.3f + 0.12f * moved / dt, 0.3f, 0.65f));
         }
+        if (jump_h <= 0.0f && walk_spd > 0.25f)
+            tgt = running ? 1.0f : (crouched ? 0.35f : clampf(0.3f + 0.12f * walk_spd, 0.3f, 0.65f));
         walk_amp += (tgt - walk_amp) * clampf(dt * (tgt > walk_amp ? 10.0f : 6.0f), 0.0f, 1.0f);
         if (running && moved > speed * dt * 0.5f) {        // solo gasta si de verdad corres
             stamina -= 0.07f * dt; stam_delay = 0.5f;          // ~14 s corriendo
@@ -9166,7 +9176,7 @@ static void player_move(float dt, float t, const PadIn *in)
         }
         if (near_ladder >= 0 && jump_h <= 0.0f && (newp & PAD_CROSS)) {
             climbing = 1; climb_dir = cur_layer ? 1 : -1; last_ladder = near_ladder;
-            jump_h = 0.0f; jump_vy = 0.0f; crouched = 0; crouch_f = 0.0f;
+            jump_h = 0.0f; jump_vy = 0.0f; crouched = 0; crouch_f = 0.0f; vel_x = 0.0f; vel_z = 0.0f;
             px = (manholes[near_ladder][0] + 0.5f) * CS;
             pz = (manholes[near_ladder][1] + 0.5f) * CS - 0.25f;
             yaw = 0.0f;
@@ -9177,10 +9187,11 @@ static void player_move(float dt, float t, const PadIn *in)
         }
         if (jump_h > 0.0f) {
             jump_vy -= 12.0f * dt; jump_h += jump_vy * dt;
-            if (jump_h <= 0.0f) { jump_h = 0.0f; jump_vy = 0.0f; play_step(0.9f); step_imp = 1.0f; }   // aterrizaje
+            if (jump_h <= 0.0f) { jump_h = 0.0f; jump_vy = 0.0f; play_step(0.9f); step_kick = 1.0f; }   // aterrizaje
         }
     } else {                                    // subiendo / bajando por la escalera
         walk_amp -= walk_amp * clampf(dt * 8.0f, 0.0f, 1.0f);
+        vel_x = vel_z = walk_spd = 0.0f;
         float spd = 1.7f * dt;
         float cx = (manholes[last_ladder][0] + 0.5f) * CS, cz = (manholes[last_ladder][1] + 0.5f) * CS;
         if (climb_dir < 0) {
@@ -9227,7 +9238,7 @@ static void player_camera(float t)
     float cyaw = yaw, cpt = pitch, bob_y = 0.0f, roll = 0.0f;
     if (state == 0) {
         float wa = walk_amp, ps = sinf(walk_ph);
-        bob_y = 0.065f * wa * (fabsf(ps) - 0.64f)             // sube y baja, lo mas bajo al pisar
+        bob_y = 0.065f * wa * (ps * ps - 0.5f)                // sube y baja suave (curva sin aristas), lo mas bajo al pisar
               - 0.035f * step_imp - 0.07f * mon_thud          // golpe de la pisada / del monstruo
               + 0.004f * sinf(t * 1.7f) * (1.0f - wa);        // respiracion
         cyaw += 0.010f * wa * ps;                             // vaiven lateral
