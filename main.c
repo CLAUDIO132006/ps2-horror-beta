@@ -7788,6 +7788,24 @@ static void view_set(float x, float y, float w, float h)
     scissor_dirty = 1;
 }
 
+// ---------------- Iluminacion por vertices ----------------
+// La luz se calcula en cada vertice (cono de la linterna propia + cono de la linterna del otro jugador)
+// y la GPU solo interpola el color: nada de oscurecer la pantalla despues. Los cuadrados del nivel se
+// subdividen unicamente donde cae un cono (ver quad_sub), asi la luz se ve suave sin gastar poligonos de mas.
+#define LC_IN   0.974f          // cos 13 grados: dentro de este angulo, luz completa
+#define LC_OUT  0.875f          // cos 29 grados: fuera de este angulo, nada de cono
+typedef struct { int on; float ox, oy, oz, dx, dy, dz, reach, blen; } Beam;
+static Beam bm_other;                                  // linterna del otro jugador (la propia se calcula en el espacio de camara)
+static const int gfx_nl[3] = { 3, 4, 6 };              // subdivision de lo que esta dentro de un cono (bajo/medio/alto)
+
+static inline float cone_f(float cs)
+{
+    float t = (cs - LC_OUT) * (1.0f / (LC_IN - LC_OUT));
+    if (t <= 0.0f) return 0.0f;
+    if (t >= 1.0f) return 1.0f;
+    return t * t * (3.0f - 2.0f * t);
+}
+
 static V mk(float wx, float wy, float wz, const float *c, float emit)
 {
     V v;
@@ -7797,15 +7815,44 @@ static V mk(float wx, float wy, float wz, const float *c, float emit)
     v.y = vy * cpitch - vz * spitch;          // inclinacion de la camara
     v.z = vy * spitch + vz * cpitch;
     float d = sqrtf(vx * vx + vy * vy + vz * vz);
-    // Caida suave con la distancia. El circulo de la linterna lo dibuja
-    // despues draw_spot_overlay() (oscurecimiento en pantalla).
-    float reach = flash_on ? amb_r : amb_r * 0.28f;
-    float att = 1.0f - d / reach;
-    if (att < 0) att = 0;
-    att *= att;
-    float L = 0.015f + att * (flash_on ? 1.0f : 0.7f) + emit;
-    if (L > 1.0f) L = 1.0f;
-    v.r = c[0] * L; v.g = c[1] * L; v.b = c[2] * L;
+    if (state == 1) {                         // jumpscare: el monstruo se ve completo
+        float att = 1.0f - d / (flash_on ? amb_r : amb_r * 0.28f);
+        if (att < 0) att = 0;
+        float L = 0.015f + att * att * (flash_on ? 1.0f : 0.7f) + emit;
+        if (L > 1.0f) L = 1.0f;
+        v.r = c[0] * L; v.g = c[1] * L; v.b = c[2] * L;
+        return v;
+    }
+    float amb = 0.015f + emit;                // luz de ambiente (cielo nocturno)
+    float lit = 0.0f;                         // luz calida de los conos
+    float att = 1.0f - d / amb_r;
+    if (att > 0.0f) {
+        att *= att;
+        if (flash_on) {
+            amb += att * 0.07f;
+            if (d > 0.01f) lit = att * 0.93f * cone_f(v.z / d);      // la linterna sale de la camara hacia delante
+        } else amb += att * 0.03f;
+    }
+    if (bm_other.on) {                        // linterna del otro jugador
+        float ox = wx - bm_other.ox, oy = wy - bm_other.oy, oz = wz - bm_other.oz;
+        float q = ox * ox + oy * oy + oz * oz;
+        if (q < bm_other.reach * bm_other.reach && q > 1e-4f) {
+            float d2 = sqrtf(q);
+            float along = ox * bm_other.dx + oy * bm_other.dy + oz * bm_other.dz;
+            float cf = cone_f(along / d2);
+            if (cf > 0.0f) {
+                float a2 = 1.0f - d2 / bm_other.reach;
+                float oc = (bm_other.blen + 0.8f - along) * 1.25f;    // no ilumina lo que queda detras de la pared que toca
+                oc = oc < 0.0f ? 0.0f : (oc > 1.0f ? 1.0f : oc);
+                lit += a2 * a2 * cf * oc * 0.93f;
+            }
+        }
+    }
+    float lr = amb * 0.92f + lit, lg = amb * 0.97f + lit * 0.95f, lb = amb * 1.08f + lit * 0.78f;
+    if (lr > 1.0f) lr = 1.0f;
+    if (lg > 1.0f) lg = 1.0f;
+    if (lb > 1.0f) lb = 1.0f;
+    v.r = c[0] * lr; v.g = c[1] * lg; v.b = c[2] * lb;
     return v;
 }
 
@@ -7865,9 +7912,38 @@ static void tri_cam(V a, V b, V c)
     if (n == 4) emit_tri(out[0], out[2], out[3]);
 }
 
+// Este cuadrado cae (aunque sea en parte) dentro de algun cono de luz?
+static int quad_lit(const float p[4][3])
+{
+    float cx = (p[0][0] + p[2][0]) * 0.5f, cy = (p[0][1] + p[2][1]) * 0.5f, cz = (p[0][2] + p[2][2]) * 0.5f;
+    float ex = p[2][0] - p[0][0], ey = p[2][1] - p[0][1], ez = p[2][2] - p[0][2];
+    float r = 0.5f * sqrtf(ex * ex + ey * ey + ez * ez);
+    if (flash_on) {                                           // linterna propia: sale de la camara, mira hacia (fx*cp, sp, fz*cp)
+        float wx = cx - px, wy = cy - cam_y, wz = cz - pz;
+        float d = sqrtf(wx * wx + wy * wy + wz * wz);
+        if (d - r < amb_r) {
+            if (d <= r * 1.3f) return 1;
+            float along = wx * fx * cpitch + wy * spitch + wz * fz * cpitch;
+            if (along / d > LC_OUT - 0.5f * r / d - 0.03f) return 1;
+        }
+    }
+    if (bm_other.on) {                                        // linterna del otro jugador
+        float wx = cx - bm_other.ox, wy = cy - bm_other.oy, wz = cz - bm_other.oz;
+        float d = sqrtf(wx * wx + wy * wy + wz * wz);
+        if (d - r < bm_other.reach) {
+            if (d <= r * 1.3f) return 1;
+            float along = wx * bm_other.dx + wy * bm_other.dy + wz * bm_other.dz;
+            if (along / d > LC_OUT - 0.5f * r / d - 0.03f) return 1;
+        }
+    }
+    return 0;
+}
+
 static void quad_sub(const float p[4][3], const float *col, int n, float emit)
 {
-    V g[4][4];
+    if (state == 0 && n > 1) n = quad_lit(p) ? (n > gfx_nl[gfx] ? n : gfx_nl[gfx]) : 1;   // detalle solo donde hay luz
+    if (n > 6) n = 6;
+    V g[7][7];
     for (int j = 0; j <= n; j++)
         for (int i = 0; i <= n; i++) {
             float u = (float)i / n, v = (float)j / n;
@@ -8132,7 +8208,7 @@ static void draw_stars(void)
         { float qx = cx * cam_rc - cyv * cam_rs; cyv = cx * cam_rs + cyv * cam_rc; cx = qx; }
         float sx = W * 0.5f + cx / czv * FOCAL, sy = H * 0.5f - cyv / czv * FOCAL;
         if (sx < 0 || sx > W - 2 || sy < 0 || sy > H - 2) continue;
-        int b = 150 + (i * 37) % 105;
+        int b = 45 + (i * 37) % 45;
         gsKit_prim_sprite(gsGlobal, sx, sy, sx + 2.0f, sy + 2.0f, 0, GS_SETREG_RGBAQ(b, b, b, 0x80, 0));
     }
 }
@@ -8294,62 +8370,30 @@ static void draw_flashlight(float t, int moving)
 #define SPOT_NR_MAX    (SPOT_STEPS_MAX + 3)
 #define GLOW_A         0.22f      // fuerza del halo calido dentro del haz
 
-// Haz de linterna: halo calido dentro del circulo + oscuridad fuera con borde suave
+// Halo calido en el centro de la vista. La luz y la oscuridad ya vienen calculadas en los vertices (mk),
+// aqui solo queda este suave brillo de la lente.
 static void draw_spot_overlay(void)
 {
-    const int seg = gfx_seg[gfx], steps = gfx_steps[gfx], nr = steps + 3;
-    float clear_r = flash_on ? 0.16f : 0.03f;     // radio totalmente claro (fraccion del ancho)
-    float soft_r  = flash_on ? 0.19f : 0.08f;     // ancho del borde suave
-    float dark    = flash_on ? 0.93f : 0.96f;     // oscuridad fuera del haz
+    if (!flash_on) return;                             // linterna apagada: nada, solo la oscuridad del ambiente
+    const int seg = gfx_seg[gfx];
     float fl = 0.90f + 0.10f * light_flick;
-    clear_r *= fl; soft_r *= fl;
-    dark += (1.0f - dark) * (1.0f - light_flick) * 0.4f;
-
+    float clear_r = 0.16f * fl, soft_r = 0.19f * fl;
     static float ct[SPOT_SEG_MAX + 1], st[SPOT_SEG_MAX + 1];
     for (int j = 0; j <= seg; j++) { ct[j] = cosf(6.2831853f * j / seg); st[j] = sinf(6.2831853f * j / seg); }
     float cx = W * 0.5f, cy = H * 0.54f;
     const int Z = 16777000;
-
-    if (flash_on) {                                   // halo: mas luz dentro del circulo
-        float ga = GLOW_A * (0.7f + 0.3f * light_flick);
-        float r1 = (clear_r + soft_r * 0.35f) * W, r2 = (clear_r + soft_r * 0.95f) * W;
-        u64 c0 = GS_SETREG_RGBAQ(255, 236, 190, ba((int)(ga * 128.0f)), 0x00);
-        u64 c1 = GS_SETREG_RGBAQ(255, 236, 190, ba((int)(ga * 0.55f * 128.0f)), 0x00);
-        u64 c2 = GS_SETREG_RGBAQ(255, 236, 190, ba(0), 0x00);
-        for (int j = 0; j < seg; j++) {
-            float xa = cx + ct[j] * r1, ya = cy + st[j] * r1, xb = cx + ct[j + 1] * r1, yb = cy + st[j + 1] * r1;
-            float xc = cx + ct[j] * r2, yc = cy + st[j] * r2, xd = cx + ct[j + 1] * r2, yd = cy + st[j + 1] * r2;
-            gsKit_prim_triangle_gouraud_3d(gsGlobal, cx, cy, Z, xa, ya, Z, xb, yb, Z, c0, c1, c1);
-            gsKit_prim_triangle_gouraud_3d(gsGlobal, xa, ya, Z, xb, yb, Z, xd, yd, Z, c1, c1, c2);
-            gsKit_prim_triangle_gouraud_3d(gsGlobal, xa, ya, Z, xd, yd, Z, xc, yc, Z, c1, c2, c2);
-        }
+    float ga = GLOW_A * (0.7f + 0.3f * light_flick);
+    float r1 = (clear_r + soft_r * 0.35f) * W, r2 = (clear_r + soft_r * 0.95f) * W;
+    u64 c0 = GS_SETREG_RGBAQ(255, 236, 190, ba((int)(ga * 128.0f)), 0x00);
+    u64 c1 = GS_SETREG_RGBAQ(255, 236, 190, ba((int)(ga * 0.55f * 128.0f)), 0x00);
+    u64 c2 = GS_SETREG_RGBAQ(255, 236, 190, ba(0), 0x00);
+    for (int j = 0; j < seg; j++) {
+        float xa = cx + ct[j] * r1, ya = cy + st[j] * r1, xb = cx + ct[j + 1] * r1, yb = cy + st[j + 1] * r1;
+        float xc = cx + ct[j] * r2, yc = cy + st[j] * r2, xd = cx + ct[j + 1] * r2, yd = cy + st[j + 1] * r2;
+        gsKit_prim_triangle_gouraud_3d(gsGlobal, cx, cy, Z, xa, ya, Z, xb, yb, Z, c0, c1, c1);
+        gsKit_prim_triangle_gouraud_3d(gsGlobal, xa, ya, Z, xb, yb, Z, xd, yd, Z, c1, c1, c2);
+        gsKit_prim_triangle_gouraud_3d(gsGlobal, xa, ya, Z, xd, yd, Z, xc, yc, Z, c1, c2, c2);
     }
-
-    static float X[SPOT_NR_MAX][SPOT_SEG_MAX + 1], Y[SPOT_NR_MAX][SPOT_SEG_MAX + 1];
-    u64 col[SPOT_NR_MAX];
-    for (int i = 0; i < nr; i++) {
-        float r, a;
-        if (i == 0)                 { r = 0.0f;               a = 0.0f; }
-        else if (i == 1)            { r = clear_r * W;        a = 0.0f; }
-        else if (i <= steps + 1) {
-            float u = (float)(i - 1) / steps;
-            r = (clear_r + soft_r * u) * W;
-            a = dark * (u * u * (3.0f - 2.0f * u));
-        } else                      { r = W * 1.1f;           a = dark; }
-        a = clampf(a, 0.0f, 1.0f);
-        col[i] = GS_SETREG_RGBAQ(4, 6, 14, ba((int)(a * 128.0f)), 0x00);
-        for (int j = 0; j <= seg; j++) { X[i][j] = cx + ct[j] * r; Y[i][j] = cy + st[j] * r; }
-    }
-    for (int i = 0; i < nr - 1; i++)
-        for (int j = 0; j < seg; j++) {
-            if (i > 0)
-                gsKit_prim_triangle_gouraud_3d(gsGlobal,
-                    X[i][j], Y[i][j], Z, X[i][j + 1], Y[i][j + 1], Z,
-                    X[i + 1][j + 1], Y[i + 1][j + 1], Z, col[i], col[i], col[i + 1]);
-            gsKit_prim_triangle_gouraud_3d(gsGlobal,
-                X[i][j], Y[i][j], Z, X[i + 1][j + 1], Y[i + 1][j + 1], Z,
-                X[i + 1][j], Y[i + 1][j], Z, col[i], col[i + 1], col[i + 1]);
-        }
 }
 
 // Hay linea de vision (sin paredes) hacia un punto? margin = distancia final que se ignora
@@ -8517,26 +8561,11 @@ static void draw_other_player(float t)
 }
 
 // ---------------- Luz de la linterna del otro jugador ----------------
-// Se ve donde alumbra el otro jugador (en el suelo o en lo que tenga enfrente), aunque tu linterna
-// este apagada. Es un charco de luz calida con borde suave, dibujado despues de la oscuridad.
-static void pool_fan(float cx, float cy, float cz, float ux, float uy, float uz,
-                     float vx, float vy, float vz, float a_c)
+// Se calcula una vez por cuadro: de donde sale, hacia donde apunta y hasta donde llega (la primera
+// pared / arbol / mueble que toca). mk() usa estos datos para iluminar los vertices dentro del cono.
+static void lights_prepare(void)
 {
-    // disco en el plano que forman los ejes (ux,uy,uz) y (vx,vy,vz); el largo de cada eje ya es el radio
-    static const float wh[3] = { 255.f, 255.f, 255.f };
-    V c = mk(cx, cy, cz, wh, 0.0f);
-    c.r = a_c; c.g = 0.0f; c.b = 0.0f;
-    V e[16];
-    for (int k = 0; k < 16; k++) {
-        float a = 6.2831853f * k / 16.0f, ca = cosf(a), sa = sinf(a);
-        e[k] = mk(cx + ux * ca + vx * sa, cy + uy * ca + vy * sa, cz + uz * ca + vz * sa, wh, 0.0f);
-        e[k].r = 0.0f; e[k].g = 0.0f; e[k].b = 0.0f;
-    }
-    for (int k = 0; k < 16; k++) tri_cam(c, e[k], e[(k + 1) & 15]);
-}
-
-static void draw_other_beam(void)
-{
+    bm_other.on = 0;
     if (num_players < 2 || state != 0) return;
     const Player *Q = &P[1 - pl_cur];
     if (!Q->flash_on || Q->climbing || climbing || Q->cur_layer != cur_layer) return;
@@ -8545,35 +8574,16 @@ static void draw_other_beam(void)
     float dx = sy * cosf(pe), dy = sinf(pe), dz = cy * cosf(pe);
     float ox = Q->px + cy * 0.2f, oz = Q->pz - sy * 0.2f;             // sale de su mano derecha
     float oy = Q->foot_y + Q->jump_h + EYE - 0.65f * Q->crouch_f - 0.25f;
-    float fl = cur_layer ? SEWER_Y : 0.0f;
-    float hl = sqrtf(dx * dx + dz * dz);
-    if (hl < 0.05f) return;                                           // mirando recto arriba o abajo: nada que dibujar
-    float hx = dx / hl, hz = dz / hl;                                 // direccion horizontal (unitaria)
-    // hasta donde llega: pared / arbol / mueble, o el suelo
-    float sg = (dy < -0.01f) ? (fl + 0.03f - oy) / dy : 1e9f;         // distancia al suelo
-    float smax = fminf(20.0f, sg), shit = -1.0f;
-    for (float s = 0.5f; s <= smax; s += 0.5f) {
+    float blen = 20.0f;
+    for (float s = 0.5f; s <= 20.0f; s += 0.5f) {
         float x = ox + dx * s, z = oz + dz * s, y = oy + dy * s;
-        if (y < 3.0f && (solid(x, z) || tree_hit(x, z) || col_hit(x, z, 0.0f))) { shit = s; break; }
+        if (y < (cur_layer ? SEWER_Y : 0.0f) + 0.02f) { blen = s; break; }              // el suelo
+        if (y < 3.0f && (solid(x, z) || tree_hit(x, z) || col_hit(x, z, 0.0f))) { blen = s; break; }
     }
-    pool_rgb[0] = 255.0f; pool_rgb[1] = 236.0f; pool_rgb[2] = 180.0f;
-    pool_mode = 1;
-    if (shit > 0.0f) {                                                // choca contra algo: disco vertical frente a la luz
-        float s = fmaxf(shit - 0.35f, 0.3f);
-        float r = clampf(0.3f * s + 0.4f, 0.6f, 3.0f);
-        float a = clampf(74.0f - 2.2f * s, 30.0f, 74.0f);
-        pool_fan(ox + dx * s, oy + dy * s, oz + dz * s, -hz * r, 0.0f, hx * r, 0.0f, r, 0.0f, a);
-    } else if (sg <= 20.0f) {                                         // cae en el suelo: elipse alargada en la direccion del haz
-        float slope = -dy / hl;
-        float e = clampf(0.7f / fmaxf(slope, 0.05f), 1.0f, 3.0f);
-        float r = clampf(0.3f * sg, 0.5f, 3.0f);
-        float a = clampf(74.0f - 2.2f * sg, 30.0f, 74.0f);
-        pool_fan(ox + dx * sg, fl + 0.03f, oz + dz * sg, hx * r * e, 0.0f, hz * r * e, -hz * r, 0.0f, hx * r, a);
-    } else if (pe < 0.3f) {                                           // luz que se pierde a lo lejos: un charco debil en el suelo de enfrente
-        float d = 9.0f;
-        pool_fan(ox + hx * d, fl + 0.03f, oz + hz * d, hx * 3.6f, 0.0f, hz * 3.6f, -hz * 1.8f, 0.0f, hx * 1.8f, 34.0f);
-    }
-    pool_mode = 0;
+    bm_other.on = 1;
+    bm_other.ox = ox; bm_other.oy = oy; bm_other.oz = oz;
+    bm_other.dx = dx; bm_other.dy = dy; bm_other.dz = dz;
+    bm_other.reach = 19.0f; bm_other.blen = blen;
 }
 
 static void draw_glows(float t)
@@ -9040,6 +9050,7 @@ static void render_game(float t, int moving, int near_ladder, int notes)
         }
         else if (state == 2) gsKit_clear(gsGlobal, GS_SETREG_RGBAQ(0x00, 0x50, 0x10, 0x80, 0x00));
         else {
+            lights_prepare();
             gsKit_clear(gsGlobal, SKY);
             draw_stars();
             if (climbing) { draw_layer(0); draw_layer(1); }
@@ -9065,7 +9076,6 @@ static void render_game(float t, int moving, int near_ladder, int notes)
             gsGlobal->PrimAlphaEnable = GS_SETTING_ON;
             draw_spot_overlay();
             draw_glows(t);
-            draw_other_beam();                          // donde alumbra el otro jugador
             gsGlobal->PrimAlphaEnable = GS_SETTING_OFF;
 
             draw_flashlight(t, moving);
@@ -9105,7 +9115,7 @@ static void menu_bg_main(void)
     cam_rc = 1.0f; cam_rs = 0.0f;
     px = 0.0f; pz = 0.0f; yaw = 0.0f; pitch = 0.0f; cpitch = 1.0f; spitch = 0.0f;
     fx = 0.0f; fz = 1.0f; rx = 1.0f; rz = 0.0f; cam_y = 1.5f; foot_y = 0.0f;
-    flash_on = 1; amb_r = 30.0f; light_flick = 1.0f; cur_layer = 0; climbing = 0;
+    flash_on = 1; amb_r = 30.0f; light_flick = 1.0f; cur_layer = 0; climbing = 0; bm_other.on = 0;
     sx_ = 1.0f; sz_ = 3.6f; mon_y = 0.0f; mon_spd = 1.6f; mon_runf = 0.0f; mon_phase += 1.6f * (1.0f / 60.0f) * 3.0f;
     gsKit_clear(gsGlobal, SKY);
     draw_stars();
