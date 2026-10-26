@@ -7556,8 +7556,9 @@ static const int   gfx_nf[3]    = { 1, 1, 2 };             // ... y lejos
 static const int   gfx_seg[3]   = { 24, 40, 64 };          // suavidad del circulo de luz
 static const int   gfx_steps[3] = { 5, 7, 9 };
 static const float gfx_reach[3] = { 0.85f, 1.0f, 1.2f };   // alcance de la luz
-enum { SC_MAIN, SC_OPT, SC_PLAY, SC_PAUSE };
-static int   screen = SC_MAIN, menu_sel, opt_sel, opt_from = SC_MAIN;
+enum { SC_MAIN, SC_OPT, SC_PLAY, SC_PAUSE, SC_CTRL };
+static int   screen = SC_MAIN, menu_sel, opt_sel, opt_from = SC_MAIN, ctl_sel;
+static int   sens_h = 5, sens_v = 5;     // sensibilidad al mirar (1..10, 5 = la de siempre)
 static int   last_moving, last_near, last_notes;
 static float last_t;
 static int   cur_layer;                 // 0 superficie, 1 alcantarilla
@@ -8953,11 +8954,12 @@ static void menu_frame(u32 newp, float lv, int frame)
     int up = (newp & PAD_UP) || (sdir == -1 && sprev == 0);
     int dn = (newp & PAD_DOWN) || (sdir == 1 && sprev == 0);
     sprev = sdir;
+    int was_ctrl = (screen == SC_CTRL);                         // evita que la X que abre el submenu cuente dentro de el
     int ok = (newp & PAD_CROSS) != 0, back = (newp & PAD_CIRCLE) != 0;
     int lt = (newp & PAD_LEFT) != 0, rt = (newp & PAD_RIGHT) != 0;
-    int n = (screen == SC_OPT) ? 5 : 4;
+    int n = (screen == SC_OPT) ? 6 : (screen == SC_CTRL ? 3 : 4);
     if (pad2_warn > 0) pad2_warn--;
-    int *sel = (screen == SC_OPT) ? &opt_sel : &menu_sel;
+    int *sel = (screen == SC_OPT) ? &opt_sel : (screen == SC_CTRL ? &ctl_sel : &menu_sel);
     if (up) { *sel = (*sel + n - 1) % n; sfx_play(SFX_CLICK, 0.5f); }
     if (dn) { *sel = (*sel + 1) % n; sfx_play(SFX_CLICK, 0.5f); }
     if (ok || back || lt || rt) sfx_play(SFX_CLICK, 0.7f);
@@ -8979,7 +8981,8 @@ static void menu_frame(u32 newp, float lv, int frame)
         }
     } else if (screen == SC_OPT) {
         int d = rt ? 1 : (lt ? -1 : (ok ? 1 : 0));
-        if (back || (ok && *sel == 4)) screen = opt_from;
+        if (back || (ok && *sel == 5)) screen = opt_from;
+        else if (ok && *sel == 4) { screen = SC_CTRL; ctl_sel = 0; }
         else if (d != 0) {
             if (*sel == 0) gfx = (gfx + d + 3) % 3;
             else if (*sel == 1) snd_on = !snd_on;
@@ -8988,8 +8991,17 @@ static void menu_frame(u32 newp, float lv, int frame)
         }
     }
 
+    if (was_ctrl) {                                           // OPCIONES > CONTROLES
+        int d = rt ? 1 : (lt ? -1 : (ok ? 1 : 0));
+        if (back || (ok && *sel == 2)) screen = SC_OPT;
+        else if (d != 0) {
+            if (*sel == 0) { sens_h += d; if (sens_h > 10) sens_h = ok ? 1 : 10; if (sens_h < 1) sens_h = 1; }
+            else if (*sel == 1) { sens_v += d; if (sens_v > 10) sens_v = ok ? 1 : 10; if (sens_v < 1) sens_v = 1; }
+        }
+    }
+
     // ---- dibujo ----
-    if (screen == SC_MAIN || (screen == SC_OPT && opt_from == SC_MAIN)) menu_bg_main();
+    if (screen == SC_MAIN || ((screen == SC_OPT || screen == SC_CTRL) && opt_from == SC_MAIN)) menu_bg_main();
     else { render_frame(last_t, 1); menu_dim(); }
 
     u64 sel_c = GS_SETREG_RGBAQ(255, 230, 90, 0x80, 0), norm_c = GS_SETREG_RGBAQ(170, 170, 175, 0x80, 0);
@@ -9016,21 +9028,34 @@ static void menu_frame(u32 newp, float lv, int frame)
         draw_text_c(40.0f, "OPCIONES", 5, sel_c);
         static const char *gq[3] = { "BAJO", "MEDIO", "ALTO" };
         char vt[8]; vt[0] = (char)('0' + vol_lv); vt[1] = '\0';
-        for (int i = 0; i < 5; i++) {
+        for (int i = 0; i < 6; i++) {
             const char *name = "";
             char val[12]; val[0] = '\0';
             if (i == 0) { name = "GRAFICOS"; snprintf(val, sizeof(val), "%s", gq[gfx]); }
             else if (i == 1) { name = "SONIDO"; snprintf(val, sizeof(val), "%s", snd_on ? "SI" : "NO"); }
             else if (i == 2) { name = "VOLUMEN"; snprintf(val, sizeof(val), "%s", vt); }
             else if (i == 3) { name = "INVERTIR LUZ"; snprintf(val, sizeof(val), "%s", blend_flip ? "SI" : "NO"); }
+            else if (i == 4) name = "CONTROLES";
             else name = "VOLVER";
             if (val[0]) snprintf(line, sizeof(line), i == opt_sel ? "> %s: %s <" : "%s: %s", name, val);
             else snprintf(line, sizeof(line), i == opt_sel ? "> %s <" : "%s", name);
-            draw_text_c(130.0f + i * 40.0f, line, 3, i == opt_sel ? sel_c : norm_c);
+            draw_text_c(110.0f + i * 40.0f, line, 3, i == opt_sel ? sel_c : norm_c);
         }
     }
-    draw_text_c(H - 34.0f, screen == SC_OPT ? "IZQ/DER: CAMBIAR   O: ATRAS" : "ARRIBA/ABAJO: MOVER   X: ELEGIR", 2, hint_c);
-    if (screen != SC_PAUSE) draw_text_c(H - 58.0f, "LUZ AL REVES? PULSA SELECT", 2, hint_c);
+    if (screen == SC_CTRL) {
+        draw_text_c(40.0f, "CONTROLES", 5, sel_c);
+        for (int i = 0; i < 3; i++) {
+            char val[12]; val[0] = '\0';
+            const char *name = "VOLVER";
+            if (i == 0) { name = "SENSIBILIDAD HORIZ."; snprintf(val, sizeof(val), "%d", sens_h); }
+            else if (i == 1) { name = "SENSIBILIDAD VERT."; snprintf(val, sizeof(val), "%d", sens_v); }
+            if (val[0]) snprintf(line, sizeof(line), i == ctl_sel ? "> %s: %s <" : "%s: %s", name, val);
+            else snprintf(line, sizeof(line), i == ctl_sel ? "> %s <" : "%s", name);
+            draw_text_c(150.0f + i * 44.0f, line, 3, i == ctl_sel ? sel_c : norm_c);
+        }
+    }
+    draw_text_c(H - 34.0f, (screen == SC_OPT || screen == SC_CTRL) ? "IZQ/DER: CAMBIAR   O: ATRAS" : "ARRIBA/ABAJO: MOVER   X: ELEGIR", 2, hint_c);
+    if (screen == SC_MAIN || screen == SC_OPT) draw_text_c(H - 58.0f, "LUZ AL REVES? PULSA SELECT", 2, hint_c);
     if (screen == SC_OPT)
         draw_text_c(H - 82.0f, audio_state == 2 ? "AUDIO: ACTIVO" : (audio_state == 1 ? "AUDIO: NO ARRANCO" : "AUDIO: NO INCLUIDO"),
                     2, audio_state == 2 ? GS_SETREG_RGBAQ(90, 210, 110, 0x80, 0) : GS_SETREG_RGBAQ(220, 90, 60, 0x80, 0));
@@ -9086,8 +9111,8 @@ static void player_move(float dt, float t, const PadIn *in)
     fx = sinf(yaw); fz = cosf(yaw);
     rx = cosf(yaw); rz = -sinf(yaw);
 
-    yaw += turn * 2.4f * dt;
-    pitch = clampf(pitch + look * 1.7f * dt, -1.2217f, 1.3963f);   // -70 / +80 grados
+    yaw += turn * 2.4f * dt * (sens_h / 5.0f);
+    pitch = clampf(pitch + look * 1.7f * dt * (sens_v / 5.0f), -1.2217f, 1.3963f);   // -70 / +80 grados
     cpitch = cosf(pitch); spitch = sinf(pitch);
     step_imp -= step_imp * clampf(dt * 12.0f, 0.0f, 1.0f);         // la pisada se disipa rapido
     mon_thud -= mon_thud * clampf(dt * 7.0f, 0.0f, 1.0f);
