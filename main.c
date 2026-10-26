@@ -7818,6 +7818,8 @@ static V lerpv(V a, V b, float t)
 }
 
 static int force_z = -1;     // >=0: ignora la profundidad real (HUD, brillos)
+static int pool_mode;        // 1: dibujando luz de la linterna del otro jugador (r = alfa, color fijo)
+static float pool_rgb[3];
 static int vm_mode;          // 1: dibujando mano+linterna (profundidad propia, siempre al frente)
 
 static void emit_tri(V a, V b, V c)
@@ -7837,6 +7839,10 @@ static void emit_tri(V a, V b, V c)
             Z[i] = (int)(16777000.0f * (NEAR_Z / t[i].z));
             if (Z[i] < 1) Z[i] = 1;
         }
+        if (pool_mode) {
+            Z[i] = (int)clampf((float)Z[i] + 3000.0f, 1.0f, 16777215.0f);
+            col[i] = GS_SETREG_RGBAQ((int)pool_rgb[0], (int)pool_rgb[1], (int)pool_rgb[2], ba((int)clampf(t[i].r, 0, 128)), 0x00);
+        } else
         col[i] = GS_SETREG_RGBAQ((int)clampf(t[i].r, 0, 255), (int)clampf(t[i].g, 0, 255),
                                  (int)clampf(t[i].b, 0, 255), 0x80, 0x00);
     }
@@ -8510,6 +8516,66 @@ static void draw_other_player(float t)
 #undef HZ
 }
 
+// ---------------- Luz de la linterna del otro jugador ----------------
+// Se ve donde alumbra el otro jugador (en el suelo o en lo que tenga enfrente), aunque tu linterna
+// este apagada. Es un charco de luz calida con borde suave, dibujado despues de la oscuridad.
+static void pool_fan(float cx, float cy, float cz, float ux, float uy, float uz,
+                     float vx, float vy, float vz, float a_c)
+{
+    // disco en el plano que forman los ejes (ux,uy,uz) y (vx,vy,vz); el largo de cada eje ya es el radio
+    static const float wh[3] = { 255.f, 255.f, 255.f };
+    V c = mk(cx, cy, cz, wh, 0.0f);
+    c.r = a_c; c.g = 0.0f; c.b = 0.0f;
+    V e[16];
+    for (int k = 0; k < 16; k++) {
+        float a = 6.2831853f * k / 16.0f, ca = cosf(a), sa = sinf(a);
+        e[k] = mk(cx + ux * ca + vx * sa, cy + uy * ca + vy * sa, cz + uz * ca + vz * sa, wh, 0.0f);
+        e[k].r = 0.0f; e[k].g = 0.0f; e[k].b = 0.0f;
+    }
+    for (int k = 0; k < 16; k++) tri_cam(c, e[k], e[(k + 1) & 15]);
+}
+
+static void draw_other_beam(void)
+{
+    if (num_players < 2 || state != 0) return;
+    const Player *Q = &P[1 - pl_cur];
+    if (!Q->flash_on || Q->climbing || climbing || Q->cur_layer != cur_layer) return;
+    float sy = sinf(Q->yaw), cy = cosf(Q->yaw);
+    float pe = clampf(Q->pitch, -1.2f, 1.3f) - 0.04f;                 // la linterna apunta un poco hacia abajo
+    float dx = sy * cosf(pe), dy = sinf(pe), dz = cy * cosf(pe);
+    float ox = Q->px + cy * 0.2f, oz = Q->pz - sy * 0.2f;             // sale de su mano derecha
+    float oy = Q->foot_y + Q->jump_h + EYE - 0.65f * Q->crouch_f - 0.25f;
+    float fl = cur_layer ? SEWER_Y : 0.0f;
+    float hl = sqrtf(dx * dx + dz * dz);
+    if (hl < 0.05f) return;                                           // mirando recto arriba o abajo: nada que dibujar
+    float hx = dx / hl, hz = dz / hl;                                 // direccion horizontal (unitaria)
+    // hasta donde llega: pared / arbol / mueble, o el suelo
+    float sg = (dy < -0.01f) ? (fl + 0.03f - oy) / dy : 1e9f;         // distancia al suelo
+    float smax = fminf(20.0f, sg), shit = -1.0f;
+    for (float s = 0.5f; s <= smax; s += 0.5f) {
+        float x = ox + dx * s, z = oz + dz * s, y = oy + dy * s;
+        if (y < 3.0f && (solid(x, z) || tree_hit(x, z) || col_hit(x, z, 0.0f))) { shit = s; break; }
+    }
+    pool_rgb[0] = 255.0f; pool_rgb[1] = 236.0f; pool_rgb[2] = 180.0f;
+    pool_mode = 1;
+    if (shit > 0.0f) {                                                // choca contra algo: disco vertical frente a la luz
+        float s = fmaxf(shit - 0.35f, 0.3f);
+        float r = clampf(0.3f * s + 0.4f, 0.6f, 3.0f);
+        float a = clampf(74.0f - 2.2f * s, 30.0f, 74.0f);
+        pool_fan(ox + dx * s, oy + dy * s, oz + dz * s, -hz * r, 0.0f, hx * r, 0.0f, r, 0.0f, a);
+    } else if (sg <= 20.0f) {                                         // cae en el suelo: elipse alargada en la direccion del haz
+        float slope = -dy / hl;
+        float e = clampf(0.7f / fmaxf(slope, 0.05f), 1.0f, 3.0f);
+        float r = clampf(0.3f * sg, 0.5f, 3.0f);
+        float a = clampf(74.0f - 2.2f * sg, 30.0f, 74.0f);
+        pool_fan(ox + dx * sg, fl + 0.03f, oz + dz * sg, hx * r * e, 0.0f, hz * r * e, -hz * r, 0.0f, hx * r, a);
+    } else if (pe < 0.3f) {                                           // luz que se pierde a lo lejos: un charco debil en el suelo de enfrente
+        float d = 9.0f;
+        pool_fan(ox + hx * d, fl + 0.03f, oz + hz * d, hx * 3.6f, 0.0f, hz * 3.6f, -hz * 1.8f, 0.0f, hx * 1.8f, 34.0f);
+    }
+    pool_mode = 0;
+}
+
 static void draw_glows(float t)
 {
     // Monstruo: ojos y linterna
@@ -8999,6 +9065,7 @@ static void render_game(float t, int moving, int near_ladder, int notes)
             gsGlobal->PrimAlphaEnable = GS_SETTING_ON;
             draw_spot_overlay();
             draw_glows(t);
+            draw_other_beam();                          // donde alumbra el otro jugador
             gsGlobal->PrimAlphaEnable = GS_SETTING_OFF;
 
             draw_flashlight(t, moving);
