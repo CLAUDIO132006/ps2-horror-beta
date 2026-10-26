@@ -10,6 +10,9 @@
 //    2 JUGADORES: pantalla dividida (J1 arriba con el control 1, J2 abajo con el control 2)
 //    SELECT     : invierte la luz si en tu emulador se ve al reves
 //
+//  VERSION TEXTURA: la luz del otro jugador usa una textura de cono precargada en la VRAM
+//  (64x64, se crea una sola vez al iniciar) proyectada sobre el escenario.
+//
 //  Objetivo: encuentra las 3 notas (cabana, cueva, alcantarilla)
 //  y llega a la caseta de la antena. Algo te esta buscando...
 // ============================================================
@@ -23,6 +26,7 @@
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
+#include <malloc.h>      // memalign (textura del cono de luz)
 #if !(defined(_EE) || defined(__mips__) || defined(__mips))
 #include <time.h>         // solo para compilar pruebas en PC (en PS2 el FPS usa el contador del CPU)
 #endif
@@ -7759,7 +7763,7 @@ static int blocked(float x, float z, float r)
 }
 
 // ---------------- Pipeline 3D ----------------
-typedef struct { float x, y, z, r, g, b; } V;
+typedef struct { float x, y, z, r, g, b, u, v; } V;
 
 static float clampf(float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); }
 
@@ -7796,7 +7800,7 @@ static void view_set(float x, float y, float w, float h)
 // vuelven a dibujar encima, sumando luz solo en los vertices que caen dentro de su cono (beam_replay).
 #define LC_IN   0.974f          // cos 13 grados: dentro de este angulo, luz completa
 #define LC_OUT  0.875f          // cos 29 grados: fuera de este angulo, nada de cono
-typedef struct { int on; float ox, oy, oz, dx, dy, dz, reach, blen; } Beam;
+typedef struct { int on; float ox, oy, oz, dx, dy, dz, reach, blen, rtx, rtz, upx, upy, upz; } Beam;
 static Beam bm_other;                                  // linterna del otro jugador
 static const int gfx_nl[3] = { 2, 3, 4 };              // subdivision de lo que cae dentro del cono del otro (bajo/medio/alto)
 
@@ -7834,10 +7838,15 @@ static V lerpv(V a, V b, float t)
     V o;
     o.x = a.x + (b.x - a.x) * t; o.y = a.y + (b.y - a.y) * t; o.z = a.z + (b.z - a.z) * t;
     o.r = a.r + (b.r - a.r) * t; o.g = a.g + (b.g - a.g) * t; o.b = a.b + (b.b - a.b) * t;
+    o.u = a.u + (b.u - a.u) * t; o.v = a.v + (b.v - a.v) * t;
     return o;
 }
 
 static int force_z = -1;     // >=0: ignora la profundidad real (HUD, brillos)
+static GSTEXTURE beam_tex;      // cono de luz precargado (VRAM)
+static int beam_tex_ok;
+#define BEAM_TEX 64
+#define BEAM_TAN_OUT 0.554f      // tan 29 grados: el borde del cono llega al borde de la textura
 static int pool_mode;        // 1: dibujando luz de la linterna del otro jugador (r = alfa, color fijo)
 static float pool_rgb[3];
 static int vm_mode;          // 1: dibujando mano+linterna (profundidad propia, siempre al frente)
@@ -7869,6 +7878,13 @@ static void emit_tri(V a, V b, V c)
     if (!vm_mode) {                              // fuera de la vista por completo: ni se envia
         if ((X[0] < 0.0f && X[1] < 0.0f && X[2] < 0.0f) || (X[0] > W && X[1] > W && X[2] > W) ||
             (Y[0] < 0.0f && Y[1] < 0.0f && Y[2] < 0.0f) || (Y[0] > H && Y[1] > H && Y[2] > H)) return;
+    }
+    if (pool_mode && beam_tex_ok) {              // luz del otro jugador: triangulo con la textura del cono
+        gsKit_prim_triangle_goraud_texture_3d(gsGlobal, &beam_tex,
+            X[0], Y[0], Z[0], t[0].u, t[0].v,
+            X[1], Y[1], Z[1], t[1].u, t[1].v,
+            X[2], Y[2], Z[2], t[2].u, t[2].v, col[0], col[1], col[2]);
+        return;
     }
     gsKit_prim_triangle_gouraud_3d(gsGlobal,
         X[0], Y[0], Z[0], X[1], Y[1], Z[1], X[2], Y[2], Z[2], col[0], col[1], col[2]);
@@ -8606,11 +8622,18 @@ static void lights_prepare(void)
     bm_other.on = 1;
     bm_other.ox = ox; bm_other.oy = oy; bm_other.oz = oz;
     bm_other.dx = dx; bm_other.dy = dy; bm_other.dz = dz;
+    {   // base del cono: derecha (horizontal) y arriba, para proyectar la textura
+        float hl = sqrtf(dx * dx + dz * dz);
+        float rtx = hl > 0.05f ? dz / hl : 1.0f, rtz = hl > 0.05f ? -dx / hl : 0.0f;
+        bm_other.rtx = rtx; bm_other.rtz = rtz;
+        bm_other.upx = dy * rtz; bm_other.upy = dz * rtx - dx * rtz; bm_other.upz = -dy * rtx;
+    }
     bm_other.reach = 19.0f; bm_other.blen = blen;
 }
 
-// Vertice de un cuadrado dentro del cono del otro jugador: la camara es la de quien mira, el color es la
-// LUZ que aporta el cono (color de la superficie x intensidad), para sumarla sobre lo ya dibujado.
+// Vertice de un cuadrado dentro del cono del otro jugador. El color es la luz que llega (distancia, pared
+// que la corta) por el color de la superficie; la FORMA del cono sale de la textura: las coordenadas (u,v)
+// son la proyeccion del punto sobre el plano del cono, asi el borde redondo y suave lo pone la textura.
 static V mk_beam(float wx, float wy, float wz, const float *c)
 {
     V v;
@@ -8619,22 +8642,54 @@ static V mk_beam(float wx, float wy, float wz, const float *c)
     v.x = vx;
     v.y = vy * cpitch - vz * spitch;
     v.z = vy * spitch + vz * cpitch;
-    float lit = 0.0f;
     float ox = wx - bm_other.ox, oy = wy - bm_other.oy, oz = wz - bm_other.oz;
-    float q = ox * ox + oy * oy + oz * oz;
-    if (q < bm_other.reach * bm_other.reach && q > 1e-4f) {
-        float d2 = sqrtf(q);
-        float along = ox * bm_other.dx + oy * bm_other.dy + oz * bm_other.dz;
-        float cf = cone_f(along / d2);
-        if (cf > 0.0f) {
-            float a2 = 1.0f - d2 / bm_other.reach;
+    float along = ox * bm_other.dx + oy * bm_other.dy + oz * bm_other.dz;
+    float lit = 0.0f, tu = -1.0f, tv = -1.0f;
+    if (along > 0.3f) {
+        float d2 = sqrtf(ox * ox + oy * oy + oz * oz);
+        float xr = ox * bm_other.rtx + oz * bm_other.rtz;
+        float yu = ox * bm_other.upx + oy * bm_other.upy + oz * bm_other.upz;
+        float inv = 0.5f / (along * BEAM_TAN_OUT);
+        tu = (0.5f + xr * inv) * (BEAM_TEX - 1) + 0.5f;
+        tv = (0.5f - yu * inv) * (BEAM_TEX - 1) + 0.5f;
+        float a2 = 1.0f - d2 / bm_other.reach;
+        if (a2 > 0.0f) {
             float oc = (bm_other.blen + 0.8f - along) * 1.25f;       // no ilumina lo que queda detras de la pared que toca
             oc = oc < 0.0f ? 0.0f : (oc > 1.0f ? 1.0f : oc);
-            lit = a2 * a2 * cf * oc * 0.9f;
+            lit = a2 * a2 * oc * 0.5f;                               // 0.5: el color se multiplica por la textura (x2)
         }
     }
+    v.u = tu; v.v = tv;
     v.r = c[0] * lit; v.g = c[1] * lit * 0.95f; v.b = c[2] * lit * 0.78f;       // luz calida
     return v;
+}
+
+// Textura del cono: 64x64, brillo pleno en el centro y borde suave (misma forma que el cono por vertices).
+// Se crea y se sube a la VRAM una sola vez al iniciar; despues solo se usa.
+static void beam_tex_init(void)
+{
+    const int N = BEAM_TEX;
+    memset(&beam_tex, 0, sizeof(beam_tex));
+    beam_tex.Width = N; beam_tex.Height = N;
+    beam_tex.PSM = GS_PSM_CT32;
+    beam_tex.Filter = GS_FILTER_LINEAR;
+    beam_tex.Mem = (u32 *)memalign(128, N * N * 4);
+    if (!beam_tex.Mem) return;
+    const float r_in = 0.231f / BEAM_TAN_OUT;                // tan 13 / tan 29: dentro de este radio, luz completa
+    for (int y = 0; y < N; y++)
+        for (int x = 0; x < N; x++) {
+            float u = ((x + 0.5f) / N - 0.5f) * 2.0f, v = ((y + 0.5f) / N - 0.5f) * 2.0f;
+            float r = sqrtf(u * u + v * v);
+            float t = (1.0f - r) / (1.0f - r_in);
+            t = t < 0.0f ? 0.0f : (t > 1.0f ? 1.0f : t);
+            t = t * t * (3.0f - 2.0f * t);
+            u32 b = (u32)(255.0f * t + 0.5f);
+            ((u32 *)beam_tex.Mem)[y * N + x] = 0x80000000u | (b << 16) | (b << 8) | b;   // alfa 0x80, gris = intensidad
+        }
+    beam_tex.Vram = gsKit_vram_alloc(gsGlobal, gsKit_texture_size(N, N, GS_PSM_CT32), GSKIT_ALLOC_USERBUFFER);
+    gsKit_texture_upload(gsGlobal, &beam_tex);
+    gsKit_set_clamp(gsGlobal, GS_CMODE_CLAMP);               // fuera de la textura: el borde (negro), nunca se repite
+    beam_tex_ok = 1;
 }
 
 // Segunda pasada: suma la luz del otro jugador sobre los cuadrados guardados (despues de la oscuridad de
@@ -9596,6 +9651,7 @@ int main(void)
     gsKit_init_screen(gsGlobal);
     gsKit_mode_switch(gsGlobal, GS_ONESHOT);
     gsKit_set_test(gsGlobal, GS_ZTEST_ON);
+    beam_tex_init();                                         // textura del cono de luz (una sola vez)
 
     W = (float)gsGlobal->Width;
     H = (float)gsGlobal->Height;
