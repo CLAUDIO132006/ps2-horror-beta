@@ -7740,10 +7740,20 @@ static int col_hit(float x, float z, float r)
     return 0;
 }
 
+// El otro jugador estorba, pero solo si te acercas a el (asi nunca quedan atorados uno dentro del otro)
+static int other_block(float x, float z)
+{
+    if (num_players < 2) return 0;
+    const Player *Q = &P[1 - pl_cur];
+    if (Q->cur_layer != cur_layer || Q->climbing || climbing) return 0;
+    float dx = x - Q->px, dz = z - Q->pz, d0x = px - Q->px, d0z = pz - Q->pz;
+    float d = dx * dx + dz * dz;
+    return d < 0.7f * 0.7f && d < d0x * d0x + d0z * d0z;
+}
+
 static int blocked(float x, float z, float r)
 {
-    return solid(x - r, z - r) || solid(x + r, z - r) ||
-           solid(x - r, z + r) || solid(x + r, z + r) || tree_hit(x, z) || col_hit(x, z, 0.3f);
+    return solid(x - r, z - r) || solid(x + r, z - r) || solid(x - r, z + r) || solid(x + r, z + r) || tree_hit(x, z) || col_hit(x, z, 0.3f) || other_block(x, z);
 }
 
 // ---------------- Pipeline 3D ----------------
@@ -8372,6 +8382,134 @@ static void draw_glow(float wx, float wy, float wz, float rad, int r, int g, int
     }
 }
 
+// ---------------- El otro jugador (modelo Steve.obj) ----------------
+// Mismas medidas que Steve.obj: cabeza, torso, 2 brazos y 2 piernas (8 unidades de alto = 1.8 m).
+// El .obj trae los brazos abiertos en T; aqui se cuelgan y se mueven al caminar. El brazo derecho
+// sostiene la linterna. Como el .obj no trae textura, los colores son los clasicos de Steve.
+#define ST_S 0.225f
+typedef struct { float x, z, fy, fwx, fwz, rtx, rtz; } StCtx;       // donde esta y hacia donde mira
+typedef struct { float py, ang, ys, drop; } StPart;                 // pivote, giro, aplastado (agacharse), bajada
+
+static void st_pt(const StCtx *C, const StPart *p, float x, float y, float z, float *o)
+{
+    float dy = (y - p->py) * p->ys;
+    float c = cosf(p->ang), s = sinf(p->ang);
+    float mx = x * c - dy * s, my = p->py + x * s + dy * c - p->drop;
+    o[0] = C->x + (mx * C->fwx + z * C->rtx) * ST_S;
+    o[1] = C->fy + (my - 0.5f) * ST_S;
+    o[2] = C->z + (mx * C->fwz + z * C->rtz) * ST_S;
+}
+
+// Rectangulo en un plano del modelo. axis 0: x=v (a=y,b=z)  1: y=v (a=x,b=z)  2: z=v (a=x,b=y)
+static void st_plane(const StCtx *C, const StPart *p, int axis, float v,
+                     float a0, float a1, float b0, float b1, const float *col, float emit)
+{
+    float m[4][3], q[4][3];
+    const float A[4] = { a0, a1, a1, a0 }, B[4] = { b0, b0, b1, b1 };
+    for (int i = 0; i < 4; i++) {
+        if (axis == 0)      { m[i][0] = v; m[i][1] = A[i]; m[i][2] = B[i]; }
+        else if (axis == 1) { m[i][0] = A[i]; m[i][1] = v; m[i][2] = B[i]; }
+        else                { m[i][0] = A[i]; m[i][1] = B[i]; m[i][2] = v; }
+        st_pt(C, p, m[i][0], m[i][1], m[i][2], q[i]);
+    }
+    quad_sub(q, col, 1, emit);
+}
+
+static void st_box(const StCtx *C, const StPart *p, float x0, float x1, float y0, float y1,
+                   float z0, float z1, const float *col, float emit)
+{
+    float c[3];
+#define ST_SH(k) c[0] = col[0] * (k); c[1] = col[1] * (k); c[2] = col[2] * (k);
+    ST_SH(1.00f) st_plane(C, p, 1, y1, x0, x1, z0, z1, c, emit);
+    ST_SH(0.50f) st_plane(C, p, 1, y0, x0, x1, z0, z1, c, emit);
+    ST_SH(0.78f) st_plane(C, p, 2, z0, x0, x1, y0, y1, c, emit);
+    ST_SH(0.78f) st_plane(C, p, 2, z1, x0, x1, y0, y1, c, emit);
+    ST_SH(0.90f) st_plane(C, p, 0, x1, y0, y1, z0, z1, c, emit);
+    ST_SH(0.68f) st_plane(C, p, 0, x0, y0, y1, z0, z1, c, emit);
+#undef ST_SH
+}
+
+// Pose del otro jugador (compartida por el dibujo y por el brillo de su linterna)
+typedef struct { StCtx C; StPart legA, legB, body, head, armL, armR; } StPose;
+
+static void st_pose(const Player *Q, StPose *S)
+{
+    float cf = Q->crouch_f, ys = 1.0f - 0.4f * cf, drop = 1.2f * cf;
+    float sw = sinf(Q->walk_ph) * Q->walk_amp;
+    float sy = sinf(Q->yaw), cy = cosf(Q->yaw);
+    S->C.x = Q->px; S->C.z = Q->pz; S->C.fy = Q->foot_y + Q->jump_h;
+    S->C.fwx = sy; S->C.fwz = cy; S->C.rtx = cy; S->C.rtz = -sy;
+    S->legA = (StPart){ 3.5f,  sw * 0.9f, ys, drop };
+    S->legB = (StPart){ 3.5f, -sw * 0.9f, ys, drop };
+    S->body = (StPart){ 6.49f, 0.0f, 1.0f, drop };
+    S->head = (StPart){ 6.49f, clampf(Q->pitch * 0.8f, -0.7f, 0.7f), 1.0f, drop };
+    S->armL = (StPart){ 6.2f, -sw * 0.8f, 1.0f, drop };
+    S->armR = (StPart){ 6.2f, 1.30f + clampf(Q->pitch, -0.9f, 0.9f) * 0.6f, 1.0f, drop };   // linterna al frente
+}
+
+// Donde esta el lente de la linterna del otro jugador (para su brillo)
+static int other_lens_world(float *wx, float *wy, float *wz)
+{
+    if (num_players < 2 || state != 0) return 0;
+    const Player *Q = &P[1 - pl_cur];
+    if (!Q->flash_on || !(Q->cur_layer == cur_layer || Q->climbing || climbing)) return 0;
+    StPose S; float o[3];
+    st_pose(Q, &S);
+    st_pt(&S.C, &S.armR, 0.0f, 2.2f, 1.75f, o);
+    *wx = o[0]; *wy = o[1]; *wz = o[2];
+    return 1;
+}
+
+static void draw_other_player(float t)
+{
+    (void)t;
+    if (num_players < 2 || state != 0) return;
+    const Player *Q = &P[1 - pl_cur];
+    if (!(Q->cur_layer == cur_layer || Q->climbing || climbing)) return;
+    if (!in_view(Q->px, Q->pz, 1.5f, gfx_pd[gfx])) return;
+    StPose S; st_pose(Q, &S);
+    const StCtx *C = &S.C;
+    static const float skin[3]  = { 200.f, 150.f, 112.f }, hair[3] = { 62.f, 41.f, 22.f };
+    static const float shirt[3] = { 0.f, 156.f, 168.f },  pants[3] = { 58.f, 56.f, 150.f };
+    static const float shoe[3]  = { 72.f, 72.f, 76.f },   dark[3]  = { 38.f, 38.f, 42.f };
+    static const float white[3] = { 235.f, 235.f, 240.f }, iris[3] = { 70.f, 50.f, 130.f };
+    static const float mouth[3] = { 120.f, 70.f, 54.f },  nose[3]  = { 168.f, 116.f, 86.f };
+    float lens[3] = { 255.f, 246.f, 200.f };
+    if (!Q->flash_on) { lens[0] = 90.f; lens[1] = 90.f; lens[2] = 92.f; }
+    const float em = 0.07f;
+    // piernas (pantalon + zapatos) y torso
+    st_box(C, &S.legA, -0.52f, 0.52f, 1.00f, 3.50f, -1.14f, -0.01f, pants, em);
+    st_box(C, &S.legA, -0.52f, 0.52f, 0.50f, 1.00f, -1.14f, -0.01f, shoe, em);
+    st_box(C, &S.legB, -0.52f, 0.52f, 1.00f, 3.50f,  0.01f,  1.14f, pants, em);
+    st_box(C, &S.legB, -0.52f, 0.52f, 0.50f, 1.00f,  0.01f,  1.14f, shoe, em);
+    st_box(C, &S.body, -0.52f, 0.52f, 3.49f, 6.49f, -1.13f, 1.16f, shirt, em);
+    // brazos: manga de la camisa arriba y piel abajo
+    st_box(C, &S.armL, -0.52f, 0.52f, 5.40f, 6.49f, -2.29f, -1.15f, shirt, em);
+    st_box(C, &S.armL, -0.52f, 0.52f, 3.49f, 5.40f, -2.29f, -1.15f, skin, em);
+    st_box(C, &S.armR, -0.52f, 0.52f, 5.40f, 6.49f,  1.17f,  2.32f, shirt, em);
+    st_box(C, &S.armR, -0.52f, 0.52f, 3.49f, 5.40f,  1.17f,  2.32f, skin, em);
+    st_box(C, &S.armR, -0.25f, 0.25f, 2.55f, 3.50f,  1.47f,  2.02f, dark, em);          // linterna
+    st_box(C, &S.armR, -0.29f, 0.29f, 2.38f, 2.55f,  1.43f,  2.06f, lens, (Q->flash_on ? 0.85f : 0.05f));
+    // cabeza: piel, pelo y cara
+    st_box(C, &S.head, -1.00f, 1.00f, 6.47f, 8.49f, -1.01f, 1.01f, skin, em);
+    const float px_ = 2.02f / 8.0f, top = 8.49f, z0 = -1.01f, o = 0.012f;
+#define HY(r) (top - (r) * px_)
+#define HZ(c) (z0 + (c) * px_)
+    st_plane(C, &S.head, 1, top + o, -1.00f, 1.00f, -1.01f, 1.01f, hair, em);                 // arriba
+    st_plane(C, &S.head, 0, -1.00f - o, HY(8), HY(0), -1.01f, 1.01f, hair, em);               // nuca
+    st_plane(C, &S.head, 2, -1.01f - o, -1.00f, 1.00f, HY(3), HY(0), hair, em);               // patillas
+    st_plane(C, &S.head, 2,  1.01f + o, -1.00f, 1.00f, HY(3), HY(0), hair, em);
+    st_plane(C, &S.head, 0, 1.00f + o, HY(2), HY(0), -1.01f, 1.01f, hair, em);                // flequillo
+    st_plane(C, &S.head, 0, 1.00f + o, HY(5), HY(4), HZ(1), HZ(2), white, 0.18f);             // ojos
+    st_plane(C, &S.head, 0, 1.00f + o, HY(5), HY(4), HZ(2), HZ(3), iris, 0.10f);
+    st_plane(C, &S.head, 0, 1.00f + o, HY(5), HY(4), HZ(5), HZ(6), iris, 0.10f);
+    st_plane(C, &S.head, 0, 1.00f + o, HY(5), HY(4), HZ(6), HZ(7), white, 0.18f);
+    st_plane(C, &S.head, 0, 1.00f + o, HY(6), HY(5), HZ(3), HZ(5), nose, em);                 // nariz
+    st_plane(C, &S.head, 0, 1.00f + o, HY(7), HY(6), HZ(2), HZ(6), mouth, em);                // boca
+#undef HY
+#undef HZ
+}
+
 static void draw_glows(float t)
 {
     // Monstruo: ojos y linterna
@@ -8386,6 +8524,11 @@ static void draw_glows(float t)
             float yy = X[1].c * ly - X[1].s * lz + X[1].ty, zz = X[1].s * ly + X[1].c * lz + X[1].tz;
             draw_glow(sx_ + lx * c + zz * s, yy + mon_y, sz_ - lx * s + zz * c, 0.06f, 255, 40, 40, 115);
         }
+    }
+    {   // linterna del otro jugador (se ve de lejos)
+        float lx, ly, lz;
+        if (other_lens_world(&lx, &ly, &lz) && los_to(lx, lz, 0.0f))
+            draw_glow(lx, ly, lz, 0.20f, 255, 240, 190, 105);
     }
     int got = notes_got[0] + notes_got[1] + notes_got[2];
     for (int i = 0; i < 3; i++) {
@@ -8849,6 +8992,7 @@ static void render_game(float t, int moving, int near_ladder, int notes)
                 float gcol[3] = { 80.f, 255.f, 120.f };
                 box_rot(EXIT_X, EXIT_Z, 0, 0, 0, 0.3f, 0.3f, 0.0f, 2.0f, gcol, 0.7f);
             }
+            draw_other_player(t);                       // el otro jugador (pantalla dividida)
             if (mlayer == cur_layer && !climbing) draw_monster(t);
 
             gsKit_set_primalpha(gsGlobal, BLEND_STD, 0);
