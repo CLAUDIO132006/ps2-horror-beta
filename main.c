@@ -7550,6 +7550,7 @@ static float vel_x, vel_z;                  // velocidad al caminar (con inercia
 static float step_kick, walk_spd;           // golpe de pisada (sin suavizar) / rapidez real suavizada
 // ---- opciones (GRAFICOS: 0 bajo, 1 medio, 2 alto) ----
 static int   gfx = 1, snd_on = 1, vol_lv = 4;
+static float draw_lim;     // distancia maxima de dibujo este cuadro (ver lights_prepare)
 static const int   gfx_R[3]     = { 6, 8, 10 };            // celdas dibujadas alrededor
 static const float gfx_maxd[3]  = { 24.0f, 33.0f, 42.0f }; // distancia de dibujo
 static const float gfx_pd[3]    = { 22.0f, 30.0f, 38.0f }; // arboles y objetos
@@ -7893,6 +7894,10 @@ static void emit_tri(V a, V b, V c)
         col[i] = GS_SETREG_RGBAQ((int)clampf(t[i].r, 0, 255), (int)clampf(t[i].g, 0, 255),
                                  (int)clampf(t[i].b, 0, 255), 0x80, 0x00);
     }
+    if (!vm_mode) {                              // fuera de la vista por completo: ni se envia
+        if ((X[0] < 0.0f && X[1] < 0.0f && X[2] < 0.0f) || (X[0] > W && X[1] > W && X[2] > W) ||
+            (Y[0] < 0.0f && Y[1] < 0.0f && Y[2] < 0.0f) || (Y[0] > H && Y[1] > H && Y[2] > H)) return;
+    }
     gsKit_prim_triangle_gouraud_3d(gsGlobal,
         X[0], Y[0], Z[0], X[1], Y[1], Z[1], X[2], Y[2], Z[2], col[0], col[1], col[2]);
 }
@@ -7912,36 +7917,50 @@ static void tri_cam(V a, V b, V c)
     if (n == 4) emit_tri(out[0], out[2], out[3]);
 }
 
-// Este cuadrado cae (aunque sea en parte) dentro de algun cono de luz?
+// Cuanta subdivision pide este cuadrado segun los conos de luz (0 = ninguna: fuera de todo cono o muy lejos).
+// Cerca del origen de la luz se ve cada vertice; lejos, el cono ya es tenue y basta con pocos.
 static int quad_lit(const float p[4][3])
 {
     float cx = (p[0][0] + p[2][0]) * 0.5f, cy = (p[0][1] + p[2][1]) * 0.5f, cz = (p[0][2] + p[2][2]) * 0.5f;
     float ex = p[2][0] - p[0][0], ey = p[2][1] - p[0][1], ez = p[2][2] - p[0][2];
     float r = 0.5f * sqrtf(ex * ex + ey * ey + ez * ez);
+    float dmin = 1e9f;
     if (flash_on) {                                           // linterna propia: sale de la camara, mira hacia (fx*cp, sp, fz*cp)
         float wx = cx - px, wy = cy - cam_y, wz = cz - pz;
         float d = sqrtf(wx * wx + wy * wy + wz * wz);
         if (d - r < amb_r) {
-            if (d <= r * 1.3f) return 1;
-            float along = wx * fx * cpitch + wy * spitch + wz * fz * cpitch;
-            if (along / d > LC_OUT - 0.5f * r / d - 0.03f) return 1;
+            if (d <= r * 1.3f) dmin = d;
+            else {
+                float along = wx * fx * cpitch + wy * spitch + wz * fz * cpitch;
+                if (along / d > LC_OUT - 0.5f * r / d - 0.03f) dmin = d;
+            }
         }
     }
     if (bm_other.on) {                                        // linterna del otro jugador
         float wx = cx - bm_other.ox, wy = cy - bm_other.oy, wz = cz - bm_other.oz;
         float d = sqrtf(wx * wx + wy * wy + wz * wz);
-        if (d - r < bm_other.reach) {
-            if (d <= r * 1.3f) return 1;
-            float along = wx * bm_other.dx + wy * bm_other.dy + wz * bm_other.dz;
-            if (along / d > LC_OUT - 0.5f * r / d - 0.03f) return 1;
+        if (d - r < bm_other.reach && d < dmin) {
+            if (d <= r * 1.3f) dmin = d;
+            else {
+                float along = wx * bm_other.dx + wy * bm_other.dy + wz * bm_other.dz;
+                if (along / d > LC_OUT - 0.5f * r / d - 0.03f) dmin = d;
+            }
         }
     }
-    return 0;
+    if (dmin > 1e8f) return 0;
+    int nl = gfx_nl[gfx] - (num_players == 2 ? 1 : 0);        // media pantalla: menos detalle, no se nota
+    if (nl < 2) nl = 2;
+    if (dmin < 9.0f) return nl;
+    if (dmin < 15.0f) return nl > 3 ? nl - 1 : 2;
+    return 1;                                                 // lejos: el cono ya es muy tenue
 }
 
 static void quad_sub(const float p[4][3], const float *col, int n, float emit)
 {
-    if (state == 0 && n > 1) n = quad_lit(p) ? (n > gfx_nl[gfx] ? n : gfx_nl[gfx]) : 1;   // detalle solo donde hay luz
+    if (state == 0 && n > 1) {                                // detalle solo donde hay luz
+        int k = quad_lit(p);
+        n = (k > 0) ? k : 1;
+    }
     if (n > 6) n = 6;
     V g[7][7];
     for (int j = 0; j <= n; j++)
@@ -8088,7 +8107,7 @@ static void draw_layer(int layer)
             CellInfo ci = cell_info(ch, layer);
             if (ci.kind == 2 && !ci.fdraw) continue;
             float x0 = cx * CS, z0 = cz * CS, x1 = x0 + CS, z1 = z0 + CS;
-            if (!in_view(x0 + CS * 0.5f, z0 + CS * 0.5f, 2.9f, gfx_maxd[gfx])) continue;
+            if (!in_view(x0 + CS * 0.5f, z0 + CS * 0.5f, 2.9f, draw_lim)) continue;
             int ddx = cx - pcx, ddz = cz - pcz;
             int n = (ddx * ddx + ddz * ddz <= 4) ? gfx_nn[gfx] : gfx_nf[gfx];
             float k = ((cx + cz) & 1) ? 0.86f : 1.0f;
@@ -8126,7 +8145,7 @@ static void draw_trees(void)
         for (int cx = pcx - gR; cx <= pcx + gR; cx++) {
             float tx, tz, s; int dead;
             if (!tree_at(cx, cz, &tx, &tz, &s, &dead)) continue;
-            if (!in_view(tx, tz, 1.6f, gfx_pd[gfx])) continue;
+            if (!in_view(tx, tz, 1.6f, fminf(draw_lim, gfx_pd[gfx]))) continue;
             float bark[3] = { 78.f, 58.f, 40.f };
             if (dead) {
                 float bk[3] = { 64.f, 52.f, 44.f };
@@ -8148,7 +8167,7 @@ static void draw_props(float t)
         const Prop *p = &props[i];
         if (p->layer != cur_layer && !climbing) continue;
         float rad = fmaxf(p->hx, p->hz) * 1.45f + 0.6f;
-        if (!in_view(p->x, p->z, rad, gfx_pd[gfx])) continue;
+        if (!in_view(p->x, p->z, rad, fminf(draw_lim, gfx_pd[gfx]))) continue;
         float col[3] = { (float)p->r, (float)p->g, (float)p->b };
         switch (p->type) {
         case 0: box_rot(p->x, p->z, p->a, 0, 0, p->hx, p->hz, p->y0, p->y1, col, p->emit); break;
@@ -8189,18 +8208,19 @@ static void draw_shafts(void)
 #define NSTAR 110
 static void draw_stars(void)
 {
-    static float az[NSTAR], el[NSTAR];
+    static float sdx[NSTAR], sdy[NSTAR], sdz[NSTAR];
     static int inited = 0;
     if (!inited) {
         unsigned int sd = 12345u;
         for (int i = 0; i < NSTAR; i++) {
-            sd = sd * 1664525u + 1013904223u; az[i] = (sd >> 8) / 16777216.0f * 6.2831853f;
-            sd = sd * 1664525u + 1013904223u; el[i] = asinf(0.05f + 0.95f * ((sd >> 8) / 16777216.0f));
+            sd = sd * 1664525u + 1013904223u; float az = (sd >> 8) / 16777216.0f * 6.2831853f;
+            sd = sd * 1664525u + 1013904223u; float el = asinf(0.05f + 0.95f * ((sd >> 8) / 16777216.0f));
+            sdx[i] = cosf(el) * sinf(az); sdy[i] = sinf(el); sdz[i] = cosf(el) * cosf(az);
         }
         inited = 1;
     }
     for (int i = 0; i < NSTAR; i++) {
-        float dx = cosf(el[i]) * sinf(az[i]), dy = sinf(el[i]), dz = cosf(el[i]) * cosf(az[i]);
+        float dx = sdx[i], dy = sdy[i], dz = sdz[i];
         float cz0 = dx * fx + dz * fz;
         float cx = dx * rx + dz * rz;
         float cyv = dy * cpitch - cz0 * spitch, czv = dy * spitch + cz0 * cpitch;
@@ -8375,7 +8395,7 @@ static void draw_flashlight(float t, int moving)
 static void draw_spot_overlay(void)
 {
     if (!flash_on) return;                             // linterna apagada: nada, solo la oscuridad del ambiente
-    const int seg = gfx_seg[gfx];
+    const int seg = gfx_seg[gfx] > 24 ? 24 : gfx_seg[gfx];
     float fl = 0.90f + 0.10f * light_flick;
     float clear_r = 0.16f * fl, soft_r = 0.19f * fl;
     static float ct[SPOT_SEG_MAX + 1], st[SPOT_SEG_MAX + 1];
@@ -8566,6 +8586,10 @@ static void draw_other_player(float t)
 static void lights_prepare(void)
 {
     bm_other.on = 0;
+    // Mas alla del alcance de la luz todo queda negro (igual que el cielo): no se dibuja. Si el otro jugador
+    // alumbra a lo lejos, se conserva la distancia completa para no dejar huecos en su cono.
+    draw_lim = gfx_maxd[gfx];
+    { float lim = 22.0f * gfx_reach[gfx] + 1.0f; if (lim < draw_lim) draw_lim = lim; }
     if (num_players < 2 || state != 0) return;
     const Player *Q = &P[1 - pl_cur];
     if (!Q->flash_on || Q->climbing || climbing || Q->cur_layer != cur_layer) return;
@@ -8580,6 +8604,7 @@ static void lights_prepare(void)
         if (y < (cur_layer ? SEWER_Y : 0.0f) + 0.02f) { blen = s; break; }              // el suelo
         if (y < 3.0f && (solid(x, z) || tree_hit(x, z) || col_hit(x, z, 0.0f))) { blen = s; break; }
     }
+    draw_lim = gfx_maxd[gfx];
     bm_other.on = 1;
     bm_other.ox = ox; bm_other.oy = oy; bm_other.oz = oz;
     bm_other.dx = dx; bm_other.dy = dy; bm_other.dz = dz;
