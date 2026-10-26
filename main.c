@@ -7,6 +7,7 @@
 //    X (cruz)   : saltar  (junto a un pozo: subir/bajar la escalera)
 //    O (circulo): agacharse / levantarse
 //    L1         : linterna ON/OFF       START : pausa
+//    2 JUGADORES: pantalla dividida (J1 arriba con el control 1, J2 abajo con el control 2)
 //    SELECT     : invierte la luz si en tu emulador se ve al reves
 //
 //  Objetivo: encuentra las 3 notas (cabana, cueva, alcantarilla)
@@ -34,6 +35,20 @@ extern unsigned char freesd_irx[];
 extern unsigned int  size_freesd_irx;
 #endif
 #endif
+// ---------------- Vista (pantalla dividida) ----------------
+// Todo el dibujo pasa por estas macros: suman el origen de la vista (VX,VY) a cada
+// primitiva, asi el mismo codigo dibuja a pantalla completa o en media pantalla.
+static float VX, VY;            // origen de la vista actual (en pantalla)
+static float SW, SH;            // tamano de la pantalla completa
+static int   view_part;         // 1: dibujando en media pantalla (con scissor)
+static void  clear_view(u64 col);
+#define gsKit_prim_sprite(g, x1, y1, x2, y2, z, c) \
+    gsKit_prim_sprite(g, (x1) + VX, (y1) + VY, (x2) + VX, (y2) + VY, z, c)
+#define gsKit_prim_triangle_gouraud_3d(g, x1, y1, z1, x2, y2, z2, x3, y3, z3, c1, c2, c3) \
+    gsKit_prim_triangle_gouraud_3d(g, (x1) + VX, (y1) + VY, z1, (x2) + VX, (y2) + VY, z2, (x3) + VX, (y3) + VY, z3, c1, c2, c3)
+#define gsKit_clear(g, c) clear_view(c)
+#define MY_SCISSOR(x0, x1, y0, y1) (((u64)(x0)) | ((u64)(x1) << 16) | ((u64)(y0) << 32) | ((u64)(y1) << 48))
+
 // Generado desde EXPERIMENT_X.obj, Steve.obj y Light.obj
 #define MON_NV 885
 #define MON_NT 1700
@@ -7516,6 +7531,7 @@ static const int manholes[NMH][2] = {{34,48},{72,64}};
 // ---------------- Estado global ----------------
 static GSGLOBAL *gsGlobal;
 static char padBuf[256] __attribute__((aligned(64)));
+static char padBuf2[256] __attribute__((aligned(64)));   // control 2
 
 static float px, pz, yaw, foot_y, cam_y;
 static float pitch, cpitch = 1.0f, spitch = 0.0f;   // mirar arriba/abajo
@@ -7529,6 +7545,7 @@ static int   walk_step;                     // numero de paso (para sincronizar 
 static float mon_thud;                      // sacudida de camara por las pisadas del monstruo
 static float cam_rc = 1.0f, cam_rs = 0.0f;  // balanceo (roll) de la camara: cos / sin
 static int   crouched, blend_flip;
+static int   p_moving, p_near;              // datos de HUD de cada jugador
 // ---- opciones (GRAFICOS: 0 bajo, 1 medio, 2 alto) ----
 static int   gfx = 1, snd_on = 1, vol_lv = 4;
 static const int   gfx_R[3]     = { 6, 8, 10 };            // celdas dibujadas alrededor
@@ -7559,6 +7576,42 @@ static int   state, state_timer, frame_no;
 static unsigned char solid_grid[2][MH][MW];
 static int   dist_map[MH][MW];
 static short bqx[MW * MH], bqz[MW * MH];
+
+// ---------------- Jugadores (1 o 2, pantalla dividida) ----------------
+// Cada jugador guarda aqui su estado. Antes de actualizarlo o dibujarlo se copia a las
+// variables globales de siempre (player_load) y despues se guarda (player_save).
+#define PL_FLOATS(F) F(px) F(pz) F(yaw) F(foot_y) F(cam_y) F(pitch) F(cpitch) F(spitch) \
+    F(stamina) F(stam_delay) F(jump_h) F(jump_vy) F(crouch_f) F(walk_ph) F(walk_amp) \
+    F(step_imp) F(mon_thud) F(cam_rc) F(cam_rs) F(fx) F(fz) F(rx) F(rz) F(amb_r) F(light_flick)
+#define PL_INTS(F) F(exhausted) F(walk_step) F(crouched) F(cur_layer) F(climbing) F(climb_dir) \
+    F(last_ladder) F(flash_on) F(p_moving) F(p_near)
+typedef struct {
+#define F(n) float n;
+    PL_FLOATS(F)
+#undef F
+#define F(n) int n;
+    PL_INTS(F)
+#undef F
+} Player;
+static Player P[2];
+static int num_players = 1;     // 1 o 2
+static int pl_cur;              // jugador cargado ahora en las variables globales
+static int js_victim;           // quien recibio el jumpscare
+static int mon_foot_event;      // el monstruo acaba de dar un paso (sacude la camara de cada jugador)
+static int mon_target;          // a que jugador persigue el monstruo
+static void player_load(int i)
+{
+    pl_cur = i;
+#define F(n) n = P[i].n;
+    PL_FLOATS(F) PL_INTS(F)
+#undef F
+}
+static void player_save(int i)
+{
+#define F(n) P[i].n = n;
+    PL_FLOATS(F) PL_INTS(F)
+#undef F
+}
 
 // ---------------- Tipos de celda ----------------
 typedef struct {
@@ -7696,6 +7749,30 @@ static float clampf(float v, float lo, float hi) { return v < lo ? lo : (v > hi 
 
 // Alfa para la mezcla (si en tu emulador sale invertida, SELECT la voltea)
 static int ba(int a) { return blend_flip ? (128 - a) : a; }
+
+// ---------------- Vistas (pantalla completa / mitad de pantalla) ----------------
+static int scissor_dirty;
+static void clear_view(u64 col)
+{
+    if (!view_part) { (gsKit_clear)(gsGlobal, col); return; }        // pantalla completa: limpieza normal
+    gsKit_set_test(gsGlobal, GS_ZTEST_OFF);                           // media pantalla: rellena solo la vista
+    gsKit_prim_sprite(gsGlobal, 0.0f, 0.0f, W, H, 0, col);
+    gsKit_set_test(gsGlobal, GS_ZTEST_ON);
+}
+static void view_full(void)
+{
+    VX = 0.0f; VY = 0.0f; W = SW; H = SH; FOCAL = SW * 0.7f; view_part = 0;
+    if (scissor_dirty) {
+        gsKit_set_scissor(gsGlobal, MY_SCISSOR(0, (int)SW - 1, 0, (int)SH - 1));
+        scissor_dirty = 0;
+    }
+}
+static void view_set(float x, float y, float w, float h)
+{
+    VX = x; VY = y; W = w; H = h; FOCAL = SW * 0.62f; view_part = 1;
+    gsKit_set_scissor(gsGlobal, MY_SCISSOR((int)x, (int)(x + w) - 1, (int)y, (int)(y + h) - 1));
+    scissor_dirty = 1;
+}
 
 static V mk(float wx, float wy, float wz, const float *c, float emit)
 {
@@ -8401,10 +8478,7 @@ static void update_monster(float dt, int notes)
         int fs = (int)floorf(mon_phase / PI_F);
         if (fs != last_foot) {
             last_foot = fs;
-            float tdx = sx_ - px, tdz = sz_ - pz;
-            float td = sqrtf(tdx * tdx + tdz * tdz);
-            if (mlayer == cur_layer && mon_spd > 1.0f && td < 16.0f)
-                mon_thud = fmaxf(mon_thud, (1.0f - td / 16.0f) * (0.45f + 0.55f * mon_runf));
+            mon_foot_event = 1;                   // cada jugador lo recibe despues, segun su distancia
         }
     }
 }
@@ -8412,17 +8486,24 @@ static void update_monster(float dt, int notes)
 // ---------------- Reinicio ----------------
 static void reset_game(void)
 {
-    px = SPAWN_X; pz = SPAWN_Z; yaw = PI_F;
-    foot_y = 0.0f; cur_layer = 0; climbing = 0; last_ladder = 0;
     sx_ = MON_X; sz_ = MON_Z; mlayer = 0; mon_y = 0.0f; mon_wait = 0.0f;
     for (int i = 0; i < 3; i++) notes_got[i] = 0;
-    state = 0; state_timer = 0; flash_on = 1;
-    pitch = 0.0f; cpitch = 1.0f; spitch = 0.0f;
-    stamina = 1.0f; stam_delay = 0.0f; exhausted = 0; jump_h = 0.0f; jump_vy = 0.0f;
+    state = 0; state_timer = 0;
     mon_phase = 0.0f; mon_spd = 0.0f; mon_runf = 0.0f;
-    crouched = 0; crouch_f = 0.0f;
-    walk_ph = 0.0f; walk_amp = 0.0f; step_imp = 0.0f; walk_step = 0; mon_thud = 0.0f;
-    cam_rc = 1.0f; cam_rs = 0.0f;
+    mon_foot_event = 0; js_victim = 0; mon_target = 0;
+    for (int i = 0; i < 2; i++) {
+        px = SPAWN_X + (i ? 1.8f : 0.0f); pz = SPAWN_Z; yaw = PI_F;      // el jugador 2 aparece al lado
+        foot_y = 0.0f; cur_layer = 0; climbing = 0; climb_dir = 0; last_ladder = 0; flash_on = 1;
+        pitch = 0.0f; cpitch = 1.0f; spitch = 0.0f;
+        stamina = 1.0f; stam_delay = 0.0f; exhausted = 0; jump_h = 0.0f; jump_vy = 0.0f;
+        crouched = 0; crouch_f = 0.0f;
+        walk_ph = 0.0f; walk_amp = 0.0f; step_imp = 0.0f; walk_step = 0; mon_thud = 0.0f;
+        cam_rc = 1.0f; cam_rs = 0.0f; p_moving = 0; p_near = -1;
+        fx = sinf(yaw); fz = cosf(yaw); rx = cosf(yaw); rz = -sinf(yaw);
+        cam_y = EYE; amb_r = 22.0f; light_flick = 1.0f;
+        player_save(i);
+    }
+    player_load(0);
 }
 
 // ---------------- Sonido (todo sintetizado en codigo) ----------------
@@ -8614,6 +8695,7 @@ static void js_begin(void)
     js_dx = dx / len; js_dz = dz / len; js_yaw = atan2f(js_dx, js_dz);
     state = 1; state_timer = 150; js_t = 0;
     climbing = 0; crouched = 0; crouch_f = 0.0f; jump_h = 0.0f; jump_vy = 0.0f;
+    js_victim = pl_cur;
     yaw = js_yaw; flash_on = 1;
     sfx_play(SFX_SCREAM, 1.0f);
 }
@@ -8772,6 +8854,8 @@ static void render_game(float t, int moving, int near_ladder, int notes)
 
             draw_flashlight(t, moving);
 
+            if (num_players == 2)                          // quien es quien en pantalla dividida
+                draw_text_c(6.0f, pl_cur ? "J2" : "J1", 2, pl_cur ? GS_SETREG_RGBAQ(70, 150, 255, 0x80, 0) : GS_SETREG_RGBAQ(235, 40, 36, 0x80, 0));
             for (int i = 0; i < 3; i++) {                 // HUD: notas
                 u64 c = notes_got[i] ? GS_SETREG_RGBAQ(255, 230, 80, 0x80, 0)
                                      : GS_SETREG_RGBAQ(50, 50, 50, 0x80, 0);
@@ -8824,6 +8908,44 @@ static void menu_dim(void)       // oscurece la pantalla (fondo de pausa)
     gsGlobal->PrimAlphaEnable = GS_SETTING_OFF;
 }
 
+// Dibuja un cuadro de juego: pantalla completa (1 jugador) o dividida (2 jugadores)
+static void render_frame(float t, int paused)
+{
+    int notes = notes_got[0] + notes_got[1] + notes_got[2];
+    if (num_players < 2 || state != 0) {                 // 1 jugador, jumpscare o final: pantalla completa
+        int pi = (num_players == 2 && state == 1) ? js_victim : 0;
+        view_full();
+        player_load(pi);
+        render_game(t, paused ? 0 : p_moving, paused ? -1 : p_near, notes);
+        view_full();
+        return;
+    }
+    int hh = (int)(SH * 0.5f);                           // J1 arriba, J2 abajo
+    for (int i = 0; i < 2; i++) {
+        player_load(i);
+        if (i == 0) view_set(0.0f, 0.0f, SW, (float)(hh - 1));
+        else        view_set(0.0f, (float)(hh + 1), SW, SH - (float)(hh + 1));
+        render_game(t, paused ? 0 : p_moving, paused ? -1 : p_near, notes);
+    }
+    view_full();
+    gsKit_prim_sprite(gsGlobal, 0.0f, (float)(hh - 1), SW, (float)(hh + 1), 16777000, GS_SETREG_RGBAQ(0, 0, 0, 0x80, 0));   // linea divisoria
+}
+
+static int pad2_ready(void)                              // hay un control en el puerto 2?
+{
+    int s = padGetState(1, 0);
+    return s == PAD_STATE_STABLE || s == PAD_STATE_FINDCTP1;
+}
+static int pad2_warn;
+
+static void start_game(int players)
+{
+    num_players = players;
+    if (players == 2) padSetMainMode(1, 0, PAD_MMODE_DUALSHOCK, PAD_MMODE_LOCK);
+    reset_game();
+    screen = SC_PLAY;
+}
+
 static void menu_frame(u32 newp, float lv, int frame)
 {
     static int sprev = 0;
@@ -8833,7 +8955,8 @@ static void menu_frame(u32 newp, float lv, int frame)
     sprev = sdir;
     int ok = (newp & PAD_CROSS) != 0, back = (newp & PAD_CIRCLE) != 0;
     int lt = (newp & PAD_LEFT) != 0, rt = (newp & PAD_RIGHT) != 0;
-    int n = (screen == SC_OPT) ? 5 : ((screen == SC_PAUSE) ? 4 : 3);
+    int n = (screen == SC_OPT) ? 5 : 4;
+    if (pad2_warn > 0) pad2_warn--;
     int *sel = (screen == SC_OPT) ? &opt_sel : &menu_sel;
     if (up) { *sel = (*sel + n - 1) % n; sfx_play(SFX_CLICK, 0.5f); }
     if (dn) { *sel = (*sel + 1) % n; sfx_play(SFX_CLICK, 0.5f); }
@@ -8841,8 +8964,9 @@ static void menu_frame(u32 newp, float lv, int frame)
 
     if (screen == SC_MAIN) {
         if (ok) {
-            if (*sel == 0) { reset_game(); screen = SC_PLAY; }
-            else if (*sel == 1) { opt_from = SC_MAIN; screen = SC_OPT; opt_sel = 0; }
+            if (*sel == 0) start_game(1);
+            else if (*sel == 1) { if (pad2_ready()) start_game(2); else pad2_warn = 150; }
+            else if (*sel == 2) { opt_from = SC_MAIN; screen = SC_OPT; opt_sel = 0; }
             else Exit(0);
         }
     } else if (screen == SC_PAUSE) {
@@ -8866,7 +8990,7 @@ static void menu_frame(u32 newp, float lv, int frame)
 
     // ---- dibujo ----
     if (screen == SC_MAIN || (screen == SC_OPT && opt_from == SC_MAIN)) menu_bg_main();
-    else { render_game(last_t, 0, -1, last_notes); menu_dim(); }
+    else { render_frame(last_t, 1); menu_dim(); }
 
     u64 sel_c = GS_SETREG_RGBAQ(255, 230, 90, 0x80, 0), norm_c = GS_SETREG_RGBAQ(170, 170, 175, 0x80, 0);
     u64 hint_c = GS_SETREG_RGBAQ(120, 120, 130, 0x80, 0);
@@ -8875,11 +8999,12 @@ static void menu_frame(u32 newp, float lv, int frame)
     static char line[48];
     if (screen == SC_MAIN) {
         draw_text_c(50.0f, "HORROR BETA", 6, title_c);
-        static const char *it[3] = { "JUGAR", "OPCIONES", "SALIR" };
-        for (int i = 0; i < 3; i++) {
+        static const char *it[4] = { "1 JUGADOR", "2 JUGADORES", "OPCIONES", "SALIR" };
+        for (int i = 0; i < 4; i++) {
             snprintf(line, sizeof(line), i == menu_sel ? "> %s <" : "%s", it[i]);
-            draw_text_c(190.0f + i * 44.0f, line, 3, i == menu_sel ? sel_c : norm_c);
+            draw_text_c(170.0f + i * 42.0f, line, 3, i == menu_sel ? sel_c : norm_c);
         }
+        if (pad2_warn > 0) draw_text_c(H - 110.0f, "CONECTA EL CONTROL 2", 2, GS_SETREG_RGBAQ(220, 90, 60, 0x80, 0));
     } else if (screen == SC_PAUSE) {
         draw_text_c(60.0f, "PAUSA", 6, sel_c);
         static const char *it[4] = { "REANUDAR", "REINICIAR", "OPCIONES", "MENU PRINCIPAL" };
@@ -8913,6 +9038,197 @@ static void menu_frame(u32 newp, float lv, int frame)
     draw_text(W - 40.0f, 26.0f, "V7", 2, hint_c);
 }
 
+// ---------------- Controles (2 puertos) ----------------
+typedef struct { u32 pd, np, old; float fwd, str, turn, look, mag, lv; } PadIn;
+static PadIn pin[2];
+static struct padButtonStatus padst[2];
+
+static void pad_neutral(int port)
+{
+    memset(&padst[port], 0, sizeof(padst[port]));
+    padst[port].ljoy_h = padst[port].ljoy_v = padst[port].rjoy_h = padst[port].rjoy_v = 128;
+    memset(&pin[port], 0, sizeof(pin[port]));
+}
+
+static void pad_poll(int port)
+{
+    PadIn *p = &pin[port];
+    struct padButtonStatus *pad = &padst[port];
+    p->np = 0;
+    if (port == 1 && !pad2_ready()) { pad_neutral(1); return; }        // control 2 desconectado: quieto
+    if (padRead(port, 0, pad)) {
+        p->pd = 0xffff ^ pad->btns;
+        p->np = p->pd & ~p->old;
+        p->old = p->pd;
+    }
+    float lh = (pad->ljoy_h - 128) / 128.0f, lv = (pad->ljoy_v - 128) / 128.0f;
+    float rh = (pad->rjoy_h - 128) / 128.0f, rv = (pad->rjoy_v - 128) / 128.0f;
+    float mag = sqrtf(lh * lh + lv * lv);
+    p->fwd = p->str = p->turn = p->look = 0.0f;
+    if (mag > 0.2f) { p->fwd = -lv / mag; p->str = lh / mag; }         // direccion (unitaria)
+    if (mag > 1.0f) mag = 1.0f;
+    if (fabsf(rh) > 0.2f) p->turn = rh;
+    if (fabsf(rv) > 0.2f) p->look = -rv;                               // arriba en el stick = mirar arriba
+    if (p->pd & PAD_RIGHT) p->turn = 0.7f;
+    if (p->pd & PAD_LEFT)  p->turn = -0.7f;
+    if (p->pd & PAD_UP)    p->look = 0.7f;
+    if (p->pd & PAD_DOWN)  p->look = -0.7f;
+    p->mag = mag; p->lv = lv;
+}
+
+// ---------------- Un jugador: movimiento (el codigo de siempre, ahora por jugador) ----------------
+static void player_move(float dt, float t, const PadIn *in)
+{
+    float fwd = in->fwd, str = in->str, turn = in->turn, look = in->look, mag = in->mag;
+    u32 newp = in->np;
+    int near_ladder = -1;
+    if (newp & PAD_L1) { flash_on = !flash_on; sfx_play(SFX_CLICK, 0.8f); }
+    fx = sinf(yaw); fz = cosf(yaw);
+    rx = cosf(yaw); rz = -sinf(yaw);
+
+    yaw += turn * 2.4f * dt;
+    pitch = clampf(pitch + look * 1.7f * dt, -1.2217f, 1.3963f);   // -70 / +80 grados
+    cpitch = cosf(pitch); spitch = sinf(pitch);
+    step_imp -= step_imp * clampf(dt * 12.0f, 0.0f, 1.0f);         // la pisada se disipa rapido
+    mon_thud -= mon_thud * clampf(dt * 7.0f, 0.0f, 1.0f);
+    if (newp & PAD_CIRCLE) crouched = !crouched;                   // agacharse (alternar)
+    crouch_f += ((crouched ? 1.0f : 0.0f) - crouch_f) * clampf(dt * 8.0f, 0.0f, 1.0f);
+    if (!climbing) {
+        // velocidad segun cuanto empujes el stick; al tope = correr (gasta estamina)
+        float speed = 0.0f;
+        int running = 0;
+        if (mag > 0.2f) {
+            float a = (mag - 0.2f) / 0.7f;
+            if (a > 1.0f) a = 1.0f;
+            speed = 0.8f + 2.0f * a;                       // 0.8 .. 2.8 m/s
+            if (mag > 0.97f && !exhausted && stamina > 0.0f && !crouched) { running = 1; speed = 5.2f; }
+        }
+        if (crouched && speed > 1.5f) speed = 1.5f;        // agachado: lento
+        if (exhausted && speed > 2.0f) speed = 2.0f;       // cansado
+        float mx = (fx * fwd + rx * str) * speed * dt;
+        float mz = (fz * fwd + rz * str) * speed * dt;
+        float ox = px, oz = pz;
+        if (!blocked(px + mx, pz, 0.35f)) px += mx;
+        if (!blocked(px, pz + mz, 0.35f)) pz += mz;
+        float moved = sqrtf((px - ox) * (px - ox) + (pz - oz) * (pz - oz));
+        float tgt = 0.0f;                                    // intensidad del balanceo al andar
+        if (jump_h <= 0.0f && moved > 0.0f) {                // pasos: camara, mano y sonido van a la par
+            float stride = running ? 1.5f : (crouched ? 0.9f : 1.25f);   // metros por paso
+            walk_ph += moved / stride * PI_F;                // pi = un paso
+            int sn = (int)(walk_ph / PI_F);
+            if (sn != walk_step) {
+                walk_step = sn;
+                step_imp = running ? 1.0f : (crouched ? 0.35f : 0.65f); // golpe de la pisada
+                play_step(running ? 1.0f : (crouched ? 0.3f : 0.65f));
+            }
+            tgt = running ? 1.0f : (crouched ? 0.35f : clampf(0.3f + 0.12f * moved / dt, 0.3f, 0.65f));
+        }
+        walk_amp += (tgt - walk_amp) * clampf(dt * (tgt > walk_amp ? 10.0f : 6.0f), 0.0f, 1.0f);
+        if (running && moved > speed * dt * 0.5f) {        // solo gasta si de verdad corres
+            stamina -= 0.07f * dt; stam_delay = 0.5f;          // ~14 s corriendo
+            if (stamina <= 0.0f) { stamina = 0.0f; exhausted = 1; }
+        } else if (stam_delay > 0.0f) stam_delay -= dt;
+        else {
+            stamina += (crouched ? 0.45f : 0.34f) * dt;       // se recupera en ~3 s
+            if (stamina > 1.0f) stamina = 1.0f;
+            if (exhausted && stamina >= 0.20f) exhausted = 0;
+        }
+        for (int i = 0; i < NMH; i++) {
+            float cx = (manholes[i][0] + 0.5f) * CS, cz = (manholes[i][1] + 0.5f) * CS;
+            float ex = px - cx, ez = pz - cz;
+            int ok = cur_layer == 0 ? (foot_y > -0.01f) : (foot_y < SEWER_Y + 0.01f);
+            if (ok && ex * ex + ez * ez < 2.4f * 2.4f) near_ladder = i;
+        }
+        if (near_ladder >= 0 && jump_h <= 0.0f && (newp & PAD_CROSS)) {
+            climbing = 1; climb_dir = cur_layer ? 1 : -1; last_ladder = near_ladder;
+            jump_h = 0.0f; jump_vy = 0.0f; crouched = 0; crouch_f = 0.0f;
+            px = (manholes[near_ladder][0] + 0.5f) * CS;
+            pz = (manholes[near_ladder][1] + 0.5f) * CS - 0.25f;
+            yaw = 0.0f;
+        } else if ((newp & PAD_CROSS) && crouched) {
+            crouched = 0;                                    // X tambien te levanta
+        } else if ((newp & PAD_CROSS) && jump_h <= 0.0f && stamina >= 0.05f) {
+            jump_vy = 4.6f; jump_h = 0.001f; stamina -= 0.05f; stam_delay = 0.5f;   // salto
+        }
+        if (jump_h > 0.0f) {
+            jump_vy -= 12.0f * dt; jump_h += jump_vy * dt;
+            if (jump_h <= 0.0f) { jump_h = 0.0f; jump_vy = 0.0f; play_step(0.9f); step_imp = 1.0f; }   // aterrizaje
+        }
+    } else {                                    // subiendo / bajando por la escalera
+        walk_amp -= walk_amp * clampf(dt * 8.0f, 0.0f, 1.0f);
+        float spd = 1.7f * dt;
+        float cx = (manholes[last_ladder][0] + 0.5f) * CS, cz = (manholes[last_ladder][1] + 0.5f) * CS;
+        if (climb_dir < 0) {
+            foot_y -= spd;
+            if (foot_y <= SEWER_Y) { foot_y = SEWER_Y; cur_layer = 1; climbing = 0; px = cx; pz = cz - 1.4f; }
+        } else {
+            foot_y += spd;
+            if (foot_y >= 0.0f) { foot_y = 0.0f; cur_layer = 0; climbing = 0; px = cx; pz = cz - 1.4f; }
+        }
+    }
+    float flick = 0.85f + 0.15f * sinf(t * 13.0f) * sinf(t * 7.3f);
+    if ((frame_no / 6) % 41 == 0) flick = 0.35f;
+    amb_r = 22.0f * flick * gfx_reach[gfx];
+    light_flick = flick;
+    p_moving = (fwd != 0.0f || str != 0.0f);
+    p_near = near_ladder;
+}
+
+// Despues de mover al monstruo: pisadas, garras, notas y salida (por jugador)
+static void player_post(int notes)
+{
+    if (mon_foot_event) {                                   // cada apoyo del monstruo sacude la camara si esta cerca
+        float tdx = sx_ - px, tdz = sz_ - pz;
+        float td = sqrtf(tdx * tdx + tdz * tdz);
+        if (mlayer == cur_layer && mon_spd > 1.0f && td < 16.0f)
+            mon_thud = fmaxf(mon_thud, (1.0f - td / 16.0f) * (0.45f + 0.55f * mon_runf));
+    }
+    float ddx = sx_ - px, ddz = sz_ - pz;
+    if (mlayer == cur_layer && !climbing && ddx * ddx + ddz * ddz < 3.6f) { js_begin(); return; }   // alcance de sus garras (1.9 m)
+    for (int i = 0; i < 3; i++) {
+        if (notes_got[i] || (int)notes_pos[i][3] != cur_layer || climbing) continue;
+        float ax = notes_pos[i][0] - px, az = notes_pos[i][1] - pz;
+        if (ax * ax + az * az < 1.7f) notes_got[i] = 1;
+    }
+    if (notes == 3 && cur_layer == 0) {
+        float ex = EXIT_X - px, ez = EXIT_Z - pz;
+        if (ex * ex + ez * ez < 2.5f * 2.5f) { state = 2; state_timer = 240; }
+    }
+}
+
+// Camara final del frame, con el balanceo del andar (cada paso se siente) y las pisadas del monstruo
+static void player_camera(float t)
+{
+    float cyaw = yaw, cpt = pitch, bob_y = 0.0f, roll = 0.0f;
+    if (state == 0) {
+        float wa = walk_amp, ps = sinf(walk_ph);
+        bob_y = 0.065f * wa * (fabsf(ps) - 0.64f)             // sube y baja, lo mas bajo al pisar
+              - 0.035f * step_imp - 0.07f * mon_thud          // golpe de la pisada / del monstruo
+              + 0.004f * sinf(t * 1.7f) * (1.0f - wa);        // respiracion
+        cyaw += 0.010f * wa * ps;                             // vaiven lateral
+        roll  = 0.014f * wa * ps + 0.010f * mon_thud * cosf(mon_phase);
+        cpt  += -0.022f * step_imp - 0.035f * mon_thud + 0.006f * wa * cosf(2.0f * walk_ph);   // cabeceo
+    }
+    fx = sinf(cyaw); fz = cosf(cyaw); rx = cosf(cyaw); rz = -sinf(cyaw);
+    cpitch = cosf(cpt); spitch = sinf(cpt);
+    cam_rc = cosf(roll); cam_rs = sinf(roll);
+    cam_y = foot_y + jump_h + EYE - 0.65f * crouch_f + bob_y;
+}
+
+// A cual jugador persigue el monstruo: al mas cercano (con un margen para que no cambie de idea a cada rato)
+static int pick_target(void)
+{
+    if (num_players < 2) return 0;
+    float d[2];
+    for (int i = 0; i < 2; i++) {
+        float dx = P[i].px - sx_, dz = P[i].pz - sz_;
+        d[i] = sqrtf(dx * dx + dz * dz) + (P[i].cur_layer != mlayer ? 400.0f : 0.0f);
+    }
+    int other = 1 - mon_target;
+    if (d[other] + 3.0f < d[mon_target]) mon_target = other;
+    return mon_target;
+}
+
 // ---------------- Main ----------------
 int main(void)
 {
@@ -8922,6 +9238,7 @@ int main(void)
 
     padInit(0);
     padPortOpen(0, 0, padBuf);
+    padPortOpen(1, 0, padBuf2);
     while (padGetState(0, 0) != PAD_STATE_STABLE &&
            padGetState(0, 0) != PAD_STATE_FINDCTP1) ;
     padSetMainMode(0, 0, PAD_MMODE_DUALSHOCK, PAD_MMODE_LOCK);
@@ -8944,6 +9261,7 @@ int main(void)
     W = (float)gsGlobal->Width;
     H = (float)gsGlobal->Height;
     FOCAL = W * 0.7f;
+    SW = W; SH = H;
 
     gsKit_clear(gsGlobal, SKY);                      // primer cuadro: asi nunca ves pantalla negra
     draw_text_c(H * 0.5f - 10.0f, "CARGANDO...", 3, GS_SETREG_RGBAQ(200, 200, 205, 0x80, 0));
@@ -8957,10 +9275,7 @@ int main(void)
     screen = SC_PLAY;                          // las pruebas saltan el menu
 #endif
 
-    struct padButtonStatus pad;
-    memset(&pad, 0, sizeof(pad));
-    pad.ljoy_h = pad.ljoy_v = pad.rjoy_h = pad.rjoy_v = 128;
-    u32 paddata = 0, old_pad = 0;
+    pad_neutral(0); pad_neutral(1);
     const float dt = 1.0f / 60.0f;
 
     while (1) {
@@ -8971,162 +9286,56 @@ int main(void)
         if (frame_no >= HEADLESS_FRAMES) break;
         HEADLESS_HOOK();
 #endif
-        float fwd = 0, str = 0, turn = 0, look = 0, mag = 0;
-        u32 newp = 0;
-        if (padRead(0, 0, &pad)) {
-            paddata = 0xffff ^ pad.btns;
-            newp = paddata & ~old_pad;
-            old_pad = paddata;
-            if ((newp & PAD_L1) && screen == SC_PLAY && state == 0) { flash_on = !flash_on; sfx_play(SFX_CLICK, 0.8f); }
-            if ((newp & PAD_START) && screen == SC_PLAY && state == 0) { screen = SC_PAUSE; menu_sel = 0; newp = 0; }
-            if (newp & PAD_SELECT) blend_flip = !blend_flip;
+        int use2 = (num_players == 2) && (screen == SC_PLAY || screen == SC_PAUSE);
+        pad_poll(0);
+        if (use2) pad_poll(1);
+        for (int k = 0; k < (use2 ? 2 : 1); k++) {
+            if ((pin[k].np & PAD_START) && screen == SC_PLAY && state == 0) { screen = SC_PAUSE; menu_sel = 0; pin[k].np = 0; }
+            if (pin[k].np & PAD_SELECT) blend_flip = !blend_flip;
         }
-        float lh = (pad.ljoy_h - 128) / 128.0f, lv = (pad.ljoy_v - 128) / 128.0f;
-        float rh = (pad.rjoy_h - 128) / 128.0f, rv = (pad.rjoy_v - 128) / 128.0f;
-        mag = sqrtf(lh * lh + lv * lv);
-        if (mag > 0.2f) { fwd = -lv / mag; str = lh / mag; }     // direccion (unitaria)
-        if (mag > 1.0f) mag = 1.0f;
-        if (fabsf(rh) > 0.2f) turn = rh;
-        if (fabsf(rv) > 0.2f) look = -rv;                        // arriba en el stick = mirar arriba
-        if (paddata & PAD_RIGHT) turn = 0.7f;
-        if (paddata & PAD_LEFT)  turn = -0.7f;
-        if (paddata & PAD_UP)    look = 0.7f;
-        if (paddata & PAD_DOWN)  look = -0.7f;
 
         if (screen != SC_PLAY) {                       // menus (principal / opciones / pausa)
-            menu_frame(newp, lv, frame_no);
+            u32 mnp = pin[0].np | (use2 ? pin[1].np : 0);
+            float mlv = pin[0].lv;
+            if (use2 && fabsf(pin[1].lv) > fabsf(mlv)) mlv = pin[1].lv;
+            menu_frame(mnp, mlv, frame_no);
             audio_update();
             gsKit_queue_exec(gsGlobal);
             gsKit_sync_flip(gsGlobal);
             continue;
         }
 
-        fx = sinf(yaw); fz = cosf(yaw);
-        rx = cosf(yaw); rz = -sinf(yaw);
-
         int notes = notes_got[0] + notes_got[1] + notes_got[2];
-        int near_ladder = -1;
         if (state == 0) {
-            yaw += turn * 2.4f * dt;
-            pitch = clampf(pitch + look * 1.7f * dt, -1.2217f, 1.3963f);   // -70 / +80 grados
-            cpitch = cosf(pitch); spitch = sinf(pitch);
-            step_imp -= step_imp * clampf(dt * 12.0f, 0.0f, 1.0f);         // la pisada se disipa rapido
-            mon_thud -= mon_thud * clampf(dt * 7.0f, 0.0f, 1.0f);
-            if (newp & PAD_CIRCLE) crouched = !crouched;                   // agacharse (alternar)
-            crouch_f += ((crouched ? 1.0f : 0.0f) - crouch_f) * clampf(dt * 8.0f, 0.0f, 1.0f);
-            if (!climbing) {
-                // velocidad segun cuanto empujes el stick; al tope = correr (gasta estamina)
-                float speed = 0.0f;
-                int running = 0;
-                if (mag > 0.2f) {
-                    float a = (mag - 0.2f) / 0.7f;
-                    if (a > 1.0f) a = 1.0f;
-                    speed = 0.8f + 2.0f * a;                       // 0.8 .. 2.8 m/s
-                    if (mag > 0.97f && !exhausted && stamina > 0.0f && !crouched) { running = 1; speed = 5.2f; }
-                }
-                if (crouched && speed > 1.5f) speed = 1.5f;        // agachado: lento
-                if (exhausted && speed > 2.0f) speed = 2.0f;       // cansado
-                float mx = (fx * fwd + rx * str) * speed * dt;
-                float mz = (fz * fwd + rz * str) * speed * dt;
-                float ox = px, oz = pz;
-                if (!blocked(px + mx, pz, 0.35f)) px += mx;
-                if (!blocked(px, pz + mz, 0.35f)) pz += mz;
-                float moved = sqrtf((px - ox) * (px - ox) + (pz - oz) * (pz - oz));
-                float tgt = 0.0f;                                    // intensidad del balanceo al andar
-                if (jump_h <= 0.0f && moved > 0.0f) {                // pasos: camara, mano y sonido van a la par
-                    float stride = running ? 1.5f : (crouched ? 0.9f : 1.25f);   // metros por paso
-                    walk_ph += moved / stride * PI_F;                // pi = un paso
-                    int sn = (int)(walk_ph / PI_F);
-                    if (sn != walk_step) {
-                        walk_step = sn;
-                        step_imp = running ? 1.0f : (crouched ? 0.35f : 0.65f); // golpe de la pisada
-                        play_step(running ? 1.0f : (crouched ? 0.3f : 0.65f));
-                    }
-                    tgt = running ? 1.0f : (crouched ? 0.35f : clampf(0.3f + 0.12f * moved / dt, 0.3f, 0.65f));
-                }
-                walk_amp += (tgt - walk_amp) * clampf(dt * (tgt > walk_amp ? 10.0f : 6.0f), 0.0f, 1.0f);
-                if (running && moved > speed * dt * 0.5f) {        // solo gasta si de verdad corres
-                    stamina -= 0.07f * dt; stam_delay = 0.5f;          // ~14 s corriendo
-                    if (stamina <= 0.0f) { stamina = 0.0f; exhausted = 1; }
-                } else if (stam_delay > 0.0f) stam_delay -= dt;
-                else {
-                    stamina += (crouched ? 0.45f : 0.34f) * dt;       // se recupera en ~3 s
-                    if (stamina > 1.0f) stamina = 1.0f;
-                    if (exhausted && stamina >= 0.20f) exhausted = 0;
-                }
-                for (int i = 0; i < NMH; i++) {
-                    float cx = (manholes[i][0] + 0.5f) * CS, cz = (manholes[i][1] + 0.5f) * CS;
-                    float ex = px - cx, ez = pz - cz;
-                    int ok = cur_layer == 0 ? (foot_y > -0.01f) : (foot_y < SEWER_Y + 0.01f);
-                    if (ok && ex * ex + ez * ez < 2.4f * 2.4f) near_ladder = i;
-                }
-                if (near_ladder >= 0 && jump_h <= 0.0f && (newp & PAD_CROSS)) {
-                    climbing = 1; climb_dir = cur_layer ? 1 : -1; last_ladder = near_ladder;
-                    jump_h = 0.0f; jump_vy = 0.0f; crouched = 0; crouch_f = 0.0f;
-                    px = (manholes[near_ladder][0] + 0.5f) * CS;
-                    pz = (manholes[near_ladder][1] + 0.5f) * CS - 0.25f;
-                    yaw = 0.0f;
-                } else if ((newp & PAD_CROSS) && crouched) {
-                    crouched = 0;                                    // X tambien te levanta
-                } else if ((newp & PAD_CROSS) && jump_h <= 0.0f && stamina >= 0.05f) {
-                    jump_vy = 4.6f; jump_h = 0.001f; stamina -= 0.05f; stam_delay = 0.5f;   // salto
-                }
-                if (jump_h > 0.0f) {
-                    jump_vy -= 12.0f * dt; jump_h += jump_vy * dt;
-                    if (jump_h <= 0.0f) { jump_h = 0.0f; jump_vy = 0.0f; play_step(0.9f); step_imp = 1.0f; }   // aterrizaje
-                }
-            } else {                                    // subiendo / bajando por la escalera
-                walk_amp -= walk_amp * clampf(dt * 8.0f, 0.0f, 1.0f);
-                float spd = 1.7f * dt;
-                float cx = (manholes[last_ladder][0] + 0.5f) * CS, cz = (manholes[last_ladder][1] + 0.5f) * CS;
-                if (climb_dir < 0) {
-                    foot_y -= spd;
-                    if (foot_y <= SEWER_Y) { foot_y = SEWER_Y; cur_layer = 1; climbing = 0; px = cx; pz = cz - 1.4f; }
-                } else {
-                    foot_y += spd;
-                    if (foot_y >= 0.0f) { foot_y = 0.0f; cur_layer = 0; climbing = 0; px = cx; pz = cz - 1.4f; }
-                }
+            for (int i = 0; i < num_players; i++) {          // mover a cada jugador
+                player_load(i);
+                player_move(dt, t, &pin[i]);
+                player_save(i);
             }
-            float flick = 0.85f + 0.15f * sinf(t * 13.0f) * sinf(t * 7.3f);
-            if ((frame_no / 6) % 41 == 0) flick = 0.35f;
-            amb_r = 22.0f * flick * gfx_reach[gfx];
-            light_flick = flick;
-
+            int tg = pick_target();                          // el monstruo va a por uno
+            player_load(tg);
             update_monster(dt, notes);
-            float ddx = sx_ - px, ddz = sz_ - pz;
-            if (mlayer == cur_layer && !climbing && ddx * ddx + ddz * ddz < 3.6f) js_begin();   // alcance de sus garras (1.9 m)
-
-            for (int i = 0; i < 3; i++) {
-                if (notes_got[i] || (int)notes_pos[i][3] != cur_layer || climbing) continue;
-                float ax = notes_pos[i][0] - px, az = notes_pos[i][1] - pz;
-                if (ax * ax + az * az < 1.7f) notes_got[i] = 1;
+            player_save(tg);
+            for (int i = 0; i < num_players && state == 0; i++) {
+                player_load(i);
+                player_post(notes);
+                player_save(i);
             }
-            if (notes == 3 && cur_layer == 0) {
-                float ex = EXIT_X - px, ez = EXIT_Z - pz;
-                if (ex * ex + ez * ez < 2.5f * 2.5f) { state = 2; state_timer = 240; }
-            }
+            mon_foot_event = 0;
         } else if (state == 1) {
-            js_update();
+            player_load(js_victim); js_update(); player_save(js_victim);
             if (--state_timer <= 0) reset_game();
         } else if (--state_timer <= 0) reset_game();
-        // camara final del frame, con el balanceo del andar (cada paso se siente) y las pisadas del monstruo
-        float cyaw = yaw, cpt = pitch, bob_y = 0.0f, roll = 0.0f;
-        if (state == 0) {
-            float wa = walk_amp, ps = sinf(walk_ph);
-            bob_y = 0.065f * wa * (fabsf(ps) - 0.64f)             // sube y baja, lo mas bajo al pisar
-                  - 0.035f * step_imp - 0.07f * mon_thud          // golpe de la pisada / del monstruo
-                  + 0.004f * sinf(t * 1.7f) * (1.0f - wa);        // respiracion
-            cyaw += 0.010f * wa * ps;                             // vaiven lateral
-            roll  = 0.014f * wa * ps + 0.010f * mon_thud * cosf(mon_phase);
-            cpt  += -0.022f * step_imp - 0.035f * mon_thud + 0.006f * wa * cosf(2.0f * walk_ph);   // cabeceo
-        }
-        fx = sinf(cyaw); fz = cosf(cyaw); rx = cosf(cyaw); rz = -sinf(cyaw);
-        cpitch = cosf(cpt); spitch = sinf(cpt);
-        cam_rc = cosf(roll); cam_rs = sinf(roll);
-        cam_y = foot_y + jump_h + EYE - 0.65f * crouch_f + bob_y;
 
-        last_t = t; last_moving = (fwd != 0.0f || str != 0.0f); last_near = near_ladder; last_notes = notes;
-        render_game(t, last_moving, near_ladder, notes);
+        for (int i = 0; i < num_players; i++) {              // camara de cada jugador
+            player_load(i);
+            player_camera(t);
+            player_save(i);
+        }
+        player_load(0);
+        last_t = t; last_moving = p_moving; last_near = p_near; last_notes = notes_got[0] + notes_got[1] + notes_got[2];
+        render_frame(t, 0);
+        view_full();
         fps_draw();
         draw_text(W - 40.0f, 26.0f, "V7", 2, GS_SETREG_RGBAQ(120, 120, 130, 0x80, 0));
         audio_update();
