@@ -1,6 +1,6 @@
 /* 
  * HORROR BETA 0.4 - BOSQUE 
- * PS2 Homebrew Game Source Code - PS2SDK / gsKit Fixed Version
+ * PS2 Homebrew Game Source Code - Fixed for GitHub Actions & PS2SDK
  */
 
 #include <stdio.h>
@@ -43,9 +43,7 @@ typedef struct {
     int key_id;
 } Prop;
 
-static const char map0[] = "MAPA_BOSQUE_01";
-static const char map1[] = "MAPA_BOSQUE_02";
-
+/* Vértices y datos 3D del modelo de monstruo */
 static const float mon_v[] = {
     -0.5f, 0.0f, -0.5f,  0.5f, 0.0f, -0.5f,  0.5f, 2.0f, -0.5f, -0.5f, 2.0f, -0.5f,
     -0.5f, 0.0f,  0.5f,  0.5f, 0.0f,  0.5f,  0.5f, 2.0f,  0.5f, -0.5f, 2.0f,  0.5f
@@ -56,6 +54,7 @@ static const int mon_t[] = {
     0, 4, 7,  0, 7, 3,  1, 5, 6,  1, 6, 2
 };
 
+/* Vértices del modelo de jugador/prop */
 static const float vm_v[] = {
     -0.2f, 0.0f, -0.2f,  0.2f, 0.0f, -0.2f,  0.2f, 1.7f, -0.2f, -0.2f, 1.7f, -0.2f
 };
@@ -64,6 +63,7 @@ static const int vm_t[] = {
     0, 1, 2,  0, 2, 3
 };
 
+/* Props / Objetos en el mapa */
 static Prop props[] = {
     {{ 10.0f, 0.0f,  5.0f}, 1, 1, 1, 101},
     {{-15.0f, 0.0f, -12.0f}, 2, 1, 0, 0},
@@ -143,4 +143,9 @@ void update_player_input(int pad_num) {
 }
 
 void render_scene(void) {
+    (void)mon_v;
+    (void)mon_t;
+    (void)vm_v;
+    (void)vm_t;
+    (void)props;
 }
