@@ -7507,7 +7507,10 @@ static const Beacon beacons[NBC] = {
   {56.200f,1.300f,54.300f,0.350f,255,210,120,95,0.000f,36.000f,0,1},
   {59.800f,1.300f,54.300f,0.350f,255,210,120,95,0.000f,36.000f,0,1},
 };
-static const float notes_pos[3][4] = {{58.000f,257.000f,0.900f,0.000f},{342.000f,70.000f,0.900f,0.000f},{243.500f,105.500f,-6.100f,1.000f}};
+// Llaves en el piso: x, z, altura del piso, capa. (La de la cabana y la de la cueva estaban sobre un mueble: ahora
+// quedan en el suelo junto a el.)
+static const float notes_pos[3][4] = {{58.000f,258.800f,0.000f,0.000f},{342.000f,72.000f,0.000f,0.000f},{243.500f,105.500f,-7.000f,1.000f}};
+static const float key_ang[3] = { 0.35f, 2.20f, 4.00f };   // hacia donde apunta cada llave en el suelo
 #define NMH 2
 static const int manholes[NMH][2] = {{34,48},{72,64}};
 #define SPAWN_X 194.000f
@@ -8627,7 +8630,7 @@ static void draw_glows(float t)
     for (int i = 0; i < 3; i++) {
         if (notes_got[i] || (int)notes_pos[i][3] != cur_layer) continue;
         if (los_to(notes_pos[i][0], notes_pos[i][1], 0.0f))
-            draw_glow(notes_pos[i][0], notes_pos[i][2] + 0.15f, notes_pos[i][1], 0.28f, 255, 230, 80, 95);
+            draw_glow(notes_pos[i][0], notes_pos[i][2] + 0.18f, notes_pos[i][1], 0.28f, 255, 230, 80, 95);
     }
     if (got == 3 && cur_layer == 0 && los_to(EXIT_X, EXIT_Z, 0.0f))
         draw_glow(EXIT_X, 1.5f, EXIT_Z, 0.7f, 80, 255, 120, 95);
@@ -9057,6 +9060,34 @@ static void fps_draw(void)
 }
 
 // Dibuja todo el juego (usado tambien como fondo de la pausa)
+// ---------------- Llave 3D tirada en el piso ----------------
+// Una llave de verdad, acostada en el suelo (sin flotar ni girar): argolla octagonal con hueco, cuello,
+// caña larga y dos dientes. Todo son cajas rotadas, asi que usa la misma luz que el resto del nivel.
+static void key_part(float cx, float cz, float a, float lx, float lz, float da,
+                     float hx, float hz, float y0, float y1, const float *col, float em)
+{
+    float s = sinf(a), c = cosf(a);
+    box_rot(cx + lx * c + lz * s, cz - lx * s + lz * c, a + da, 0.0f, 0.0f, hx, hz, y0, y1, col, em);
+}
+
+static void draw_key(float x, float z, float fy, float a)
+{
+    static const float gold[3] = { 236.f, 188.f, 52.f };
+    static const float dark[3] = { 196.f, 146.f, 34.f };
+    const float em = 0.32f;
+    const float y0 = fy + 0.015f, y1 = fy + 0.095f;
+    const float R = 0.15f;                                    // radio medio de la argolla
+    for (int k = 0; k < 8; k++) {                             // argolla: 8 barras formando un octagono con hueco
+        float ang = k * (PI_F / 4.0f);
+        key_part(x, z, a, -0.42f + R * cosf(ang), R * sinf(ang), -(ang + PI_F * 0.5f),
+                 0.068f, 0.040f, y0, y1, gold, em);
+    }
+    key_part(x, z, a, -0.22f, 0.0f, 0.0f, 0.030f, 0.075f, y0, y1 + 0.012f, dark, em);   // cuello
+    key_part(x, z, a,  0.18f, 0.0f, 0.0f, 0.400f, 0.032f, y0, y1, gold, em);            // caña
+    key_part(x, z, a,  0.50f, 0.080f, 0.0f, 0.050f, 0.050f, y0, y1, dark, em);          // dientes
+    key_part(x, z, a,  0.37f, 0.070f, 0.0f, 0.040f, 0.040f, y0, y1, dark, em);
+}
+
 static void render_game(float t, int moving, int near_ladder, int notes)
 {
         if (state == 1) {                                  // JUMPSCARE
@@ -9076,11 +9107,10 @@ static void render_game(float t, int moving, int near_ladder, int notes)
             draw_props(t);
             draw_shafts();
 
-            float ycol[3] = { 255.f, 230.f, 80.f };
             for (int i = 0; i < 3; i++) {
                 if (notes_got[i] || (int)notes_pos[i][3] != cur_layer) continue;
-                float by = notes_pos[i][2] - 0.05f + 0.06f * sinf(t * 3.0f + i);
-                box_rot(notes_pos[i][0], notes_pos[i][1], t, 0, 0, 0.18f, 0.18f, by, by + 0.3f, ycol, 0.6f);
+                if (in_view(notes_pos[i][0], notes_pos[i][1], 0.8f, gfx_pd[gfx]))
+                    draw_key(notes_pos[i][0], notes_pos[i][1], notes_pos[i][2], key_ang[i]);
             }
             if (notes == 3 && cur_layer == 0) {
                 float gcol[3] = { 80.f, 255.f, 120.f };
