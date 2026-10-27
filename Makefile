@@ -2,7 +2,8 @@
 EE_BIN = horror_beta.elf
 EE_OBJS = main.o
 
-NET ?= 1
+# Desactivar temporalmente la red para evitar errores de enlace con ps2ip/netman si no están instalados por defecto
+NET ?= 0
 ifeq ($(NET),1)
 EE_CFLAGS += -DNET_ENABLED
 endif
@@ -14,9 +15,6 @@ EE_LIBS = -lgsKit -ldmadkit -lgskit_toolkit -laudsrv -lpad -lm -lc
 ifeq ($(NET),1)
 EE_LIBS += -lps2ip -lnetman
 endif
-
-EE_INCS += -I$(PS2SDK)/ee/include -I$(PS2SDK)/common/include -I$(GSKIT)/include
-EE_LDFLAGS += -L$(PS2SDK)/ee/lib -L$(GSKIT)/lib
 
 all: $(EE_BIN)
 
