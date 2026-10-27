@@ -9755,7 +9755,7 @@ static int net_hw_poll(void)
         return 0;
     }
     t_ip_info info;
-    if (ps2ip_getconfig("sm0", &info) >= 0 && info.ipaddr.addr != 0) { net_hw_ready = 1; return 1; }
+    if (ps2ip_getconfig("sm0", &info) >= 0 && info.ipaddr.s_addr != 0) { net_hw_ready = 1; return 1; }
     if (++net_hw_tick > 60 * 20) { snprintf(net_text, sizeof(net_text), "SIN RED: REVISA EL CABLE Y EL DHCP"); return -1; }
     return 0;
 #else
@@ -9767,8 +9767,8 @@ static void net_local_ip(char *out, int n)
 {
 #ifdef USE_NET
     t_ip_info info;
-    if (ps2ip_getconfig("sm0", &info) >= 0 && info.ipaddr.addr != 0) {
-        unsigned int a = info.ipaddr.addr;
+    if (ps2ip_getconfig("sm0", &info) >= 0 && info.ipaddr.s_addr != 0) {
+        unsigned int a = info.ipaddr.s_addr;
         snprintf(out, n, "%u.%u.%u.%u", a & 255u, (a >> 8) & 255u, (a >> 16) & 255u, (a >> 24) & 255u);
         return;
     }
