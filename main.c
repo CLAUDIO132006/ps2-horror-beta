@@ -8545,6 +8545,11 @@ static void pool_fan(float cx, float cy, float cz, float ux, float uy, float uz,
                      float vx, float vy, float vz, float a_c)
 {
     // disco en el plano que forman los ejes (ux,uy,uz) y (vx,vy,vz); el largo de cada eje ya es el radio
+    if (flash_on) {                                           // si cae dentro de tu propio circulo, ya lo estas viendo iluminado
+        float ux = cx - px, uy = cy - cam_y, uz = cz - pz;
+        float ud = sqrtf(ux * ux + uy * uy + uz * uz);
+        if (ud > 0.5f && (ux * fx * cpitch + uy * spitch + uz * fz * cpitch) / ud > 0.955f) return;
+    }
     static const float wh[3] = { 255.f, 255.f, 255.f };
     V c = mk(cx, cy, cz, wh, 0.0f);
     c.r = a_c; c.g = 0.0f; c.b = 0.0f;
