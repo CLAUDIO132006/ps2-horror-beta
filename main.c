@@ -1,5 +1,5 @@
 // ============================================================
-//  HORROR BETA 0.3 - BOSQUE  [version CIRCULO]  (PS2 homebrew, PS2SDK + gsKit)
+//  HORROR BETA 0.4 - BOSQUE  [version CIRCULO + ONLINE]  (PS2 homebrew, PS2SDK + gsKit)
 //
 //  Controles (DualShock 2):
 //    Stick izq  : moverse (empujalo al tope para CORRER, gasta estamina)
@@ -13,6 +13,7 @@
 //    R1 (mantener): ver tus llaves y los codigos que ya encontraste
 //    2 JUGADORES: pantalla dividida (J1 arriba con el control 1, J2 abajo con el control 2)
 //    SELECT     : invierte la luz si en tu emulador se ve al reves
+//    ONLINE     : menu principal > ONLINE (necesita compilar con -DUSE_NET y el adaptador de red de la PS2)
 //
 //  Objetivo: encuentra las 3 notas (cabana, cueva, alcantarilla)
 //  y llega a la caseta de la antena. Algo te esta buscando...
@@ -29,6 +30,37 @@
 #include <string.h>
 #if !(defined(_EE) || defined(__mips__) || defined(__mips))
 #include <time.h>         // solo para compilar pruebas en PC (en PS2 el FPS usa el contador del CPU)
+#endif
+#if defined(USE_NET) || defined(NET_PC_TEST)
+#define HAVE_NET 1
+#endif
+#ifdef USE_NET                      // PS2: modulos DEV9 + NETMAN + SMAP (IOP) y pila TCP/IP (ps2ip)
+#include <netman.h>
+#include <ps2ip.h>
+extern unsigned char DEV9_irx[];   extern unsigned int size_DEV9_irx;
+extern unsigned char NETMAN_irx[]; extern unsigned int size_NETMAN_irx;
+extern unsigned char SMAP_irx[];   extern unsigned int size_SMAP_irx;
+#define NS_socket(a, b, c)            lwip_socket(a, b, c)
+#define NS_bind(s_, a, l)             lwip_bind(s_, a, l)
+#define NS_sendto(s_, b, n, f, a, l)  lwip_sendto(s_, b, n, f, a, l)
+#define NS_recvfrom(s_, b, n, f, a, l) lwip_recvfrom(s_, b, n, f, a, l)
+#define NS_close(s_)                  lwip_close(s_)
+#ifndef MSG_DONTWAIT
+#define MSG_DONTWAIT 0x08
+#endif
+#endif
+#ifdef NET_PC_TEST                  // solo pruebas en PC (dos copias del juego por localhost)
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <stdlib.h>
+#define NS_socket(a, b, c)            socket(a, b, c)
+#define NS_bind(s_, a, l)             bind(s_, a, l)
+#define NS_sendto(s_, b, n, f, a, l)  sendto(s_, b, n, f, a, l)
+#define NS_recvfrom(s_, b, n, f, a, l) recvfrom(s_, b, n, f, a, l)
+#define NS_close(s_)                  close(s_)
 #endif
 #ifdef USE_AUDIO
 #include <audsrv.h>
@@ -7604,7 +7636,11 @@ static const int   gfx_nf[3]    = { 1, 1, 2 };             // ... y lejos
 static const int   gfx_seg[3]   = { 24, 40, 56 };          // suavidad del circulo de luz
 static const int   gfx_steps[3] = { 5, 7, 8 };
 static const float gfx_reach[3] = { 0.85f, 1.0f, 1.2f };   // alcance de la luz
-enum { SC_MAIN, SC_OPT, SC_PLAY, SC_PAUSE, SC_CTRL };
+enum { SC_MAIN, SC_OPT, SC_PLAY, SC_PAUSE, SC_CTRL, SC_NET, SC_NETIP, SC_NETWAIT };
+static int net_online;                  // 1 = partida online en curso (los dos juegos simulan lo mismo)
+static unsigned int game_seed;          // semilla de la partida (los codigos de los candados salen de ella)
+static int net_sel;                     // menu ONLINE
+static int net_local;                   // 0 = J1 (anfitrion), 1 = J2 (invitado)
 static int   screen = SC_MAIN, menu_sel, opt_sel, opt_from = SC_MAIN, ctl_sel;
 static int   sens_h = 5, sens_v = 5;     // sensibilidad al mirar (1..10, 5 = la de siempre)
 static int   last_moving, last_near, last_notes;
@@ -8779,11 +8815,11 @@ static void compute_flow(int layer, int tx, int tz)
     }
 }
 
+static int need_flow = 1, last_layer = -1, last_foot = 0;   // estado de la IA (se reinicia en reset_game: online necesita partir igual)
 static void update_monster(float dt, int notes)
 {
     int pl = cur_layer;
     float tx = px, tz = pz;
-    static int need_flow = 1, last_layer = -1;
     if (mlayer != pl) {                       // el jugador esta en otro nivel: va a la escalera
         tx = (manholes[last_ladder][0] + 0.5f) * CS;
         tz = (manholes[last_ladder][1] + 0.5f) * CS;
@@ -8830,7 +8866,6 @@ static void update_monster(float dt, int notes)
     mon_runf += (((mon_spd > 2.6f) ? 1.0f : 0.0f) - mon_runf) * clampf(dt * 5.0f, 0.0f, 1.0f);
     mon_phase += mon_spd * dt * (3.0f - 1.2f * mon_runf);     // cadencia ligada a la velocidad: los pies no patinan
     {   // pisadas pesadas: cada apoyo sacude la camara si el monstruo esta cerca
-        static int last_foot = 0;
         int fs = (int)floorf(mon_phase / PI_F);
         if (fs != last_foot) {
             last_foot = fs;
@@ -8842,12 +8877,15 @@ static void update_monster(float dt, int notes)
 // ---------------- Reinicio ----------------
 static void reset_game(void)
 {
+    if (net_online) game_seed = game_seed * 1664525u + 1013904223u;   // online: los dos juegos avanzan igual
+    else game_seed = (unsigned int)frame_no;
+    need_flow = 1; last_layer = -1; last_foot = 0;
     sx_ = MON_X; sz_ = MON_Z; mlayer = 0; mon_y = 0.0f; mon_wait = 0.0f;
     for (int i = 0; i < 3; i++) notes_got[i] = 0;
     for (int i = 0; i < ND; i++) { door_open[i] = 0; door_ang[i] = 0.0f; }          // puertas cerradas, items en su sitio
     for (int i = 0; i < NIT; i++) item_got[i] = 0;
     for (int i = 0; i < 4; i++) have_key[i] = 0;
-    for (int i = 0; i < 2; i++) { have_code[i] = 0; code_num[i] = 1000 + (int)(hash2(frame_no + 17 * i, 91 + 37 * i) % 9000u); }   // codigos distintos cada partida
+    for (int i = 0; i < 2; i++) { have_code[i] = 0; code_num[i] = 1000 + (int)(hash2(game_seed + 17 * i, 91 + 37 * i) % 9000u); }   // codigos distintos cada partida
     state = 0; state_timer = 0;
     mon_phase = 0.0f; mon_spd = 0.0f; mon_runf = 0.0f;
     mon_foot_event = 0; js_victim = 0; mon_target = 0;
@@ -9607,8 +9645,8 @@ static void menu_dim(void)       // oscurece la pantalla (fondo de pausa)
 static void render_frame(float t, int paused)
 {
     int notes = notes_got[0] + notes_got[1] + notes_got[2];
-    if (num_players < 2 || state != 0) {                 // 1 jugador, jumpscare o final: pantalla completa
-        int pi = (num_players == 2 && state == 1) ? js_victim : 0;
+    if (num_players < 2 || state != 0 || net_online) {   // 1 jugador, online, jumpscare o final: pantalla completa
+        int pi = (num_players == 2 && state == 1) ? js_victim : (net_online ? net_local : 0);
         view_full();
         player_load(pi);
         render_game(t, paused ? 0 : p_moving, paused ? -1 : p_near, notes);
@@ -9641,6 +9679,316 @@ static void start_game(int players)
     screen = SC_PLAY;
 }
 
+typedef struct { u32 pd, np, old; float fwd, str, turn, look, mag, lv; } PadIn;
+static PadIn pin[2];
+static struct padButtonStatus padst[2];
+
+static char net_notice[48];             // aviso en el menu principal (conexion perdida, etc.)
+static int  net_notice_t;
+static unsigned char net_ip[4] = { 192, 168, 1, 10 };   // IP del anfitrion (la escribe el invitado)
+static int  net_ip_sel;
+static char net_text[64], net_text2[64];                 // mensajes de la pantalla de conexion
+static int  net_host;                                    // 1 = anfitrion (J1) / 0 = invitado (J2)
+
+#ifdef HAVE_NET
+// =====================================================================================
+//  ONLINE (UDP, 2 jugadores). Cada consola simula a LOS DOS jugadores; solo viajan los
+//  controles (6 bytes por cuadro). Como el juego usa 60 cuadros fijos y no usa azar, los dos
+//  juegos quedan iguales. Entrada con 4 cuadros de retraso (66 ms) para aguantar la latencia.
+// =====================================================================================
+#define NET_PORT    7777
+#define NET_MAGIC   0x52524F48u
+#define NET_DELAY   4
+#define NET_RING    64
+#define NET_MAXIN   24
+#define NET_TIMEOUT 600                 // cuadros esperando al otro antes de dar la conexion por perdida (10 s)
+enum { NP_HELLO = 1, NP_WELCOME = 2, NP_INPUT = 3, NP_BYE = 4 };
+typedef struct { unsigned short btns; unsigned char lh, lv, rh, rv; } NetIn;
+
+static int  net_sock = -1;
+static struct sockaddr_in net_peer;
+static int  net_have_peer, net_got_hello, net_got_welcome, net_bye, net_wait;
+static unsigned int net_seed;
+static int  net_psens_h[2] = { 5, 5 }, net_psens_v[2] = { 5, 5 };
+static NetIn loc_in[NET_RING], rem_in[NET_RING];
+static unsigned int loc_fr[NET_RING], rem_fr[NET_RING];
+static unsigned int smp, rem_next, peer_ack, sim_f;
+static int  net_stall, net_desync, net_leave_prompt;
+static unsigned int chk_f, chk_v;                        // ultimo checksum de MI estado
+static unsigned int my_chk_f[8], my_chk_v[8], rm_chk_f[8], rm_chk_v[8];
+static unsigned int net_last_pd;
+static int  net_hw_ready, net_hw_stage, net_hw_tick;
+
+static void put32(unsigned char *q, unsigned int v) { q[0] = (unsigned char)v; q[1] = (unsigned char)(v >> 8); q[2] = (unsigned char)(v >> 16); q[3] = (unsigned char)(v >> 24); }
+static unsigned int get32(const unsigned char *q) { return (unsigned int)q[0] | ((unsigned int)q[1] << 8) | ((unsigned int)q[2] << 16) | ((unsigned int)q[3] << 24); }
+
+static void net_fill(struct sockaddr_in *a, int o0, int o1, int o2, int o3, int port)
+{
+    memset(a, 0, sizeof(*a));
+#ifdef USE_NET
+    a->sin_len = sizeof(*a);
+#endif
+    a->sin_family = AF_INET;
+    a->sin_port = htons((unsigned short)port);
+    a->sin_addr.s_addr = (unsigned int)o0 | ((unsigned int)o1 << 8) | ((unsigned int)o2 << 16) | ((unsigned int)o3 << 24);
+}
+
+// ---- Hardware de red de la PS2 (es lo unico que no se puede probar en PC) ----
+// 0 = trabajando, 1 = lista, -1 = error (texto en net_text)
+static int net_hw_poll(void)
+{
+#ifdef USE_NET
+    if (net_hw_ready) return 1;
+    if (net_hw_stage == 0) { net_hw_stage = 1; return 0; }                 // deja pintar "INICIANDO RED..." antes de cargar
+    if (net_hw_stage == 1) {
+        int r;
+        SifExecModuleBuffer(DEV9_irx, size_DEV9_irx, 0, NULL, &r);
+        SifExecModuleBuffer(NETMAN_irx, size_NETMAN_irx, 0, NULL, &r);
+        SifExecModuleBuffer(SMAP_irx, size_SMAP_irx, 0, NULL, &r);
+        if (NetManInit() < 0) { snprintf(net_text, sizeof(net_text), "ERROR AL INICIAR NETMAN"); return -1; }
+        struct ip4_addr ip, nm, gw;
+        memset(&ip, 0, sizeof(ip)); memset(&nm, 0, sizeof(nm)); memset(&gw, 0, sizeof(gw));
+        ps2ipInit(&ip, &nm, &gw);
+        t_ip_info info;
+        if (ps2ip_getconfig("sm0", &info) >= 0) { info.dhcp_enabled = 1; ps2ip_setconfig(&info); }   // IP automatica (DHCP)
+        net_hw_stage = 2; net_hw_tick = 0;
+        return 0;
+    }
+    t_ip_info info;
+    if (ps2ip_getconfig("sm0", &info) >= 0 && info.ipaddr.addr != 0) { net_hw_ready = 1; return 1; }
+    if (++net_hw_tick > 60 * 20) { snprintf(net_text, sizeof(net_text), "SIN RED: REVISA EL CABLE Y EL DHCP"); return -1; }
+    return 0;
+#else
+    return 1;
+#endif
+}
+
+static void net_local_ip(char *out, int n)
+{
+#ifdef USE_NET
+    t_ip_info info;
+    if (ps2ip_getconfig("sm0", &info) >= 0 && info.ipaddr.addr != 0) {
+        unsigned int a = info.ipaddr.addr;
+        snprintf(out, n, "%u.%u.%u.%u", a & 255u, (a >> 8) & 255u, (a >> 16) & 255u, (a >> 24) & 255u);
+        return;
+    }
+#endif
+    snprintf(out, n, "%s", "127.0.0.1");
+}
+
+static int net_open(int port)
+{
+    net_sock = NS_socket(AF_INET, SOCK_DGRAM, 0);
+    if (net_sock < 0) return -1;
+    struct sockaddr_in a;
+    net_fill(&a, 0, 0, 0, 0, port);
+    if (NS_bind(net_sock, (struct sockaddr *)&a, sizeof(a)) < 0) { NS_close(net_sock); net_sock = -1; return -2; }
+#ifdef NET_PC_TEST
+    fcntl(net_sock, F_SETFL, O_NONBLOCK);
+#endif
+    return 0;
+}
+
+#ifdef NET_PC_TEST
+static int net_loss_pct;                 // para probar perdida de paquetes
+static int net_drop(void) { return net_loss_pct > 0 && (rand() % 100) < net_loss_pct; }
+#else
+static int net_drop(void) { return 0; }
+#endif
+
+static void net_send_raw(const unsigned char *b, int n)
+{
+    if (net_sock < 0 || !net_have_peer || net_drop()) return;
+    NS_sendto(net_sock, b, n, 0, (struct sockaddr *)&net_peer, sizeof(net_peer));
+}
+
+static void net_send_pkt(int type)
+{
+    unsigned char b[28 + NET_MAXIN * 6];
+    memset(b, 0, 28);
+    put32(b, NET_MAGIC);
+    b[4] = (unsigned char)type; b[5] = (unsigned char)sens_h; b[6] = (unsigned char)sens_v;
+    int count = 0;
+    unsigned int lo = 0;
+    if (type == NP_INPUT && smp > NET_DELAY) {
+        lo = peer_ack;
+        if (lo + NET_MAXIN < smp) lo = smp - NET_MAXIN;
+        if (lo < NET_DELAY) lo = NET_DELAY;
+        if (lo < smp) count = (int)(smp - lo);
+    }
+    b[7] = (unsigned char)count;
+    put32(b + 8, smp ? smp - 1 : 0);
+    put32(b + 12, rem_next);
+    put32(b + 16, net_seed);
+    put32(b + 20, chk_f); put32(b + 24, chk_v);
+    for (int k = 0; k < count; k++) {
+        const NetIn *in = &loc_in[(lo + (unsigned int)k) % NET_RING];
+        unsigned char *q = b + 28 + k * 6;
+        q[0] = (unsigned char)(in->btns & 255); q[1] = (unsigned char)(in->btns >> 8);
+        q[2] = in->lh; q[3] = in->lv; q[4] = in->rh; q[5] = in->rv;
+    }
+    net_send_raw(b, 28 + count * 6);
+}
+
+static void net_neutral(NetIn *n) { n->btns = 0; n->lh = n->lv = n->rh = n->rv = 128; }
+
+// Lee todo lo que haya llegado y lo aplica
+static void net_pump(void)
+{
+    unsigned char b[28 + NET_MAXIN * 6 + 16];
+    struct sockaddr_in from;
+    for (int guard = 0; guard < 96; guard++) {
+        socklen_t fl = sizeof(from);
+        int n = NS_recvfrom(net_sock, b, sizeof(b), MSG_DONTWAIT, (struct sockaddr *)&from, &fl);
+        if (n <= 0) break;
+        if (n < 28 || get32(b) != NET_MAGIC || net_drop()) continue;
+        int type = b[4];
+        if (net_have_peer && (from.sin_addr.s_addr != net_peer.sin_addr.s_addr || from.sin_port != net_peer.sin_port)) continue;
+        if (type == NP_HELLO && net_host) {
+            if (!net_have_peer) { net_peer = from; net_have_peer = 1; }
+            net_psens_h[1] = b[5]; net_psens_v[1] = b[6];
+            net_got_hello = 1;
+            if (net_online) net_send_pkt(NP_WELCOME);                   // el invitado no recibio el WELCOME: se repite
+        } else if (type == NP_WELCOME && !net_host) {
+            net_seed = get32(b + 16); net_psens_h[0] = b[5]; net_psens_v[0] = b[6];
+            net_got_welcome = 1;
+        } else if (type == NP_BYE) {
+            net_bye = 1;
+        } else if (type == NP_INPUT && net_online) {
+            unsigned int last = get32(b + 8), ack = get32(b + 12);
+            int count = b[7];
+            if (ack > peer_ack) peer_ack = ack;
+            if (n < 28 + count * 6) continue;
+            for (int k = 0; k < count; k++) {
+                unsigned int g = last + 1u - (unsigned int)count + (unsigned int)k;
+                if (g < rem_next || g >= rem_next + NET_RING - 2) continue;      // ya lo tenia / demasiado adelantado
+                const unsigned char *q = b + 28 + k * 6;
+                NetIn *in = &rem_in[g % NET_RING];
+                in->btns = (unsigned short)(q[0] | (q[1] << 8)); in->lh = q[2]; in->lv = q[3]; in->rh = q[4]; in->rv = q[5];
+                rem_fr[g % NET_RING] = g;
+            }
+            while (rem_fr[rem_next % NET_RING] == rem_next) rem_next++;
+            unsigned int cf = get32(b + 20), cv = get32(b + 24);                // comparacion de estado (detecta desincronizacion)
+            if (cf) {
+                int ix = (int)((cf / 60u) & 7u);
+                rm_chk_f[ix] = cf; rm_chk_v[ix] = cv;
+                if (my_chk_f[ix] == cf && my_chk_v[ix] != cv) net_desync = 1;
+            }
+        }
+    }
+}
+
+static void net_close(void)
+{
+    if (net_sock >= 0) { NS_close(net_sock); net_sock = -1; }
+    net_have_peer = 0; net_got_hello = net_got_welcome = net_bye = 0;
+}
+
+// Preparar la partida online (los dos juegos ejecutan esto al conectar)
+static void net_match_begin(void)
+{
+    net_online = 1; num_players = 2; net_local = net_host ? 0 : 1;
+    net_psens_h[net_local] = sens_h; net_psens_v[net_local] = sens_v;
+    frame_no = 0; js_rng = 12345u; game_seed = net_seed;
+    memset(pin, 0, sizeof(pin));
+    for (unsigned int i = 0; i < NET_RING; i++) { loc_fr[i] = rem_fr[i] = 0xFFFFFFFFu; net_neutral(&loc_in[i]); net_neutral(&rem_in[i]); }
+    for (unsigned int i = 0; i < NET_DELAY; i++) { loc_fr[i] = rem_fr[i] = i; }    // los primeros cuadros son sin pulsar nada
+    smp = NET_DELAY; rem_next = NET_DELAY; peer_ack = NET_DELAY; sim_f = 0;
+    net_stall = 0; net_desync = 0; net_leave_prompt = 0; chk_f = chk_v = 0;
+    for (int i = 0; i < 8; i++) { my_chk_f[i] = rm_chk_f[i] = 0; }
+    net_last_pd = 0;
+    reset_game();
+    screen = SC_PLAY;
+}
+
+static void net_leave(const char *msg)
+{
+    if (net_sock >= 0) { for (int k = 0; k < 3; k++) net_send_pkt(NP_BYE); }
+    net_close();
+    net_online = 0; num_players = 1; net_leave_prompt = 0;
+    if (msg) { snprintf(net_notice, sizeof(net_notice), "%s", msg); net_notice_t = 300; }
+    screen = SC_MAIN; menu_sel = 2;
+    reset_game();
+}
+
+// Pantalla de conexion: 0 = esperando, 1 = partida iniciada, -1 = error (texto en net_text)
+static int net_connect_poll(void)
+{
+    net_text2[0] = '\0';
+    int hw = net_hw_poll();
+    if (hw < 0) return -1;
+    if (hw == 0) { snprintf(net_text, sizeof(net_text), "INICIANDO RED..."); return 0; }
+    if (net_sock < 0) {
+        if (net_open(net_host ? NET_PORT : 0) < 0) { snprintf(net_text, sizeof(net_text), "NO SE PUDO ABRIR EL PUERTO %d", NET_PORT); return -1; }
+        net_have_peer = 0; net_got_hello = net_got_welcome = net_bye = 0; net_wait = 0;
+        if (!net_host) { net_fill(&net_peer, net_ip[0], net_ip[1], net_ip[2], net_ip[3], NET_PORT); net_have_peer = 1; }
+        net_psens_h[net_host ? 0 : 1] = sens_h; net_psens_v[net_host ? 0 : 1] = sens_v;
+    }
+    net_wait++;
+    net_pump();
+    if (net_host) {
+        char ip[24];
+        net_local_ip(ip, sizeof(ip));
+        snprintf(net_text, sizeof(net_text), "ESPERANDO AL OTRO JUGADOR...");
+        snprintf(net_text2, sizeof(net_text2), "TU IP: %s  PUERTO UDP %d", ip, NET_PORT);
+        if (net_got_hello) {
+            net_seed = (unsigned int)(frame_no * 2654435761u) ^ 0x9E3779B9u;
+            net_send_pkt(NP_WELCOME);
+            net_match_begin();
+            return 1;
+        }
+    } else {
+        snprintf(net_text, sizeof(net_text), "CONECTANDO A %d.%d.%d.%d ...", net_ip[0], net_ip[1], net_ip[2], net_ip[3]);
+        if (net_got_welcome) { net_match_begin(); return 1; }
+        if (net_wait % 30 == 1) net_send_pkt(NP_HELLO);
+        if (net_wait > 60 * 20) { snprintf(net_text, sizeof(net_text), "EL ANFITRION NO RESPONDE"); return -1; }
+    }
+    return 0;
+}
+
+// Resumen del estado de la simulacion (si los dos juegos difieren, hay desincronizacion)
+static unsigned int fbits(float f) { unsigned int u; memcpy(&u, &f, 4); return u; }
+static unsigned int sim_hash(void)
+{
+    unsigned int h = 2166136261u;
+#define HM(v) h = (h ^ (unsigned int)(v)) * 16777619u
+    for (int i = 0; i < 2; i++) {
+        HM(fbits(P[i].px)); HM(fbits(P[i].pz)); HM(fbits(P[i].yaw)); HM(fbits(P[i].pitch));
+        HM(fbits(P[i].stamina)); HM(fbits(P[i].jump_h)); HM(P[i].cur_layer); HM(P[i].climbing);
+        HM(P[i].flash_on); HM(P[i].has_map); HM(P[i].crouched); HM(P[i].code_door);
+    }
+    HM(fbits(sx_)); HM(fbits(sz_)); HM(mlayer); HM(state); HM(mon_target);
+    for (int i = 0; i < 3; i++) HM(notes_got[i]);
+    for (int i = 0; i < ND; i++) HM(door_open[i]);
+    for (int i = 0; i < NIT; i++) HM(item_got[i]);
+#undef HM
+    return h;
+}
+
+// Despues de simular un cuadro
+static void net_after_step(void)
+{
+    sim_f++;
+    if (sim_f % 60u == 0) {
+        chk_f = sim_f; chk_v = sim_hash();
+        int ix = (int)((sim_f / 60u) & 7u);
+        my_chk_f[ix] = chk_f; my_chk_v[ix] = chk_v;
+        if (rm_chk_f[ix] == chk_f && rm_chk_v[ix] != chk_v) net_desync = 1;
+    }
+}
+
+// Mensajes encima del juego
+static void net_draw_overlay(void)
+{
+    if (net_stall > 12) draw_text_c(H * 0.42f, "ESPERANDO AL OTRO JUGADOR...", 2, GS_SETREG_RGBAQ(255, 200, 80, 0x80, 0));
+    if (net_desync) draw_text_c(34.0f, "DESINCRONIZADO", 2, GS_SETREG_RGBAQ(235, 60, 50, 0x80, 0));
+    if (net_leave_prompt) {
+        draw_text_c(H * 0.5f - 22.0f, "SALIR DE LA PARTIDA?", 3, GS_SETREG_RGBAQ(255, 230, 90, 0x80, 0));
+        draw_text_c(H * 0.5f + 14.0f, "START: SALIR    O: SEGUIR JUGANDO", 2, GS_SETREG_RGBAQ(190, 190, 195, 0x80, 0));
+    }
+}
+#endif /* HAVE_NET */
+
 static void menu_frame(u32 newp, float lv, int frame)
 {
     static int sprev = 0;
@@ -9651,9 +9999,9 @@ static void menu_frame(u32 newp, float lv, int frame)
     int was_ctrl = (screen == SC_CTRL);                         // evita que la X que abre el submenu cuente dentro de el
     int ok = (newp & PAD_CROSS) != 0, back = (newp & PAD_CIRCLE) != 0;
     int lt = (newp & PAD_LEFT) != 0, rt = (newp & PAD_RIGHT) != 0;
-    int n = (screen == SC_OPT) ? 6 : (screen == SC_CTRL ? 3 : 4);
+    int n = (screen == SC_OPT) ? 6 : (screen == SC_CTRL ? 3 : (screen == SC_MAIN ? 5 : (screen == SC_NET ? 3 : (screen == SC_NETIP || screen == SC_NETWAIT ? 1 : 4))));
     if (pad2_warn > 0) pad2_warn--;
-    int *sel = (screen == SC_OPT) ? &opt_sel : (screen == SC_CTRL ? &ctl_sel : &menu_sel);
+    int *sel = (screen == SC_OPT) ? &opt_sel : (screen == SC_CTRL ? &ctl_sel : (screen == SC_NET ? &net_sel : &menu_sel));
     if (up) { *sel = (*sel + n - 1) % n; sfx_play(SFX_CLICK, 0.5f); }
     if (dn) { *sel = (*sel + 1) % n; sfx_play(SFX_CLICK, 0.5f); }
     if (ok || back || lt || rt) sfx_play(SFX_CLICK, 0.7f);
@@ -9662,7 +10010,14 @@ static void menu_frame(u32 newp, float lv, int frame)
         if (ok) {
             if (*sel == 0) start_game(1);
             else if (*sel == 1) { if (pad2_ready()) start_game(2); else pad2_warn = 150; }
-            else if (*sel == 2) { opt_from = SC_MAIN; screen = SC_OPT; opt_sel = 0; }
+            else if (*sel == 2) {
+#ifdef HAVE_NET
+                screen = SC_NET; net_sel = 0;
+#else
+                snprintf(net_notice, sizeof(net_notice), "ONLINE NO INCLUIDO (COMPILA CON -DUSE_NET)"); net_notice_t = 240;
+#endif
+            }
+            else if (*sel == 3) { opt_from = SC_MAIN; screen = SC_OPT; opt_sel = 0; }
             else Exit(0);
         }
     } else if (screen == SC_PAUSE) {
@@ -9685,6 +10040,35 @@ static void menu_frame(u32 newp, float lv, int frame)
         }
     }
 
+    if (net_notice_t > 0) net_notice_t--;
+#ifdef HAVE_NET
+    if (screen == SC_NET) {                                   // ONLINE: crear o unirse
+        if (back || (ok && *sel == 2)) screen = SC_MAIN;
+        else if (ok && *sel == 0) { net_host = 1; net_hw_stage = net_hw_stage ? net_hw_stage : 0; screen = SC_NETWAIT; net_close(); net_text[0] = 0; }
+        else if (ok && *sel == 1) { screen = SC_NETIP; net_ip_sel = 0; }
+    } else if (screen == SC_NETIP) {                          // escribir la IP del anfitrion
+        static int rep_t = 0;
+        if (back) screen = SC_NET;
+        else if (ok) { net_host = 0; screen = SC_NETWAIT; net_close(); net_text[0] = 0; }
+        else {
+            if (lt) net_ip_sel = (net_ip_sel + 3) % 4;
+            if (rt) net_ip_sel = (net_ip_sel + 1) % 4;
+            int du = (newp & PAD_UP) != 0, dd = (newp & PAD_DOWN) != 0;
+            if (pin[0].pd & (PAD_UP | PAD_DOWN)) { if (++rep_t > 20 && (rep_t % 3) == 0) { du = (pin[0].pd & PAD_UP) != 0; dd = (pin[0].pd & PAD_DOWN) != 0; } } else rep_t = 0;
+            if (newp & PAD_R1) du = 1;                         // R1 / L1: +/- 10
+            if (du) net_ip[net_ip_sel] = (unsigned char)((net_ip[net_ip_sel] + ((newp & PAD_R1) ? 10 : 1)) & 255);
+            if (dd) net_ip[net_ip_sel] = (unsigned char)((net_ip[net_ip_sel] - 1) & 255);
+            if (newp & PAD_L1) net_ip[net_ip_sel] = (unsigned char)((net_ip[net_ip_sel] - 10) & 255);
+        }
+    } else if (screen == SC_NETWAIT) {                        // conectando / esperando
+        if (back) { net_close(); screen = SC_NET; }
+        else {
+            int r = net_connect_poll();
+            if (r < 0) { net_close(); snprintf(net_notice, sizeof(net_notice), "%s", net_text); net_notice_t = 300; screen = SC_NET; }
+        }
+    }
+#endif
+
     if (was_ctrl) {                                           // OPCIONES > CONTROLES
         int d = rt ? 1 : (lt ? -1 : (ok ? 1 : 0));
         if (back || (ok && *sel == 2)) screen = SC_OPT;
@@ -9694,8 +10078,9 @@ static void menu_frame(u32 newp, float lv, int frame)
         }
     }
 
+    if (screen == SC_PLAY) return;                            // la partida online acaba de empezar
     // ---- dibujo ----
-    if (screen == SC_MAIN || ((screen == SC_OPT || screen == SC_CTRL) && opt_from == SC_MAIN)) menu_bg_main();
+    if (screen == SC_MAIN || screen == SC_NET || screen == SC_NETIP || screen == SC_NETWAIT || ((screen == SC_OPT || screen == SC_CTRL) && opt_from == SC_MAIN)) menu_bg_main();
     else { render_frame(last_t, 1); menu_dim(); }
 
     u64 sel_c = GS_SETREG_RGBAQ(255, 230, 90, 0x80, 0), norm_c = GS_SETREG_RGBAQ(170, 170, 175, 0x80, 0);
@@ -9705,12 +10090,13 @@ static void menu_frame(u32 newp, float lv, int frame)
     static char line[48];
     if (screen == SC_MAIN) {
         draw_text_c(50.0f, "HORROR BETA", 6, title_c);
-        static const char *it[4] = { "1 JUGADOR", "2 JUGADORES", "OPCIONES", "SALIR" };
-        for (int i = 0; i < 4; i++) {
+        static const char *it[5] = { "1 JUGADOR", "2 JUGADORES", "ONLINE", "OPCIONES", "SALIR" };
+        for (int i = 0; i < 5; i++) {
             snprintf(line, sizeof(line), i == menu_sel ? "> %s <" : "%s", it[i]);
-            draw_text_c(170.0f + i * 42.0f, line, 3, i == menu_sel ? sel_c : norm_c);
+            draw_text_c(160.0f + i * 38.0f, line, 3, i == menu_sel ? sel_c : norm_c);
         }
         if (pad2_warn > 0) draw_text_c(H - 110.0f, "CONECTA EL CONTROL 2", 2, GS_SETREG_RGBAQ(220, 90, 60, 0x80, 0));
+        if (net_notice_t > 0) draw_text_c(H - 110.0f, net_notice, 2, GS_SETREG_RGBAQ(235, 130, 60, 0x80, 0));
     } else if (screen == SC_PAUSE) {
         draw_text_c(60.0f, "PAUSA", 6, sel_c);
         static const char *it[4] = { "REANUDAR", "REINICIAR", "OPCIONES", "MENU PRINCIPAL" };
@@ -9748,20 +10134,46 @@ static void menu_frame(u32 newp, float lv, int frame)
             draw_text_c(150.0f + i * 44.0f, line, 3, i == ctl_sel ? sel_c : norm_c);
         }
     }
+#ifdef HAVE_NET
+    if (screen == SC_NET) {
+        draw_text_c(50.0f, "ONLINE", 6, sel_c);
+        static const char *it[3] = { "CREAR PARTIDA", "UNIRSE A UNA PARTIDA", "VOLVER" };
+        for (int i = 0; i < 3; i++) {
+            snprintf(line, sizeof(line), i == net_sel ? "> %s <" : "%s", it[i]);
+            draw_text_c(170.0f + i * 44.0f, line, 3, i == net_sel ? sel_c : norm_c);
+        }
+        draw_text_c(H - 84.0f, "2 JUGADORES EN RED LOCAL O POR INTERNET", 2, hint_c);
+        if (net_notice_t > 0) draw_text_c(H - 110.0f, net_notice, 2, GS_SETREG_RGBAQ(235, 130, 60, 0x80, 0));
+    } else if (screen == SC_NETIP) {
+        draw_text_c(50.0f, "IP DEL ANFITRION", 5, sel_c);
+        for (int i = 0; i < 4; i++) {
+            snprintf(line, sizeof(line), "%d", net_ip[i]);
+            float cx = W * 0.5f - 190.0f + i * 100.0f;
+            draw_text(cx + (3 - (int)strlen(line)) * 9.0f, 190.0f, line, 5, i == net_ip_sel ? sel_c : norm_c);
+            if (i < 3) draw_text(cx + 84.0f, 190.0f, ".", 5, norm_c);
+            if (i == net_ip_sel) { gsKit_prim_sprite(gsGlobal, cx, 236.0f, cx + 84.0f, 240.0f, 16777000, sel_c); }
+        }
+        draw_text_c(H - 84.0f, "IZQ/DER: CASILLA   ARRIBA/ABAJO: +1/-1   R1/L1: +10/-10", 1, hint_c);
+        draw_text_c(H - 34.0f, "X: CONECTAR   O: ATRAS", 2, hint_c);
+    } else if (screen == SC_NETWAIT) {
+        draw_text_c(50.0f, net_host ? "CREAR PARTIDA" : "UNIRSE", 5, sel_c);
+        draw_text_c(200.0f, net_text, 2, norm_c);
+        if (net_text2[0]) draw_text_c(236.0f, net_text2, 2, sel_c);
+        if (net_host) draw_text_c(280.0f, "EL OTRO ESCRIBE ESA IP EN: ONLINE > UNIRSE", 1, hint_c);
+        draw_text_c(H - 34.0f, "O: CANCELAR", 2, hint_c);
+    }
+#endif
+    if (screen != SC_NETIP && screen != SC_NETWAIT)
     draw_text_c(H - 34.0f, (screen == SC_OPT || screen == SC_CTRL) ? "IZQ/DER: CAMBIAR   O: ATRAS" : "ARRIBA/ABAJO: MOVER   X: ELEGIR", 2, hint_c);
     if (screen == SC_MAIN || screen == SC_OPT) draw_text_c(H - 58.0f, "LUZ AL REVES? PULSA SELECT", 2, hint_c);
     if (screen == SC_OPT)
         draw_text_c(H - 82.0f, audio_state == 2 ? "AUDIO: ACTIVO" : (audio_state == 1 ? "AUDIO: NO ARRANCO" : "AUDIO: NO INCLUIDO"),
                     2, audio_state == 2 ? GS_SETREG_RGBAQ(90, 210, 110, 0x80, 0) : GS_SETREG_RGBAQ(220, 90, 60, 0x80, 0));
     fps_draw();
-    draw_text(W - 40.0f, 26.0f, "V7", 2, hint_c);
+    draw_text(W - 40.0f, 26.0f, "V8", 2, hint_c);
 }
 
 // ---------------- Controles (2 puertos) ----------------
-typedef struct { u32 pd, np, old; float fwd, str, turn, look, mag, lv; } PadIn;
-static PadIn pin[2];
-static struct padButtonStatus padst[2];
-
 static void pad_neutral(int port)
 {
     memset(&padst[port], 0, sizeof(padst[port]));
@@ -9769,6 +10181,7 @@ static void pad_neutral(int port)
     memset(&pin[port], 0, sizeof(pin[port]));
 }
 
+static void pad_sticks(PadIn *p, int lhb, int lvb, int rhb, int rvb);
 static void pad_poll(int port)
 {
     PadIn *p = &pin[port];
@@ -9780,8 +10193,13 @@ static void pad_poll(int port)
         p->np = p->pd & ~p->old;
         p->old = p->pd;
     }
-    float lh = (pad->ljoy_h - 128) / 128.0f, lv = (pad->ljoy_v - 128) / 128.0f;
-    float rh = (pad->rjoy_h - 128) / 128.0f, rv = (pad->rjoy_v - 128) / 128.0f;
+    pad_sticks(p, pad->ljoy_h, pad->ljoy_v, pad->rjoy_h, pad->rjoy_v);
+}
+
+static void pad_sticks(PadIn *p, int lhb, int lvb, int rhb, int rvb)      // sticks y cruceta -> mover / mirar
+{
+    float lh = (lhb - 128) / 128.0f, lv = (lvb - 128) / 128.0f;
+    float rh = (rhb - 128) / 128.0f, rv = (rvb - 128) / 128.0f;
     float mag = sqrtf(lh * lh + lv * lv);
     p->fwd = p->str = p->turn = p->look = 0.0f;
     if (mag > 0.2f) { p->fwd = -lv / mag; p->str = lh / mag; }         // direccion (unitaria)
@@ -10006,6 +10424,46 @@ static int pick_target(void)
     return mon_target;
 }
 
+#ifdef HAVE_NET
+// Online: lee MI control, intercambia con el otro y decide si ya se puede simular este cuadro.
+// Devuelve 1 = simular (pin[0] y pin[1] listos), 0 = esperar al otro jugador (se vuelve a dibujar lo mismo).
+static int net_lockstep(void)
+{
+    struct padButtonStatus *pd = &padst[0];
+    u32 old = net_last_pd;
+    if (padRead(0, 0, pd)) net_last_pd = 0xffff ^ pd->btns;
+    u32 edge = net_last_pd & ~old;
+    if (edge & PAD_SELECT) blend_flip = !blend_flip;
+    if (edge & PAD_START) {                                    // START: pregunta si quieres salir
+        if (net_leave_prompt) { net_leave("SALISTE DE LA PARTIDA"); return 0; }
+        net_leave_prompt = 1;
+    } else if (net_leave_prompt && (edge & PAD_CIRCLE)) net_leave_prompt = 0;
+
+    while (smp <= sim_f + NET_DELAY) {                         // mi control para dentro de NET_DELAY cuadros
+        NetIn in;
+        if (net_leave_prompt) net_neutral(&in);
+        else { in.btns = (unsigned short)net_last_pd; in.lh = pd->ljoy_h; in.lv = pd->ljoy_v; in.rh = pd->rjoy_h; in.rv = pd->rjoy_v; }
+        loc_in[smp % NET_RING] = in; loc_fr[smp % NET_RING] = smp;
+        smp++;
+    }
+    net_pump();
+    net_send_pkt(NP_INPUT);
+    if (net_bye) { net_leave("EL OTRO JUGADOR SE FUE"); return 0; }
+    if (rem_fr[sim_f % NET_RING] != sim_f) {                   // todavia no llega su control de este cuadro
+        if (++net_stall > NET_TIMEOUT) net_leave("SE PERDIO LA CONEXION");
+        return 0;
+    }
+    net_stall = 0;
+    int rm = 1 - net_local;
+    const NetIn *a = &loc_in[sim_f % NET_RING], *b = &rem_in[sim_f % NET_RING];
+    pin[net_local].pd = a->btns; pin[net_local].np = a->btns & ~pin[net_local].old; pin[net_local].old = a->btns;
+    pad_sticks(&pin[net_local], a->lh, a->lv, a->rh, a->rv);
+    pin[rm].pd = b->btns; pin[rm].np = b->btns & ~pin[rm].old; pin[rm].old = b->btns;
+    pad_sticks(&pin[rm], b->lh, b->lv, b->rh, b->rv);
+    return 1;
+}
+#endif
+
 // ---------------- Main ----------------
 int main(void)
 {
@@ -10063,12 +10521,20 @@ int main(void)
         if (frame_no >= HEADLESS_FRAMES) break;
         HEADLESS_HOOK();
 #endif
-        int use2 = (num_players == 2) && (screen == SC_PLAY || screen == SC_PAUSE);
-        pad_poll(0);
-        if (use2) pad_poll(1);
-        for (int k = 0; k < (use2 ? 2 : 1); k++) {
-            if ((pin[k].np & PAD_START) && screen == SC_PLAY && state == 0) { screen = SC_PAUSE; menu_sel = 0; pin[k].np = 0; }
-            if (pin[k].np & PAD_SELECT) blend_flip = !blend_flip;
+        int stalled = 0;
+        int use2 = (num_players == 2) && !net_online && (screen == SC_PLAY || screen == SC_PAUSE);
+#ifdef HAVE_NET
+        if (net_online && screen == SC_PLAY) {
+            if (!net_lockstep()) { stalled = 1; frame_no--; }     // esperando al otro: el cuadro de simulacion no avanza
+        } else
+#endif
+        {
+            pad_poll(0);
+            if (use2) pad_poll(1);
+            for (int k = 0; k < (use2 ? 2 : 1); k++) {
+                if ((pin[k].np & PAD_START) && screen == SC_PLAY && state == 0) { screen = SC_PAUSE; menu_sel = 0; pin[k].np = 0; }
+                if (pin[k].np & PAD_SELECT) blend_flip = !blend_flip;
+            }
         }
 
         if (screen != SC_PLAY) {                       // menus (principal / opciones / pausa)
@@ -10083,10 +10549,17 @@ int main(void)
         }
 
         int notes = notes_got[0] + notes_got[1] + notes_got[2];
-        if (state == 0) {
+        if (stalled) {
+            /* online: sin el control del otro no se simula; solo se vuelve a dibujar */
+        } else if (state == 0) {
             for (int i = 0; i < num_players; i++) {          // mover a cada jugador
                 player_load(i);
+                int sh = sens_h, sv = sens_v;
+#ifdef HAVE_NET
+                if (net_online) { sens_h = net_psens_h[i]; sens_v = net_psens_v[i]; }   // la sensibilidad de CADA jugador, igual en las dos consolas
+#endif
                 player_move(dt, t, &pin[i]);
+                sens_h = sh; sens_v = sv;
                 player_save(i);
             }
             for (int i = 0; i < ND; i++)                     // las puertas abiertas giran
@@ -10106,17 +10579,23 @@ int main(void)
             if (--state_timer <= 0) reset_game();
         } else if (--state_timer <= 0) reset_game();
 
-        for (int i = 0; i < num_players; i++) {              // camara de cada jugador
+        if (!stalled) for (int i = 0; i < num_players; i++) {   // camara de cada jugador
             player_load(i);
             player_camera(t);
             player_save(i);
         }
+#ifdef HAVE_NET
+        if (net_online && !stalled) net_after_step();
+#endif
         player_load(0);
         last_t = t; last_moving = p_moving; last_near = p_near; last_notes = notes_got[0] + notes_got[1] + notes_got[2];
         render_frame(t, 0);
         view_full();
+#ifdef HAVE_NET
+        if (net_online) net_draw_overlay();
+#endif
         fps_draw();
-        draw_text(W - 40.0f, 26.0f, "V7", 2, GS_SETREG_RGBAQ(120, 120, 130, 0x80, 0));
+        draw_text(W - 40.0f, 26.0f, "V8", 2, GS_SETREG_RGBAQ(120, 120, 130, 0x80, 0));
         audio_update();
         gsKit_queue_exec(gsGlobal);
         gsKit_sync_flip(gsGlobal);
