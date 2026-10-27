@@ -7601,8 +7601,8 @@ static const float gfx_maxd[3]  = { 24.0f, 33.0f, 42.0f }; // distancia de dibuj
 static const float gfx_pd[3]    = { 22.0f, 30.0f, 38.0f }; // arboles y objetos
 static const int   gfx_nn[3]    = { 1, 2, 3 };             // detalle de suelo/paredes cerca
 static const int   gfx_nf[3]    = { 1, 1, 2 };             // ... y lejos
-static const int   gfx_seg[3]   = { 24, 40, 64 };          // suavidad del circulo de luz
-static const int   gfx_steps[3] = { 5, 7, 9 };
+static const int   gfx_seg[3]   = { 24, 40, 56 };          // suavidad del circulo de luz
+static const int   gfx_steps[3] = { 5, 7, 8 };
 static const float gfx_reach[3] = { 0.85f, 1.0f, 1.2f };   // alcance de la luz
 enum { SC_MAIN, SC_OPT, SC_PLAY, SC_PAUSE, SC_CTRL };
 static int   screen = SC_MAIN, menu_sel, opt_sel, opt_from = SC_MAIN, ctl_sel;
@@ -7936,6 +7936,10 @@ static void emit_tri(V a, V b, V c)
         col[i] = GS_SETREG_RGBAQ((int)clampf(t[i].r, 0, 255), (int)clampf(t[i].g, 0, 255),
                                  (int)clampf(t[i].b, 0, 255), 0x80, 0x00);
     }
+    if (!vm_mode) {                              // casi sin area (menos de medio pixel): no se ve, no se envia
+        float ar = (X[1] - X[0]) * (Y[2] - Y[0]) - (X[2] - X[0]) * (Y[1] - Y[0]);
+        if (ar < 0.6f && ar > -0.6f) return;
+    }
     if (!vm_mode) {                              // fuera de la vista por completo: ni se envia
         if ((X[0] < 0.0f && X[1] < 0.0f && X[2] < 0.0f) || (X[0] > W && X[1] > W && X[2] > W) ||
             (Y[0] < 0.0f && Y[1] < 0.0f && Y[2] < 0.0f) || (Y[0] > H && Y[1] > H && Y[2] > H)) return;
@@ -8108,7 +8112,8 @@ static void draw_layer(int layer)
             float x0 = cx * CS, z0 = cz * CS, x1 = x0 + CS, z1 = z0 + CS;
             if (!in_view(x0 + CS * 0.5f, z0 + CS * 0.5f, 2.9f, draw_lim)) continue;
             int ddx = cx - pcx, ddz = cz - pcz;
-            int n = (ddx * ddx + ddz * ddz <= 4) ? gfx_nn[gfx] : gfx_nf[gfx];
+            int dd2 = ddx * ddx + ddz * ddz;
+            int n = (dd2 <= 4) ? gfx_nn[gfx] : ((dd2 <= 36) ? gfx_nf[gfx] : 1);   // detalle alto solo cerca (lejos casi no se nota)
             float k = ((cx + cz) & 1) ? 0.86f : 1.0f;
             float fl[3] = { ci.fr * k, ci.fg * k, ci.fb * k };
             if (layer == 0 && ch == 'O') floor_ring(x0, z0, fy, fl, n);
@@ -8308,12 +8313,16 @@ static void draw_monster(float t)
         w[i][1] = yy + mon_y;
         w[i][2] = sz_ - x * s + zz * c;
     }
+    static V mv[MON_NV];
+    static const float white3[3] = { 255.f, 255.f, 255.f };
+    for (int i = 0; i < MON_NV; i++) mv[i] = mk(w[i][0], w[i][1], w[i][2], white3, 0.0f);   // luz y camara, una vez por vertice
     for (int k = 0; k < MON_NT; k++) {
-        float col[3] = { (float)mon_c[k][0], (float)mon_c[k][1], (float)mon_c[k][2] };
-        int i0 = mon_t[k][0], i1 = mon_t[k][1], i2 = mon_t[k][2];
-        V va = mk(w[i0][0], w[i0][1], w[i0][2], col, 0.0f);
-        V vb = mk(w[i1][0], w[i1][1], w[i1][2], col, 0.0f);
-        V vc = mk(w[i2][0], w[i2][1], w[i2][2], col, 0.0f);
+        V va = mv[mon_t[k][0]], vb = mv[mon_t[k][1]], vc = mv[mon_t[k][2]];
+        if (va.z < NEAR_Z && vb.z < NEAR_Z && vc.z < NEAR_Z) continue;     // detras de la camara
+        float kr = mon_c[k][0] * (1.0f / 255.0f), kg = mon_c[k][1] * (1.0f / 255.0f), kb = mon_c[k][2] * (1.0f / 255.0f);
+        va.r *= kr; va.g *= kg; va.b *= kb;
+        vb.r *= kr; vb.g *= kg; vb.b *= kb;
+        vc.r *= kr; vc.g *= kg; vc.b *= kb;
         tri_cam(va, vb, vc);
     }
     float eye[3] = { 255.f, 30.f, 30.f };                     // ojos rojos (siguen a la cabeza)
@@ -8493,12 +8502,12 @@ static void draw_glow(float wx, float wy, float wz, float rad, int r, int g, int
 // sostiene la linterna. Como el .obj no trae textura, los colores son los clasicos de Steve.
 #define ST_S 0.225f
 typedef struct { float x, z, fy, fwx, fwz, rtx, rtz; } StCtx;       // donde esta y hacia donde mira
-typedef struct { float py, ang, ys, drop; } StPart;                 // pivote, giro, aplastado (agacharse), bajada
+typedef struct { float py, ang, ys, drop, c, s; } StPart;           // pivote, giro, aplastado (agacharse), bajada, cos/sen del giro
 
 static void st_pt(const StCtx *C, const StPart *p, float x, float y, float z, float *o)
 {
     float dy = (y - p->py) * p->ys;
-    float c = cosf(p->ang), s = sinf(p->ang);
+    float c = p->c, s = p->s;
     float mx = x * c - dy * s, my = p->py + x * s + dy * c - p->drop;
     o[0] = C->x + (mx * C->fwx + z * C->rtx) * ST_S;
     o[1] = C->fy + (my - 0.5f) * ST_S;
@@ -8506,7 +8515,8 @@ static void st_pt(const StCtx *C, const StPart *p, float x, float y, float z, fl
 }
 
 // Rectangulo en un plano del modelo. axis 0: x=v (a=y,b=z)  1: y=v (a=x,b=z)  2: z=v (a=x,b=y)
-static void st_plane(const StCtx *C, const StPart *p, int axis, float v,
+// sgn: hacia que lado mira la cara (+1 / -1 sobre su eje): si mira de espaldas a la camara no se dibuja
+static void st_plane(const StCtx *C, const StPart *p, int axis, int sgn, float v,
                      float a0, float a1, float b0, float b1, const float *col, float emit)
 {
     float m[4][3], q[4][3];
@@ -8517,6 +8527,15 @@ static void st_plane(const StCtx *C, const StPart *p, int axis, float v,
         else                { m[i][0] = A[i]; m[i][1] = B[i]; m[i][2] = v; }
         st_pt(C, p, m[i][0], m[i][1], m[i][2], q[i]);
     }
+    {
+        float n0 = (axis == 0) ? (float)sgn : 0.0f, n1 = (axis == 1) ? (float)sgn : 0.0f, n2 = (axis == 2) ? (float)sgn : 0.0f;
+        float nx = n0 * p->c - n1 * p->s, ny = n0 * p->s + n1 * p->c;
+        float wx = nx * C->fwx + n2 * C->rtx, wz = nx * C->fwz + n2 * C->rtz;
+        float fx_ = (q[0][0] + q[1][0] + q[2][0] + q[3][0]) * 0.25f;
+        float fy_ = (q[0][1] + q[1][1] + q[2][1] + q[3][1]) * 0.25f;
+        float fz_ = (q[0][2] + q[1][2] + q[2][2] + q[3][2]) * 0.25f;
+        if (wx * (px - fx_) + ny * (cam_y - fy_) + wz * (pz - fz_) <= 0.0f) return;   // de espaldas
+    }
     quad_sub(q, col, 1, emit);
 }
 
@@ -8525,12 +8544,12 @@ static void st_box(const StCtx *C, const StPart *p, float x0, float x1, float y0
 {
     float c[3];
 #define ST_SH(k) c[0] = col[0] * (k); c[1] = col[1] * (k); c[2] = col[2] * (k);
-    ST_SH(1.00f) st_plane(C, p, 1, y1, x0, x1, z0, z1, c, emit);
-    ST_SH(0.50f) st_plane(C, p, 1, y0, x0, x1, z0, z1, c, emit);
-    ST_SH(0.78f) st_plane(C, p, 2, z0, x0, x1, y0, y1, c, emit);
-    ST_SH(0.78f) st_plane(C, p, 2, z1, x0, x1, y0, y1, c, emit);
-    ST_SH(0.90f) st_plane(C, p, 0, x1, y0, y1, z0, z1, c, emit);
-    ST_SH(0.68f) st_plane(C, p, 0, x0, y0, y1, z0, z1, c, emit);
+    ST_SH(1.00f) st_plane(C, p, 1, 1, y1, x0, x1, z0, z1, c, emit);
+    ST_SH(0.50f) st_plane(C, p, 1, -1, y0, x0, x1, z0, z1, c, emit);
+    ST_SH(0.78f) st_plane(C, p, 2, -1, z0, x0, x1, y0, y1, c, emit);
+    ST_SH(0.78f) st_plane(C, p, 2, 1, z1, x0, x1, y0, y1, c, emit);
+    ST_SH(0.90f) st_plane(C, p, 0, 1, x1, y0, y1, z0, z1, c, emit);
+    ST_SH(0.68f) st_plane(C, p, 0, -1, x0, y0, y1, z0, z1, c, emit);
 #undef ST_SH
 }
 
@@ -8550,6 +8569,8 @@ static void st_pose(const Player *Q, StPose *S)
     S->head = (StPart){ 6.49f, clampf(Q->pitch * 0.8f, -0.7f, 0.7f), 1.0f, drop };
     S->armL = (StPart){ 6.2f, -sw * 0.8f, 1.0f, drop };
     S->armR = (StPart){ 6.2f, 1.30f + clampf(Q->pitch, -0.9f, 0.9f) * 0.6f, 1.0f, drop };   // linterna al frente
+    StPart *ps[6] = { &S->legA, &S->legB, &S->body, &S->head, &S->armL, &S->armR };
+    for (int i = 0; i < 6; i++) { ps[i]->c = cosf(ps[i]->ang); ps[i]->s = sinf(ps[i]->ang); }   // una sola vez por parte
 }
 
 // Donde esta el lente de la linterna del otro jugador (para su brillo)
@@ -8597,20 +8618,21 @@ static void draw_other_player(float t)
     st_box(C, &S.armR, -0.29f, 0.29f, 2.38f, 2.55f,  1.43f,  2.06f, lens, (Q->flash_on ? 0.85f : 0.05f));
     // cabeza: piel, pelo y cara
     st_box(C, &S.head, -1.00f, 1.00f, 6.47f, 8.49f, -1.01f, 1.01f, skin, em);
+    { float ddx = Q->px - px, ddz = Q->pz - pz; if (ddx * ddx + ddz * ddz > 144.0f) return; }   // lejos (+12 m): sin pelo ni cara
     const float px_ = 2.02f / 8.0f, top = 8.49f, z0 = -1.01f, o = 0.012f;
 #define HY(r) (top - (r) * px_)
 #define HZ(c) (z0 + (c) * px_)
-    st_plane(C, &S.head, 1, top + o, -1.00f, 1.00f, -1.01f, 1.01f, hair, em);                 // arriba
-    st_plane(C, &S.head, 0, -1.00f - o, HY(8), HY(0), -1.01f, 1.01f, hair, em);               // nuca
-    st_plane(C, &S.head, 2, -1.01f - o, -1.00f, 1.00f, HY(3), HY(0), hair, em);               // patillas
-    st_plane(C, &S.head, 2,  1.01f + o, -1.00f, 1.00f, HY(3), HY(0), hair, em);
-    st_plane(C, &S.head, 0, 1.00f + o, HY(2), HY(0), -1.01f, 1.01f, hair, em);                // flequillo
-    st_plane(C, &S.head, 0, 1.00f + o, HY(5), HY(4), HZ(1), HZ(2), white, 0.18f);             // ojos
-    st_plane(C, &S.head, 0, 1.00f + o, HY(5), HY(4), HZ(2), HZ(3), iris, 0.10f);
-    st_plane(C, &S.head, 0, 1.00f + o, HY(5), HY(4), HZ(5), HZ(6), iris, 0.10f);
-    st_plane(C, &S.head, 0, 1.00f + o, HY(5), HY(4), HZ(6), HZ(7), white, 0.18f);
-    st_plane(C, &S.head, 0, 1.00f + o, HY(6), HY(5), HZ(3), HZ(5), nose, em);                 // nariz
-    st_plane(C, &S.head, 0, 1.00f + o, HY(7), HY(6), HZ(2), HZ(6), mouth, em);                // boca
+    st_plane(C, &S.head, 1, 1, top + o, -1.00f, 1.00f, -1.01f, 1.01f, hair, em);                 // arriba
+    st_plane(C, &S.head, 0, -1, -1.00f - o, HY(8), HY(0), -1.01f, 1.01f, hair, em);               // nuca
+    st_plane(C, &S.head, 2, -1, -1.01f - o, -1.00f, 1.00f, HY(3), HY(0), hair, em);               // patillas
+    st_plane(C, &S.head, 2, 1,  1.01f + o, -1.00f, 1.00f, HY(3), HY(0), hair, em);
+    st_plane(C, &S.head, 0, 1, 1.00f + o, HY(2), HY(0), -1.01f, 1.01f, hair, em);                // flequillo
+    st_plane(C, &S.head, 0, 1, 1.00f + o, HY(5), HY(4), HZ(1), HZ(2), white, 0.18f);             // ojos
+    st_plane(C, &S.head, 0, 1, 1.00f + o, HY(5), HY(4), HZ(2), HZ(3), iris, 0.10f);
+    st_plane(C, &S.head, 0, 1, 1.00f + o, HY(5), HY(4), HZ(5), HZ(6), iris, 0.10f);
+    st_plane(C, &S.head, 0, 1, 1.00f + o, HY(5), HY(4), HZ(6), HZ(7), white, 0.18f);
+    st_plane(C, &S.head, 0, 1, 1.00f + o, HY(6), HY(5), HZ(3), HZ(5), nose, em);                 // nariz
+    st_plane(C, &S.head, 0, 1, 1.00f + o, HY(7), HY(6), HZ(2), HZ(6), mouth, em);                // boca
 #undef HY
 #undef HZ
 }
@@ -8620,8 +8642,6 @@ static void draw_other_player(float t)
 static void lights_prepare(void)
 {
     draw_lim = gfx_maxd[gfx];
-    const Player *Q = &P[1 - pl_cur];
-    if (num_players == 2 && Q->flash_on) return;
     { float lim = 22.0f * gfx_reach[gfx] + 1.0f; if (lim < draw_lim) draw_lim = lim; }
 }
 
@@ -8667,9 +8687,9 @@ static void draw_other_beam(void)
     // hasta donde llega: pared / arbol / mueble, o el suelo
     float sg = (dy < -0.01f) ? (fl + 0.03f - oy) / dy : 1e9f;         // distancia al suelo
     float smax = fminf(20.0f, sg), shit = -1.0f;
-    for (float s = 0.5f; s <= smax; s += 0.5f) {
+    for (float s = 1.0f; s <= smax; s += 1.0f) {                      // cada 1 m, solo paredes y arboles
         float x = ox + dx * s, z = oz + dz * s, y = oy + dy * s;
-        if (y < 3.0f && (solid(x, z) || tree_hit(x, z) || col_hit(x, z, 0.0f))) { shit = s; break; }
+        if (y < 3.0f && (solid(x, z) || tree_hit(x, z))) { shit = s; break; }
     }
     pool_rgb[0] = 255.0f; pool_rgb[1] = 236.0f; pool_rgb[2] = 180.0f;
     pool_mode = 1;
@@ -9516,7 +9536,7 @@ static void render_game(float t, int moving, int near_ladder, int notes)
                 box_rot(EXIT_X, EXIT_Z, 0, 0, 0, 0.3f, 0.3f, 0.0f, 2.0f, gcol, 0.7f);
             }
             draw_other_player(t);                       // el otro jugador (pantalla dividida)
-            if (mlayer == cur_layer && !climbing) draw_monster(t);
+            if (mlayer == cur_layer && !climbing && in_view(sx_, sz_, 2.2f, 26.0f)) draw_monster(t);   // si no lo miras, ni se calcula
 
             gsKit_set_primalpha(gsGlobal, BLEND_STD, 0);
             gsGlobal->PrimAlphaEnable = GS_SETTING_ON;
