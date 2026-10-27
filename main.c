@@ -9741,11 +9741,14 @@ static int net_hw_poll(void)
     if (net_hw_ready) return 1;
     if (net_hw_stage == 0) { net_hw_stage = 1; return 0; }                 // deja pintar "INICIANDO RED..." antes de cargar
     if (net_hw_stage == 1) {
-        int r;
-        SifExecModuleBuffer(DEV9_irx, size_DEV9_irx, 0, NULL, &r);
-        SifExecModuleBuffer(NETMAN_irx, size_NETMAN_irx, 0, NULL, &r);
-        SifExecModuleBuffer(SMAP_irx, size_SMAP_irx, 0, NULL, &r);
-        if (NetManInit() < 0) { snprintf(net_text, sizeof(net_text), "ERROR AL INICIAR NETMAN"); return -1; }
+        int r = 0, id;
+        id = SifExecModuleBuffer(DEV9_irx, size_DEV9_irx, 0, NULL, &r);
+        if (id < 0 || r == 1) { net_hw_stage = 0; snprintf(net_text, sizeof(net_text), "NO HAY ADAPTADOR DE RED (DEV9)"); return -1; }
+        id = SifExecModuleBuffer(NETMAN_irx, size_NETMAN_irx, 0, NULL, &r);
+        if (id < 0 || r == 1) { net_hw_stage = 0; snprintf(net_text, sizeof(net_text), "NO CARGO NETMAN"); return -1; }
+        id = SifExecModuleBuffer(SMAP_irx, size_SMAP_irx, 0, NULL, &r);
+        if (id < 0 || r == 1) { net_hw_stage = 0; snprintf(net_text, sizeof(net_text), "NO CARGO EL DRIVER DE RED (SMAP)"); return -1; }
+        if (NetManInit() < 0) { net_hw_stage = 0; snprintf(net_text, sizeof(net_text), "ERROR AL INICIAR NETMAN"); return -1; }
         struct ip4_addr ip, nm, gw;
         memset(&ip, 0, sizeof(ip)); memset(&nm, 0, sizeof(nm)); memset(&gw, 0, sizeof(gw));
         ps2ipInit(&ip, &nm, &gw);
@@ -9756,7 +9759,7 @@ static int net_hw_poll(void)
     }
     t_ip_info info;
     if (ps2ip_getconfig("sm0", &info) >= 0 && info.ipaddr.s_addr != 0) { net_hw_ready = 1; return 1; }
-    if (++net_hw_tick > 60 * 20) { snprintf(net_text, sizeof(net_text), "SIN RED: REVISA EL CABLE Y EL DHCP"); return -1; }
+    if (++net_hw_tick > 60 * 15) { net_hw_tick = 0; snprintf(net_text, sizeof(net_text), "SIN RED: REVISA EL CABLE Y EL DHCP"); return -1; }   // (un nuevo intento sigue esperando la IP)
     return 0;
 #else
     return 1;
@@ -9917,7 +9920,13 @@ static int net_connect_poll(void)
     net_text2[0] = '\0';
     int hw = net_hw_poll();
     if (hw < 0) return -1;
-    if (hw == 0) { snprintf(net_text, sizeof(net_text), "INICIANDO RED..."); return 0; }
+    if (hw == 0) {
+        if (net_hw_stage >= 2) {                              // ya cargo los modulos: espera la IP del router (DHCP)
+            snprintf(net_text, sizeof(net_text), "BUSCANDO LA RED (DHCP)... %d", 15 - net_hw_tick / 60);
+            snprintf(net_text2, sizeof(net_text2), "NECESITA UNA PS2 REAL CON ADAPTADOR DE RED");
+        } else snprintf(net_text, sizeof(net_text), "INICIANDO RED...");
+        return 0;
+    }
     if (net_sock < 0) {
         if (net_open(net_host ? NET_PORT : 0) < 0) { snprintf(net_text, sizeof(net_text), "NO SE PUDO ABRIR EL PUERTO %d", NET_PORT); return -1; }
         net_have_peer = 0; net_got_hello = net_got_welcome = net_bye = 0; net_wait = 0;
