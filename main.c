@@ -10001,6 +10001,7 @@ static void menu_frame(u32 newp, float lv, int frame)
     int lt = (newp & PAD_LEFT) != 0, rt = (newp & PAD_RIGHT) != 0;
     int n = (screen == SC_OPT) ? 6 : (screen == SC_CTRL ? 3 : (screen == SC_MAIN ? 5 : (screen == SC_NET ? 3 : (screen == SC_NETIP || screen == SC_NETWAIT ? 1 : 4))));
     if (pad2_warn > 0) pad2_warn--;
+    const int scr0 = screen;                                   // pantalla con la que empieza este cuadro
     int *sel = (screen == SC_OPT) ? &opt_sel : (screen == SC_CTRL ? &ctl_sel : (screen == SC_NET ? &net_sel : &menu_sel));
     if (up) { *sel = (*sel + n - 1) % n; sfx_play(SFX_CLICK, 0.5f); }
     if (dn) { *sel = (*sel + 1) % n; sfx_play(SFX_CLICK, 0.5f); }
@@ -10042,7 +10043,9 @@ static void menu_frame(u32 newp, float lv, int frame)
 
     if (net_notice_t > 0) net_notice_t--;
 #ifdef HAVE_NET
-    if (screen == SC_NET) {                                   // ONLINE: crear o unirse
+    if (screen != scr0) {
+        /* acaba de cambiar de pantalla en este cuadro: la X que la abrio no cuenta dentro de la nueva */
+    } else if (screen == SC_NET) {                            // ONLINE: crear o unirse
         if (back || (ok && *sel == 2)) screen = SC_MAIN;
         else if (ok && *sel == 0) { net_host = 1; net_hw_stage = net_hw_stage ? net_hw_stage : 0; screen = SC_NETWAIT; net_close(); net_text[0] = 0; }
         else if (ok && *sel == 1) { screen = SC_NETIP; net_ip_sel = 0; }
