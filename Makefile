@@ -22,13 +22,6 @@ endif
 EE_LIBS += -lnetman
 endif
 
-# SALA CON RELAY (menu ONLINE > SALA CON RELAY): IP por defecto del relay (opcional).
-# Ejemplo:  make RELAY=203.0.113.10   (si no la pones, se escribe a mano en el menu)
-comma := ,
-ifneq ($(RELAY),)
-EE_CFLAGS += -DRELAY_IP=$(subst .,$(comma),$(RELAY))
-endif
-
 EE_INCS += -I$(PS2DEV)/gsKit/include
 EE_LDFLAGS += -L$(PS2DEV)/gsKit/lib
 EE_LIBS += -lgskit -ldmakit -lpad -laudsrv -lm
