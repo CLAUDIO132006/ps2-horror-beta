@@ -1,0 +1,50 @@
+HORROR BETA - SERVIDOR DEDICADO
+================================
+
+QUE HACE
+  - Lista de salas por internet (ONLINE > PARTIDAS PUBLICAS).
+  - Relay: reenvia los paquetes entre el anfitrion y el invitado. Funciona entre emuladores
+    (NetherSX2 / AetherSX2 / PCSX2) y detras de routers, porque los dos solo se conectan HACIA el servidor.
+  - No simula el juego: cada consola sigue simulando y el servidor solo reenvia controles (muy ligero).
+
+REQUISITOS
+  Python 3.8 o mas nuevo. No necesita librerias.
+
+COMO CORRERLO
+  python3 horror_server.py                      (puerto UDP 7778)
+  python3 horror_server.py --port 7778 --max-rooms 200 --quiet
+
+DONDE ALOJARLO
+  A) Un VPS barato (Linux): copia horror_server.py, ejecutalo y abre el puerto UDP 7778 en su firewall.
+       sudo ufw allow 7778/udp
+  B) Tu PC en casa: abre (port forward) el puerto UDP 7778 de tu router hacia tu PC y abre el firewall de Windows/Linux.
+     Los jugadores usan tu IP PUBLICA (buscala como "cual es mi ip").
+  C) Misma red WiFi (pruebas): usa la IP local del PC, por ejemplo 192.168.1.50. No hace falta abrir nada.
+
+  Para dejarlo siempre encendido en Linux (systemd), crea /etc/systemd/system/horror.service:
+       [Unit]
+       Description=Horror Beta server
+       After=network.target
+       [Service]
+       ExecStart=/usr/bin/python3 /opt/horror/horror_server.py --quiet
+       Restart=always
+       [Install]
+       WantedBy=multi-user.target
+     y luego:  sudo systemctl enable --now horror
+
+COMO SE USA EN EL JUEGO (los dos jugadores)
+  1. ONLINE > IP SERVIDOR: escribe la IP del servidor (izq/der casilla, arriba/abajo +1/-1, R1/L1 +10/-10) y X.
+     (Esto deja "SERVIDOR: SI" activado. Tambien se cambia con X en esa linea.)
+  2. Jugador 1: ONLINE > CREAR PARTIDA.   Jugador 2: ONLINE > PARTIDAS PUBLICAS, elige la sala y X.
+  3. El anfitrion pulsa COMENZAR.
+  "UNIRSE POR IP" sigue funcionando como antes (directo, sin servidor).
+  Sin DNS: el juego solo acepta IP numerica.
+
+EMULADORES
+  En NetherSX2 / AetherSX2: Ajustes > Sistema > Networking: Enable DEV9 Ethernet, API = Sockets, Device = WiFi.
+  Con el servidor ya no hace falta que un emulador reciba conexiones: solo envia hacia el servidor.
+
+PROTOCOLO (por si lo quieres tocar)
+  Mensajes de control: 'HRSV' (0x56535248) + tipo. Paquetes del juego: 'HORR' (0x52524F48), se reenvian sin tocarlos.
+  Cliente->servidor: CREATE=1, LIST=2, JOIN=3, KEEP=4, LEAVE=5.  Servidor->cliente: ROOM=16, LISTRES=17, JOINED=18, ERR=19.
+  Una sala se borra si el anfitrion se va o pasa 15 s sin paquetes; el invitado se libera tras 6 s sin senales.
