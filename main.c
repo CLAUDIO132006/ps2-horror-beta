@@ -14,6 +14,7 @@
 //    2 JUGADORES: pantalla dividida (J1 arriba con el control 1, J2 abajo con el control 2)
 //    SELECT     : invierte la luz si en tu emulador se ve al reves
 //    ONLINE     : menu principal > ONLINE (necesita compilar con -DUSE_NET y el adaptador de red de la PS2)
+//                 CREAR PARTIDA abre una sala de espera (J1 / J2, boton COMENZAR); PARTIDAS PUBLICAS lista las salas de tu red
 //
 //  Objetivo: encuentra las 3 notas (cabana, cueva, alcantarilla)
 //  y llega a la caseta de la antena. Algo te esta buscando...
@@ -45,6 +46,7 @@ extern unsigned char SMAP_irx[];   extern unsigned int size_SMAP_irx;
 #define NS_sendto(s_, b, n, f, a, l)  lwip_sendto(s_, b, n, f, a, l)
 #define NS_recvfrom(s_, b, n, f, a, l) lwip_recvfrom(s_, b, n, f, a, l)
 #define NS_close(s_)                  lwip_close(s_)
+#define NS_setsockopt(s_, l, o, v, n) lwip_setsockopt(s_, l, o, v, n)
 #ifndef MSG_DONTWAIT
 #define MSG_DONTWAIT 0x08
 #endif
@@ -61,6 +63,7 @@ extern unsigned char SMAP_irx[];   extern unsigned int size_SMAP_irx;
 #define NS_sendto(s_, b, n, f, a, l)  sendto(s_, b, n, f, a, l)
 #define NS_recvfrom(s_, b, n, f, a, l) recvfrom(s_, b, n, f, a, l)
 #define NS_close(s_)                  close(s_)
+#define NS_setsockopt(s_, l, o, v, n) setsockopt(s_, l, o, v, n)
 #endif
 #ifdef USE_AUDIO
 #include <audsrv.h>
@@ -7636,11 +7639,13 @@ static const int   gfx_nf[3]    = { 1, 1, 2 };             // ... y lejos
 static const int   gfx_seg[3]   = { 24, 40, 56 };          // suavidad del circulo de luz
 static const int   gfx_steps[3] = { 5, 7, 8 };
 static const float gfx_reach[3] = { 0.85f, 1.0f, 1.2f };   // alcance de la luz
-enum { SC_MAIN, SC_OPT, SC_PLAY, SC_PAUSE, SC_CTRL, SC_NET, SC_NETIP, SC_NETWAIT };
+enum { SC_MAIN, SC_OPT, SC_PLAY, SC_PAUSE, SC_CTRL, SC_NET, SC_NETIP, SC_NETWAIT, SC_LOBBY, SC_NETLIST, SC_NAME };
 static int net_online;                  // 1 = partida online en curso (los dos juegos simulan lo mismo)
 static unsigned int game_seed;          // semilla de la partida (los codigos de los candados salen de ella)
 static int net_sel;                     // menu ONLINE
 static int net_local;                   // 0 = J1 (anfitrion), 1 = J2 (invitado)
+static char my_name[12] = "JUGADOR";            // tu nombre en el online (ONLINE > CAMBIAR NOMBRE)
+static char net_names[2][12] = { "JUGADOR 1", "JUGADOR 2" };   // nombres de J1 y J2 en la partida online
 static int   screen = SC_MAIN, menu_sel, opt_sel, opt_from = SC_MAIN, ctl_sel;
 static int   sens_h = 5, sens_v = 5;     // sensibilidad al mirar (1..10, 5 = la de siempre)
 static int   last_moving, last_near, last_notes;
@@ -9586,7 +9591,7 @@ static void render_game(float t, int moving, int near_ladder, int notes)
             draw_flashlight(t, moving);
 
             if (num_players == 2)                          // quien es quien en pantalla dividida
-                draw_text_c(6.0f, pl_cur ? "J2" : "J1", 2, pl_cur ? GS_SETREG_RGBAQ(70, 150, 255, 0x80, 0) : GS_SETREG_RGBAQ(235, 40, 36, 0x80, 0));
+                draw_text_c(6.0f, net_online ? net_names[pl_cur] : (pl_cur ? "J2" : "J1"), 2, pl_cur ? GS_SETREG_RGBAQ(70, 150, 255, 0x80, 0) : GS_SETREG_RGBAQ(235, 40, 36, 0x80, 0));
             for (int i = 0; i < 3; i++) {                 // HUD: notas
                 u64 c = notes_got[i] ? GS_SETREG_RGBAQ(255, 230, 80, 0x80, 0)
                                      : GS_SETREG_RGBAQ(50, 50, 50, 0x80, 0);
@@ -9702,7 +9707,7 @@ static int  net_host;                                    // 1 = anfitrion (J1) /
 #define NET_RING    64
 #define NET_MAXIN   24
 #define NET_TIMEOUT 600                 // cuadros esperando al otro antes de dar la conexion por perdida (10 s)
-enum { NP_HELLO = 1, NP_WELCOME = 2, NP_INPUT = 3, NP_BYE = 4 };
+enum { NP_HELLO = 1, NP_WELCOME = 2, NP_INPUT = 3, NP_BYE = 4, NP_START = 5, NP_ANNOUNCE = 6 };
 typedef struct { unsigned short btns; unsigned char lh, lv, rh, rv; } NetIn;
 
 static int  net_sock = -1;
@@ -9718,6 +9723,17 @@ static unsigned int chk_f, chk_v;                        // ultimo checksum de M
 static unsigned int my_chk_f[8], my_chk_v[8], rm_chk_f[8], rm_chk_v[8];
 static unsigned int net_last_pd;
 static int  net_hw_ready, net_hw_stage, net_hw_tick;
+
+// ---- Sala de espera (lobby) y lista de partidas publicas ----
+static int  net_in_lobby, net_got_start, net_guest_t, net_rx_age, net_ann_t, net_lobby_wait;
+#define NET_MAXROOMS 6
+typedef struct { int used; unsigned char ip[4]; int players; char name[24]; unsigned int seen; } Room;
+static Room rooms[NET_MAXROOMS];
+static int  list_sel;
+static char name_buf[12];                                  // editor de nombre (10 casillas)
+static int  name_pos;
+static int room_count(void) { int c = 0; for (int i = 0; i < NET_MAXROOMS; i++) c += rooms[i].used; return c; }
+static Room *room_at(int k) { for (int i = 0; i < NET_MAXROOMS; i++) if (rooms[i].used && k-- == 0) return &rooms[i]; return NULL; }
 
 static void put32(unsigned char *q, unsigned int v) { q[0] = (unsigned char)v; q[1] = (unsigned char)(v >> 8); q[2] = (unsigned char)(v >> 16); q[3] = (unsigned char)(v >> 24); }
 static unsigned int get32(const unsigned char *q) { return (unsigned int)q[0] | ((unsigned int)q[1] << 8) | ((unsigned int)q[2] << 16) | ((unsigned int)q[3] << 24); }
@@ -9837,6 +9853,7 @@ static int net_open(int port)
     struct sockaddr_in a;
     net_fill(&a, 0, 0, 0, 0, port);
     if (NS_bind(net_sock, (struct sockaddr *)&a, sizeof(a)) < 0) { NS_close(net_sock); net_sock = -1; return -2; }
+    { int one = 1; NS_setsockopt(net_sock, SOL_SOCKET, SO_BROADCAST, &one, sizeof(one)); }   // para anunciar la sala en la red local
 #ifdef NET_PC_TEST
     fcntl(net_sock, F_SETFL, O_NONBLOCK);
 #endif
@@ -9859,7 +9876,7 @@ static void net_send_raw(const unsigned char *b, int n)
 static void net_send_pkt(int type)
 {
     unsigned char b[28 + NET_MAXIN * 6];
-    memset(b, 0, 28);
+    memset(b, 0, 40);
     put32(b, NET_MAGIC);
     b[4] = (unsigned char)type; b[5] = (unsigned char)sens_h; b[6] = (unsigned char)sens_v;
     int count = 0;
@@ -9881,10 +9898,31 @@ static void net_send_pkt(int type)
         q[0] = (unsigned char)(in->btns & 255); q[1] = (unsigned char)(in->btns >> 8);
         q[2] = in->lh; q[3] = in->lv; q[4] = in->rh; q[5] = in->rv;
     }
-    net_send_raw(b, 28 + count * 6);
+    int len = 28 + count * 6;
+    if (type == NP_HELLO || type == NP_WELCOME) {                       // tu nombre viaja en el saludo
+        memcpy(b + 28, my_name, 12);
+        len = 28 + 12;
+    }
+    net_send_raw(b, len);
 }
 
 static void net_neutral(NetIn *n) { n->btns = 0; n->lh = n->lv = n->rh = n->rv = 128; }
+
+// Copia el nombre que viene en el saludo (solo letras mayusculas, numeros y espacio)
+static void net_take_name(char *dst, const unsigned char *b, int n)
+{
+    if (n < 28 + 12) return;
+    char t[12];
+    int k = 0;
+    for (int i = 0; i < 10; i++) {
+        unsigned char c = b[28 + i];
+        if (c == 0) break;
+        if ((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == ' ') t[k++] = (char)c;
+    }
+    while (k > 0 && t[k - 1] == ' ') k--;
+    if (k == 0) return;                                                   // sin nombre: se queda el de antes
+    memcpy(dst, t, (size_t)k); dst[k] = '\0';
+}
 
 // Lee todo lo que haya llegado y lo aplica
 static void net_pump(void)
@@ -9897,17 +9935,25 @@ static void net_pump(void)
         if (n <= 0) break;
         if (n < 28 || get32(b) != NET_MAGIC || net_drop()) continue;
         int type = b[4];
+        if (type == NP_ANNOUNCE) continue;                                          // anuncios de salas: solo los lee la lista
         if (net_have_peer && (from.sin_addr.s_addr != net_peer.sin_addr.s_addr || from.sin_port != net_peer.sin_port)) continue;
+        net_rx_age = 0;
         if (type == NP_HELLO && net_host) {
             if (!net_have_peer) { net_peer = from; net_have_peer = 1; }
             net_psens_h[1] = b[5]; net_psens_v[1] = b[6];
-            net_got_hello = 1;
-            if (net_online) net_send_pkt(NP_WELCOME);                   // el invitado no recibio el WELCOME: se repite
+            net_got_hello = 1; net_guest_t = 0;
+            net_take_name(net_names[1], b, n);
+            if (net_online || net_in_lobby) net_send_pkt(NP_WELCOME);   // confirma que esta en la sala (o se repite el WELCOME perdido)
         } else if (type == NP_WELCOME && !net_host) {
             net_seed = get32(b + 16); net_psens_h[0] = b[5]; net_psens_v[0] = b[6];
             net_got_welcome = 1;
+            net_take_name(net_names[0], b, n);
         } else if (type == NP_BYE) {
             net_bye = 1;
+        } else if (type == NP_START && !net_host) {
+            net_got_start = 1;                                          // el anfitrion comenzo la partida
+        } else if (type == NP_INPUT && !net_online && !net_host && net_in_lobby) {
+            net_got_start = 1;                                          // (si se perdio el START, el primer cuadro de controles tambien avisa)
         } else if (type == NP_INPUT && net_online) {
             unsigned int last = get32(b + 8), ack = get32(b + 12);
             int count = b[7];
@@ -9936,6 +9982,7 @@ static void net_close(void)
 {
     if (net_sock >= 0) { NS_close(net_sock); net_sock = -1; }
     net_have_peer = 0; net_got_hello = net_got_welcome = net_bye = 0;
+    net_in_lobby = 0; net_got_start = 0; net_guest_t = 0;
 }
 
 // Preparar la partida online (los dos juegos ejecutan esto al conectar)
@@ -9965,7 +10012,7 @@ static void net_leave(const char *msg)
     reset_game();
 }
 
-// Pantalla de conexion: 0 = esperando, 1 = partida iniciada, -1 = error (texto en net_text)
+// Pantalla de conexion: 0 = esperando, 2 = entrar a la sala de espera, -1 = error (texto en net_text)
 static int net_connect_poll(void)
 {
     net_text2[0] = '\0';
@@ -9984,29 +10031,91 @@ static int net_connect_poll(void)
     if (net_sock < 0) {
         if (net_open(net_host ? NET_PORT : 0) < 0) { snprintf(net_text, sizeof(net_text), "NO SE PUDO ABRIR EL PUERTO %d", NET_PORT); return -1; }
         net_have_peer = 0; net_got_hello = net_got_welcome = net_bye = 0; net_wait = 0;
+        net_in_lobby = 0; net_got_start = 0; net_guest_t = 0; net_rx_age = 0; net_ann_t = 0;
+        snprintf(net_names[net_host ? 0 : 1], sizeof(net_names[0]), "%s", my_name);                // tu nombre
+        snprintf(net_names[net_host ? 1 : 0], sizeof(net_names[0]), "%s", net_host ? "JUGADOR 2" : "JUGADOR 1");   // el del otro, hasta que llegue su saludo
+        if (net_host) net_seed = (unsigned int)(frame_no * 2654435761u) ^ 0x9E3779B9u;      // semilla de esta sala
         if (!net_host) { net_fill(&net_peer, net_ip[0], net_ip[1], net_ip[2], net_ip[3], NET_PORT); net_have_peer = 1; }
         net_psens_h[net_host ? 0 : 1] = sens_h; net_psens_v[net_host ? 0 : 1] = sens_v;
     }
     net_wait++;
     net_pump();
-    if (net_host) {
-        char ip[24];
-        net_local_ip(ip, sizeof(ip));
-        snprintf(net_text, sizeof(net_text), "ESPERANDO AL OTRO JUGADOR...");
-        snprintf(net_text2, sizeof(net_text2), "TU IP: %s  PUERTO UDP %d", ip, NET_PORT);
-        if (net_got_hello) {
-            net_seed = (unsigned int)(frame_no * 2654435761u) ^ 0x9E3779B9u;
-            net_send_pkt(NP_WELCOME);
-            net_match_begin();
-            return 1;
-        }
+    if (net_host) {                                           // anfitrion: pasa directo a la sala de espera
+        net_in_lobby = 1; net_lobby_wait = 0;
+        return 2;
     } else {
         snprintf(net_text, sizeof(net_text), "CONECTANDO A %d.%d.%d.%d ...", net_ip[0], net_ip[1], net_ip[2], net_ip[3]);
-        if (net_got_welcome) { net_match_begin(); return 1; }
+        if (net_got_welcome) { net_in_lobby = 1; net_rx_age = 0; net_lobby_wait = 0; return 2; }    // el anfitrion te dejo entrar
         if (net_wait % 30 == 1) net_send_pkt(NP_HELLO);
         if (net_wait > 60 * 20) { snprintf(net_text, sizeof(net_text), "EL ANFITRION NO RESPONDE"); return -1; }
     }
     return 0;
+}
+
+// Anuncia la sala a toda la red local (UDP broadcast): asi aparece en "PARTIDAS PUBLICAS" de los demas
+static void net_announce(void)
+{
+    unsigned char b[52];
+    memset(b, 0, sizeof(b));
+    put32(b, NET_MAGIC);
+    b[4] = NP_ANNOUNCE; b[7] = (unsigned char)(net_got_hello ? 2 : 1);
+    snprintf((char *)b + 28, 24, "SALA DE %s", my_name);
+    struct sockaddr_in a;
+    net_fill(&a, 255, 255, 255, 255, NET_PORT);
+    NS_sendto(net_sock, b, sizeof(b), 0, (struct sockaddr *)&a, sizeof(a));
+}
+
+// Sala de espera. 1 = la partida empezo, 0 = seguimos en la sala, -1 = salir (texto en net_text).
+// ok = el anfitrion pulso COMENZAR.
+static int net_lobby_poll(int ok)
+{
+    net_pump();
+    net_rx_age++; net_lobby_wait++;
+    if (net_host) {
+        if (net_got_hello && ++net_guest_t > 150) { net_got_hello = 0; net_have_peer = 0; }   // el invitado dejo de dar senales
+        if (net_bye) { net_bye = 0; net_got_hello = 0; net_have_peer = 0; }                   // el invitado salio
+        if (net_ann_t++ % 60 == 0) net_announce();
+        if (ok && net_got_hello) {
+            for (int k = 0; k < 3; k++) net_send_pkt(NP_START);
+            net_match_begin();
+            return 1;
+        }
+    } else {
+        if (net_bye) { snprintf(net_text, sizeof(net_text), "EL ANFITRION CERRO LA SALA"); return -1; }
+        if (net_got_start) { net_match_begin(); return 1; }
+        if (net_lobby_wait % 30 == 1) net_send_pkt(NP_HELLO);                                  // senal de vida
+        if (net_rx_age > 300) { snprintf(net_text, sizeof(net_text), "SE PERDIO LA CONEXION"); return -1; }
+    }
+    return 0;
+}
+
+static void net_lobby_exit(void)
+{
+    for (int k = 0; k < 3; k++) net_send_pkt(NP_BYE);
+    net_close();
+}
+
+// Lista de partidas publicas: lee los anuncios de la red local y olvida las salas que dejaron de anunciarse
+static void net_list_pump(void)
+{
+    unsigned char b[64];
+    struct sockaddr_in from;
+    for (int guard = 0; guard < 24; guard++) {
+        socklen_t fl = sizeof(from);
+        int n = NS_recvfrom(net_sock, b, sizeof(b), MSG_DONTWAIT, (struct sockaddr *)&from, &fl);
+        if (n <= 0) break;
+        if (n < 52 || get32(b) != NET_MAGIC || b[4] != NP_ANNOUNCE) continue;
+        unsigned int ad = (unsigned int)from.sin_addr.s_addr;
+        unsigned char ip[4] = { (unsigned char)(ad & 255u), (unsigned char)((ad >> 8) & 255u), (unsigned char)((ad >> 16) & 255u), (unsigned char)((ad >> 24) & 255u) };
+        Room *r = NULL;
+        for (int i = 0; i < NET_MAXROOMS; i++) if (rooms[i].used && memcmp(rooms[i].ip, ip, 4) == 0) { r = &rooms[i]; break; }
+        for (int i = 0; i < NET_MAXROOMS && !r; i++) if (!rooms[i].used) r = &rooms[i];
+        if (!r) continue;                                                   // lista llena
+        r->used = 1; memcpy(r->ip, ip, 4); r->players = b[7]; r->seen = (unsigned int)frame_no;
+        memcpy(r->name, b + 28, 23); r->name[23] = '\0';
+    }
+    for (int i = 0; i < NET_MAXROOMS; i++)
+        if (rooms[i].used && (unsigned int)frame_no - rooms[i].seen > 240u) rooms[i].used = 0;   // 4 s sin anuncio: ya no existe
 }
 
 // Resumen del estado de la simulacion (si los dos juegos difieren, hay desincronizacion)
@@ -10065,7 +10174,18 @@ static void menu_frame(u32 newp, float lv, int frame)
     int n = (screen == SC_OPT) ? 6 : (screen == SC_CTRL ? 3 : (screen == SC_MAIN ? 5 : (screen == SC_NET ? 3 : (screen == SC_NETIP || screen == SC_NETWAIT ? 1 : 4))));
     if (pad2_warn > 0) pad2_warn--;
     const int scr0 = screen;                                   // pantalla con la que empieza este cuadro
+#ifdef HAVE_NET
+    if (screen == SC_NET) n = 5;
+    else if (screen == SC_NAME) n = 1;
+    else if (screen == SC_NETLIST) n = room_count() > 0 ? room_count() : 1;
+    else if (screen == SC_LOBBY) n = 1;
+#endif
     int *sel = (screen == SC_OPT) ? &opt_sel : (screen == SC_CTRL ? &ctl_sel : (screen == SC_NET ? &net_sel : &menu_sel));
+#ifdef HAVE_NET
+    if (screen == SC_NETLIST) sel = &list_sel;
+    static int name_dummy;
+    if (screen == SC_NAME) sel = &name_dummy;                // el editor usa arriba/abajo para las letras
+#endif
     if (up) { *sel = (*sel + n - 1) % n; sfx_play(SFX_CLICK, 0.5f); }
     if (dn) { *sel = (*sel + 1) % n; sfx_play(SFX_CLICK, 0.5f); }
     if (ok || back || lt || rt) sfx_play(SFX_CLICK, 0.7f);
@@ -10109,9 +10229,11 @@ static void menu_frame(u32 newp, float lv, int frame)
     if (screen != scr0) {
         /* acaba de cambiar de pantalla en este cuadro: la X que la abrio no cuenta dentro de la nueva */
     } else if (screen == SC_NET) {                            // ONLINE: crear o unirse
-        if (back || (ok && *sel == 2)) screen = SC_MAIN;
-        else if (ok && *sel == 0) { net_host = 1; net_hw_stage = net_hw_stage ? net_hw_stage : 0; screen = SC_NETWAIT; net_close(); net_text[0] = 0; }
+        if (back || (ok && *sel == 4)) screen = SC_MAIN;
+        else if (ok && *sel == 3) { snprintf(name_buf, sizeof(name_buf), "%-10s", my_name); name_pos = 0; screen = SC_NAME; }   // CAMBIAR NOMBRE
+        else if (ok && *sel == 0) { net_host = 1; screen = SC_NETWAIT; net_close(); net_text[0] = 0; }      // CREAR: va a la sala de espera
         else if (ok && *sel == 1) { screen = SC_NETIP; net_ip_sel = 0; }
+        else if (ok && *sel == 2) { net_host = 0; screen = SC_NETLIST; net_close(); net_text[0] = 0; list_sel = 0; memset(rooms, 0, sizeof(rooms)); }   // PARTIDAS PUBLICAS
     } else if (screen == SC_NETIP) {                          // escribir la IP del anfitrion
         static int rep_t = 0;
         if (back) screen = SC_NET;
@@ -10131,6 +10253,59 @@ static void menu_frame(u32 newp, float lv, int frame)
         else {
             int r = net_connect_poll();
             if (r < 0) { net_close(); snprintf(net_notice, sizeof(net_notice), "%s", net_text); net_notice_t = 300; screen = SC_NET; }
+            else if (r == 2) screen = SC_LOBBY;                   // conectado: sala de espera
+        }
+    } else if (screen == SC_LOBBY) {                          // SALA DE ESPERA: J1 y J2, boton COMENZAR
+        if (back) { net_lobby_exit(); screen = SC_NET; }
+        else {
+            int r = net_lobby_poll(ok && net_host);
+            if (r < 0) { net_close(); snprintf(net_notice, sizeof(net_notice), "%s", net_text); net_notice_t = 300; screen = SC_NET; }
+        }
+    } else if (screen == SC_NAME) {                           // CAMBIAR NOMBRE: arriba/abajo letra, izq/der casilla
+        static const char cs[] = " ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+        const int ncs = (int)sizeof(cs) - 1;
+        if (back) screen = SC_NET;
+        else if (ok) {                                         // X: guardar
+            int k = 10;
+            while (k > 0 && name_buf[k - 1] == ' ') k--;
+            if (k == 0) snprintf(my_name, sizeof(my_name), "JUGADOR");
+            else { memcpy(my_name, name_buf, (size_t)k); my_name[k] = '\0'; }
+            snprintf(net_notice, sizeof(net_notice), "NOMBRE GUARDADO: %s", my_name); net_notice_t = 180;
+            screen = SC_NET;
+        } else {
+            if (lt) name_pos = (name_pos + 9) % 10;
+            if (rt) name_pos = (name_pos + 1) % 10;
+            int ci = 0;
+            for (int i = 0; i < ncs; i++) if (cs[i] == name_buf[name_pos]) { ci = i; break; }
+            if (up) ci = (ci + 1) % ncs;
+            if (dn) ci = (ci + ncs - 1) % ncs;
+            name_buf[name_pos] = cs[ci];
+        }
+    } else if (screen == SC_NETLIST) {                        // PARTIDAS PUBLICAS (salas de la red local)
+        if (back) { net_close(); screen = SC_NET; }
+        else {
+            int hw = net_hw_poll();
+            if (hw < 0) { net_close(); snprintf(net_notice, sizeof(net_notice), "%s", net_text); net_notice_t = 300; screen = SC_NET; }
+            else if (hw == 0) snprintf(net_text, sizeof(net_text), "INICIANDO RED...");
+            else {
+                if (net_sock < 0) {
+                    if (net_open(NET_PORT) < 0) { snprintf(net_notice, sizeof(net_notice), "NO SE PUDO ABRIR EL PUERTO %d", NET_PORT); net_notice_t = 300; screen = SC_NET; }
+                    else memset(rooms, 0, sizeof(rooms));
+                }
+                if (net_sock >= 0) {
+                    net_list_pump();
+                    int cnt = room_count();
+                    if (list_sel >= cnt) list_sel = cnt > 0 ? cnt - 1 : 0;
+                    Room *rm = (ok && cnt > 0) ? room_at(list_sel) : NULL;
+                    if (rm) {
+                        if (rm->players >= 2) { snprintf(net_notice, sizeof(net_notice), "ESA SALA ESTA LLENA"); net_notice_t = 200; }
+                        else {
+                            for (int k = 0; k < 4; k++) net_ip[k] = rm->ip[k];
+                            net_host = 0; net_close(); net_text[0] = 0; screen = SC_NETWAIT;
+                        }
+                    }
+                }
+            }
         }
     }
 #endif
@@ -10146,7 +10321,7 @@ static void menu_frame(u32 newp, float lv, int frame)
 
     if (screen == SC_PLAY) return;                            // la partida online acaba de empezar
     // ---- dibujo ----
-    if (screen == SC_MAIN || screen == SC_NET || screen == SC_NETIP || screen == SC_NETWAIT || ((screen == SC_OPT || screen == SC_CTRL) && opt_from == SC_MAIN)) menu_bg_main();
+    if (screen == SC_MAIN || screen == SC_NET || screen == SC_NETIP || screen == SC_NETWAIT || screen == SC_LOBBY || screen == SC_NETLIST || screen == SC_NAME || ((screen == SC_OPT || screen == SC_CTRL) && opt_from == SC_MAIN)) menu_bg_main();
     else { render_frame(last_t, 1); menu_dim(); }
 
     u64 sel_c = GS_SETREG_RGBAQ(255, 230, 90, 0x80, 0), norm_c = GS_SETREG_RGBAQ(170, 170, 175, 0x80, 0);
@@ -10203,11 +10378,13 @@ static void menu_frame(u32 newp, float lv, int frame)
 #ifdef HAVE_NET
     if (screen == SC_NET) {
         draw_text_c(50.0f, "ONLINE", 6, sel_c);
-        static const char *it[3] = { "CREAR PARTIDA", "UNIRSE A UNA PARTIDA", "VOLVER" };
-        for (int i = 0; i < 3; i++) {
+        static const char *it[5] = { "CREAR PARTIDA", "UNIRSE POR IP", "PARTIDAS PUBLICAS", "CAMBIAR NOMBRE", "VOLVER" };
+        for (int i = 0; i < 5; i++) {
             snprintf(line, sizeof(line), i == net_sel ? "> %s <" : "%s", it[i]);
-            draw_text_c(170.0f + i * 44.0f, line, 3, i == net_sel ? sel_c : norm_c);
+            draw_text_c(112.0f + i * 38.0f, line, 3, i == net_sel ? sel_c : norm_c);
         }
+        snprintf(line, sizeof(line), "TU NOMBRE: %s", my_name);
+        draw_text_c(92.0f, line, 2, hint_c);
         draw_text_c(H - 84.0f, "2 JUGADORES EN RED LOCAL O POR INTERNET", 2, hint_c);
         if (net_notice_t > 0) draw_text_c(H - 110.0f, net_notice, 2, GS_SETREG_RGBAQ(235, 130, 60, 0x80, 0));
     } else if (screen == SC_NETIP) {
@@ -10221,6 +10398,78 @@ static void menu_frame(u32 newp, float lv, int frame)
         }
         draw_text_c(H - 84.0f, "IZQ/DER: CASILLA   ARRIBA/ABAJO: +1/-1   R1/L1: +10/-10", 1, hint_c);
         draw_text_c(H - 34.0f, "X: CONECTAR   O: ATRAS", 2, hint_c);
+    } else if (screen == SC_NAME) {
+        static const char cs2[] = " ";
+        (void)cs2;
+        draw_text_c(50.0f, "CAMBIAR NOMBRE", 5, sel_c);
+        for (int i = 0; i < 10; i++) {
+            float bx = W * 0.5f - 205.0f + i * 41.0f;
+            int sel_i = (i == name_pos);
+            gsKit_prim_sprite(gsGlobal, bx, 170.0f, bx + 37.0f, 226.0f, 16777000, sel_i ? sel_c : GS_SETREG_RGBAQ(110, 110, 116, 0x80, 0));
+            gsKit_prim_sprite(gsGlobal, bx + 2.0f, 172.0f, bx + 35.0f, 224.0f, 16777010, GS_SETREG_RGBAQ(10, 10, 14, 0x80, 0));
+            char ch[2] = { name_buf[i] == ' ' ? '_' : name_buf[i], '\0' };
+            draw_text(bx + 9.0f, 184.0f, ch, 4, sel_i ? sel_c : norm_c);
+        }
+        draw_text_c(262.0f, "ESTE NOMBRE SE VE EN LA SALA Y EN LA PARTIDA ONLINE", 1, hint_c);
+        draw_text_c(H - 84.0f, "IZQ/DER: CASILLA   ARRIBA/ABAJO: LETRA", 2, hint_c);
+        draw_text_c(H - 58.0f, "X: GUARDAR", 2, hint_c);
+        draw_text_c(H - 34.0f, "O: CANCELAR", 2, hint_c);
+    } else if (screen == SC_LOBBY) {
+        u64 c1 = GS_SETREG_RGBAQ(235, 40, 36, 0x80, 0), c2 = GS_SETREG_RGBAQ(70, 150, 255, 0x80, 0);
+        u64 dim = GS_SETREG_RGBAQ(120, 120, 126, 0x80, 0);
+        draw_text_c(40.0f, "SALA DE ESPERA", 5, sel_c);
+        int p2 = net_host ? net_got_hello : 1;                // el invitado ya esta dentro si ve la sala
+        for (int i = 0; i < 2; i++) {
+            float y = 130.0f + i * 56.0f;
+            u64 bc = i ? c2 : c1;
+            gsKit_prim_sprite(gsGlobal, W * 0.5f - 200.0f, y - 6.0f, W * 0.5f + 200.0f, y + 40.0f, 16777000, bc);
+            gsKit_prim_sprite(gsGlobal, W * 0.5f - 198.0f, y - 4.0f, W * 0.5f + 198.0f, y + 38.0f, 16777010, GS_SETREG_RGBAQ(12, 12, 18, 0x80, 0));
+            draw_text(W * 0.5f - 184.0f, y + 6.0f, i ? "J2" : "J1", 3, bc);
+            int here = i == 0 ? 1 : p2;
+            const char *who = (i == 0) ? (net_host ? "(TU - ANFITRION)" : "(ANFITRION)") : (net_host ? "" : "(TU)");
+            if (here) {
+                snprintf(line, sizeof(line), "%s %s", net_names[i], who);
+                draw_text(W * 0.5f - 130.0f, y + 6.0f, line, 3, norm_c);
+            } else {
+                int d = (frame_no / 20) % 4;
+                snprintf(line, sizeof(line), "ESPERANDO%.*s", d, "...");
+                draw_text(W * 0.5f - 130.0f, y + 6.0f, line, 3, dim);
+            }
+        }
+        if (net_host) {
+            char ip[24];
+            net_local_ip(ip, sizeof(ip));
+            snprintf(line, sizeof(line), "TU IP: %s  PUERTO UDP %d", ip, NET_PORT);
+            draw_text_c(262.0f, line, 2, hint_c);
+            if (net_got_hello) draw_text_c(300.0f, "> COMENZAR PARTIDA <", 4, sel_c);
+            else draw_text_c(300.0f, "COMENZAR PARTIDA", 4, dim);
+            draw_text_c(H - 58.0f, net_got_hello ? "X: COMENZAR" : "ESPERANDO A UN JUGADOR (SALA PUBLICA EN TU RED)", 2, hint_c);
+        } else {
+            draw_text_c(300.0f, "ESPERANDO A QUE EL ANFITRION COMIENCE...", 2, sel_c);
+        }
+        draw_text_c(H - 34.0f, "O: SALIR DE LA SALA", 2, hint_c);
+    } else if (screen == SC_NETLIST) {
+        draw_text_c(40.0f, "PARTIDAS PUBLICAS", 4, sel_c);
+        if (net_sock < 0) draw_text_c(200.0f, net_text, 2, norm_c);
+        else if (room_count() == 0) {
+            int d = (frame_no / 20) % 4;
+            snprintf(line, sizeof(line), "BUSCANDO SALAS EN TU RED%.*s", d, "...");
+            draw_text_c(200.0f, line, 2, norm_c);
+            draw_text_c(236.0f, "NINGUNA SALA POR AHORA", 1, hint_c);
+        } else {
+            for (int i = 0; i < room_count(); i++) {
+                const Room *rm = room_at(i);
+                if (!rm) continue;
+                snprintf(line, sizeof(line), "%s  %d/2  %d.%d.%d.%d", rm->name, rm->players, rm->ip[0], rm->ip[1], rm->ip[2], rm->ip[3]);
+                char l2[96];
+                snprintf(l2, sizeof(l2), i == list_sel ? "> %s <" : "%s", line);
+                draw_text_c(110.0f + i * 34.0f, l2, 2, rm->players >= 2 ? GS_SETREG_RGBAQ(150, 80, 70, 0x80, 0) : (i == list_sel ? sel_c : norm_c));
+            }
+        }
+        draw_text_c(H - 84.0f, "SOLO SALAS EN LA MISMA RED (WIFI / CABLE)", 1, hint_c);
+        if (net_notice_t > 0) draw_text_c(H - 110.0f, net_notice, 2, GS_SETREG_RGBAQ(235, 130, 60, 0x80, 0));
+        draw_text_c(H - 58.0f, "ARRIBA/ABAJO: ELEGIR   X: UNIRSE", 2, hint_c);
+        draw_text_c(H - 34.0f, "O: ATRAS", 2, hint_c);
     } else if (screen == SC_NETWAIT) {
         draw_text_c(50.0f, net_host ? "CREAR PARTIDA" : "UNIRSE", 5, sel_c);
         draw_text_c(200.0f, net_text, 2, norm_c);
@@ -10229,7 +10478,7 @@ static void menu_frame(u32 newp, float lv, int frame)
         draw_text_c(H - 34.0f, "O: CANCELAR", 2, hint_c);
     }
 #endif
-    if (screen != SC_NETIP && screen != SC_NETWAIT)
+    if (screen != SC_NETIP && screen != SC_NETWAIT && screen != SC_LOBBY && screen != SC_NETLIST && screen != SC_NAME)
     draw_text_c(H - 34.0f, (screen == SC_OPT || screen == SC_CTRL) ? "IZQ/DER: CAMBIAR   O: ATRAS" : "ARRIBA/ABAJO: MOVER   X: ELEGIR", 2, hint_c);
     if (screen == SC_MAIN || screen == SC_OPT) draw_text_c(H - 58.0f, "LUZ AL REVES? PULSA SELECT", 2, hint_c);
     if (screen == SC_OPT)
