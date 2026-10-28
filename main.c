@@ -7631,13 +7631,15 @@ static float step_kick, walk_spd;           // golpe de pisada (sin suavizar) / 
 // ---- opciones (GRAFICOS: 0 bajo, 1 medio, 2 alto) ----
 static int   gfx = 1, snd_on = 1, vol_lv = 4;
 static float draw_lim;     // distancia maxima de dibujo este cuadro (ver lights_prepare)
-static const int   gfx_R[3]     = { 6, 8, 10 };            // celdas dibujadas alrededor
-static const float gfx_maxd[3]  = { 24.0f, 33.0f, 42.0f }; // distancia de dibujo
-static const float gfx_pd[3]    = { 22.0f, 30.0f, 38.0f }; // arboles y objetos
+static const int   gfx_R[3]     = { 6, 8, 8 };            // celdas dibujadas alrededor (ALTO: 8, mas alla la luz ya no llega)
+static const float gfx_maxd[3]  = { 24.0f, 33.0f, 30.0f }; // distancia de dibujo
+static const float gfx_pd[3]    = { 22.0f, 30.0f, 27.0f }; // arboles y objetos
 static const int   gfx_nn[3]    = { 1, 2, 3 };             // detalle de suelo/paredes cerca
-static const int   gfx_nf[3]    = { 1, 1, 2 };             // ... y lejos
-static const int   gfx_seg[3]   = { 24, 40, 56 };          // suavidad del circulo de luz
-static const int   gfx_steps[3] = { 5, 7, 8 };
+static const int   gfx_nf[3]    = { 1, 1, 2 };             // ... y a media distancia
+static const int   gfx_c1[3]    = { 4, 4, 1 };             // "cerca" = celdas con dx^2+dz^2 <= c1 (ALTO: solo la celda de al lado)
+static const int   gfx_c2[3]    = { 36, 36, 4 };           // "media distancia" = hasta c2 (ALTO: 2 celdas; antes 6)
+static const int   gfx_seg[3]   = { 24, 40, 32 };          // suavidad del circulo de luz (ALTO: 32 lados bastan, el borde es difuso)
+static const int   gfx_steps[3] = { 5, 7, 6 };
 static const float gfx_reach[3] = { 0.85f, 1.0f, 1.2f };   // alcance de la luz
 enum { SC_MAIN, SC_OPT, SC_PLAY, SC_PAUSE, SC_CTRL, SC_NET, SC_NETIP, SC_NETWAIT, SC_LOBBY, SC_NETLIST, SC_NAME, SC_SKIN };
 static int net_online;                  // 1 = partida online en curso (los dos juegos simulan lo mismo)
@@ -8692,7 +8694,7 @@ static void draw_layer(int layer)
             if (!in_view(x0 + CS * 0.5f, z0 + CS * 0.5f, 2.9f, draw_lim)) continue;
             int ddx = cx - pcx, ddz = cz - pcz;
             int dd2 = ddx * ddx + ddz * ddz;
-            int n = (dd2 <= 4) ? gfx_nn[gfx] : ((dd2 <= 36) ? gfx_nf[gfx] : 1);   // detalle alto solo cerca (lejos casi no se nota)
+            int n = (dd2 <= gfx_c1[gfx]) ? gfx_nn[gfx] : ((dd2 <= gfx_c2[gfx]) ? gfx_nf[gfx] : 1);   // detalle alto solo cerca (lejos casi no se nota)
             float k = ((cx + cz) & 1) ? 0.86f : 1.0f;
             float fl[3] = { ci.fr * k, ci.fg * k, ci.fb * k };
             if (layer == 0 && ch == 'O') floor_ring(x0, z0, fy, fl, n);
@@ -8933,15 +8935,28 @@ static void draw_flashlight(float t, int moving)
     const float ang = -0.12f + 0.035f * wa * sp;
     float ca = cosf(ang), sa = sinf(ang);
     static float cv[VM_NV][3];
-    for (int i = 0; i < VM_NV; i++) {
+    static unsigned short fl_tri[VM_NT], fl_vid[VM_NV];       // listas de lo que se dibuja (se arman una sola vez)
+    static int fl_nt = -1, fl_nv = 0;
+    if (fl_nt < 0) {
+        unsigned char seen[VM_NV];
+        memset(seen, 0, sizeof(seen));
+        fl_nt = 0;
+        for (int k = 0; k < VM_NT; k++) {
+            if (vm_lens[k] == 2) continue;                    // dedos del modelo anterior: ahora es un puño de bloque
+            fl_tri[fl_nt++] = (unsigned short)k;
+            for (int j = 0; j < 3; j++) if (!seen[vm_t[k][j]]) { seen[vm_t[k][j]] = 1; fl_vid[fl_nv++] = (unsigned short)vm_t[k][j]; }
+        }
+    }
+    for (int n = 0; n < fl_nv; n++) {                         // solo los vertices que se usan (123 de 203)
+        int i = fl_vid[n];
         float x = vm_v[i][0], y = vm_v[i][1], z = vm_v[i][2];
         cv[i][0] = x * ca + z * sa + ox;
         cv[i][1] = y + oy;
         cv[i][2] = -x * sa + z * ca + oz;
     }
     vm_mode = 1;
-    for (int k = 0; k < VM_NT; k++) {
-        if (vm_lens[k] == 2) continue;                        // dedos del modelo anterior: ahora es un puño de bloque
+    for (int n = 0; n < fl_nt; n++) {
+        int k = fl_tri[n];
         float r = (float)vm_c[k][0], g = (float)vm_c[k][1], b = (float)vm_c[k][2];
         if (vm_lens[k] == 1) {
             float f = flash_on ? 1.0f : 0.3f;
@@ -8993,7 +9008,11 @@ static void draw_spot_overlay(void)
     dark += (1.0f - dark) * (1.0f - light_flick) * 0.4f;
 
     static float ct[SPOT_SEG_MAX + 1], st[SPOT_SEG_MAX + 1];
-    for (int j = 0; j <= seg; j++) { ct[j] = cosf(6.2831853f * j / seg); st[j] = sinf(6.2831853f * j / seg); }
+    static int ct_seg = 0;
+    if (ct_seg != seg) {                                      // solo se recalcula si cambia la calidad
+        for (int j = 0; j <= seg; j++) { ct[j] = cosf(6.2831853f * j / seg); st[j] = sinf(6.2831853f * j / seg); }
+        ct_seg = seg;
+    }
     float cx = W * 0.5f, cy = H * 0.54f;
     const int Z = 16777000;
 
@@ -9067,12 +9086,12 @@ static void draw_glow(float wx, float wy, float wz, float rad, int r, int g, int
     u64 cc = GS_SETREG_RGBAQ(r, g, b, ba(ac), 0x00);
     u64 ce = GS_SETREG_RGBAQ(r, g, b, ba(0), 0x00);
     const int Z = 16777050;
-    for (int j = 0; j < 8; j++) {
-        float a0 = 6.2831853f * j / 8.0f, a1 = 6.2831853f * (j + 1) / 8.0f;
+    static const float gc8[9] = { 1.0f, 0.70710678f, 0.0f, -0.70710678f, -1.0f, -0.70710678f, 0.0f, 0.70710678f, 1.0f };
+    static const float gs8[9] = { 0.0f, 0.70710678f, 1.0f, 0.70710678f, 0.0f, -0.70710678f, -1.0f, -0.70710678f, 0.0f };
+    for (int j = 0; j < 8; j++)
         gsKit_prim_triangle_gouraud_3d(gsGlobal, sx, sy, Z,
-            sx + cosf(a0) * rp, sy + sinf(a0) * rp, Z,
-            sx + cosf(a1) * rp, sy + sinf(a1) * rp, Z, cc, ce, ce);
-    }
+            sx + gc8[j] * rp, sy + gs8[j] * rp, Z,
+            sx + gc8[j + 1] * rp, sy + gs8[j + 1] * rp, Z, cc, ce, ce);
 }
 
 // ---------------- El otro jugador (modelo Steve.obj) ----------------
@@ -9451,19 +9470,6 @@ static void draw_other_beam(void)
 
 static void draw_glows(float t)
 {
-    // Monstruo: ojos y linterna
-    float ddx = sx_ - px, ddz = sz_ - pz;
-    if (mlayer == cur_layer && ddx * ddx + ddz * ddz < 26.0f * 26.0f && los_to(sx_, sz_, 0.0f)) {
-        float a = atan2f(px - sx_, pz - sz_);
-        float s = sinf(a), c = cosf(a);
-        Xf X[10];
-        mon_bones(X);
-        for (int e = 0; e < 2; e++) {
-            float lx = e ? EYE1_X : EYE0_X, ly = e ? EYE1_Y : EYE0_Y, lz = e ? EYE1_Z : EYE0_Z;
-            float yy = X[1].c * ly - X[1].s * lz + X[1].ty, zz = X[1].s * ly + X[1].c * lz + X[1].tz;
-            draw_glow(sx_ + lx * c + zz * s, yy + mon_y, sz_ - lx * s + zz * c, 0.06f, 255, 40, 40, 115);
-        }
-    }
     {   // linterna del otro jugador (se ve de lejos)
         float lx, ly, lz;
         if (other_lens_world(&lx, &ly, &lz) && los_to(lx, lz, 0.0f))
