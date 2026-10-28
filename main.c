@@ -1,5 +1,5 @@
 // ============================================================
-//  HORROR BETA 0.4 - BOSQUE  [version CIRCULO + ONLINE + LOD]  (PS2 homebrew, PS2SDK + gsKit)
+//  HORROR BETA 0.4 - BOSQUE  [version CIRCULO + ONLINE]  (PS2 homebrew, PS2SDK + gsKit)
 //
 //  Controles (DualShock 2):
 //    Stick izq  : moverse (empujalo al tope para CORRER, gasta estamina)
@@ -5450,8 +5450,8 @@ static float draw_lim;     // distancia maxima de dibujo este cuadro (ver lights
 static const int   gfx_R[3]     = { 5, 5, 6 };            // celdas dibujadas alrededor (mas alla la luz ya no se ve)
 static const float gfx_maxd[3]  = { 24.0f, 33.0f, 30.0f }; // distancia de dibujo
 static const float gfx_pd[3]    = { 15.0f, 18.0f, 21.0f }; // arboles y objetos (con menos luz que esto ya se ven negros)
-static const int   gfx_nn[3]    = { 1, 2, 2 };             // detalle de suelo/paredes cerca
-static const int   gfx_nf[3]    = { 1, 1, 1 };             // ... y a media distancia
+static const int   gfx_nn[3]    = { 1, 2, 3 };             // detalle de suelo/paredes cerca
+static const int   gfx_nf[3]    = { 1, 1, 2 };             // ... y a media distancia
 static const int   gfx_c1[3]    = { 1, 2, 1 };             // "cerca" = celdas con dx^2+dz^2 <= c1 (ALTO: solo la celda de al lado)
 static const int   gfx_c2[3]    = { 1, 2, 2 };           // "media distancia" = hasta c2 (ALTO: 2 celdas; antes 6)
 static const int   gfx_seg[3]   = { 16, 20, 24 };          // suavidad del circulo de luz (ALTO: 32 lados bastan, el borde es difuso)
@@ -6433,7 +6433,7 @@ static void box_rot(float cx, float cz, float a, float lx, float lz, float hx, f
     }
     float q[4][3];
     float bx = (X[0] + X[2]) * 0.5f, bz = (Z[0] + Z[2]) * 0.5f;
-    int far_box = ((bx - px) * (bx - px) + (bz - pz) * (bz - pz)) > 36.0f;     // LOD: a mas de 6 m no se dibujan las caras que dan la espalda
+    int far_box = ((bx - px) * (bx - px) + (bz - pz) * (bz - pz)) > 36.0f;     // a mas de 6 m no se dibujan las caras que dan la espalda (no cambia lo que se ve)
     for (int i = 0; i < 4; i++) {
         int j = (i + 1) & 3;
         if (far_box) {
@@ -6581,18 +6581,10 @@ static void draw_props(float t)
         float rad = fmaxf(p->hx, p->hz) * 1.45f + 0.6f;
         if (!in_view(p->x, p->z, rad, fminf(draw_lim, gfx_pd[gfx]))) continue;
         float col[3] = { (float)p->r, (float)p->g, (float)p->b };
-        {   // ---- menos resolucion (LOD) ----
-            float ddx = p->x - px, ddz = p->z - pz, dd = ddx * ddx + ddz * ddz;
-            float th = p->y1 - p->y0;
-            if (p->type == 0 && p->emit == 0.0f) {
-                if (p->x > 192.0f && p->x < 196.2f && p->z > 176.0f && p->z < 180.0f && p->y0 < 34.0f) {   // torre de la antena
-                    if (th < 2.0f && p->y0 < 30.5f && p->r != 150) { if (dd > 144.0f) continue; }              // platos: solo de cerca
-                    else if (th < 0.2f) {                                                                      // travesanos: 3 niveles a media distancia, ninguno lejos
-                        if (dd > 100.0f) continue;
-                        if (dd > 36.0f && !(fabsf(p->y0 - 5.0f) < 0.1f || fabsf(p->y0 - 15.0f) < 0.1f || fabsf(p->y0 - 25.0f) < 0.1f)) continue;
-                    }
-                } else if (th < 0.3f && dd > 144.0f) continue;                                                 // listones finos de las demas estructuras: lejos no se ven
-            }
+        if (p->type == 0 && p->emit == 0.0f && p->x > 192.0f && p->x < 196.2f && p->z > 176.0f && p->z < 180.0f &&
+            p->y1 - p->y0 < 0.2f && p->y0 < 34.0f) {      // antena: menos travesanos (la torre y su alcance de dibujado siguen igual)
+            float ddx = p->x - px, ddz = p->z - pz;
+            if (ddx * ddx + ddz * ddz > 64.0f && !(fabsf(p->y0 - 5.0f) < 0.1f || fabsf(p->y0 - 15.0f) < 0.1f || fabsf(p->y0 - 25.0f) < 0.1f)) continue;
         }
         switch (p->type) {
         case 0: box_rot(p->x, p->z, p->a, 0, 0, p->hx, p->hz, p->y0, p->y1, col, p->emit); break;
@@ -6683,26 +6675,33 @@ static void mon_bones(Xf X[10])
     float ph = mon_phase, f = mon_runf;
     float m = clampf(mon_spd * 0.8f, 0.0f, 1.0f);                   // 0 quieto .. 1 en marcha
     float A = (0.40f + 0.24f * f) * m;                              // amplitud de zancada (camina -> corre)
-    float pA = ph, pB = ph + PI_F * (1.0f - f);                     // caminar: diagonal / correr: galope
-    float lB = ph + f * 1.7f, lA = ph + PI_F * (1.0f - f) + f * 1.7f;
+    // Cada extremidad con su propia fase: caminando se alternan; corriendo van como un orangutan/gorila (nudillos y pies
+    // caen uno por uno, nunca los dos brazos o las dos piernas a la vez)
+    float pA = ph,                       pB = ph + PI_F * (1.0f - 0.45f * f);
+    float lB = ph + 0.5f * PI_F * f,     lA = ph + PI_F + 0.5f * PI_F * f;
     float lean = (0.05f + 0.09f * f) * m;                           // joroba: el torso cae hacia delante
     float breath = 0.012f * sinf(frame_no * 0.045f) * (1.0f - m);   // respira cuando esta quieto
     float pitch = lean + 0.035f * (0.6f + f) * sinf(2.0f * ph + 0.4f) * m + breath;   // cabeceo en cada apoyo
     float bob = -0.5f * (1.0f - cosf(0.9f * A * sinf(ph)))          // baja al abrirse las patas
-              + (0.13f + 0.05f * f) * m;                            // compensa la inclinacion del torso
+              + (0.13f + 0.05f * f) * m                             // compensa la inclinacion del torso
+              + 0.05f * f * m * fabsf(sinf(ph + 0.8f));             // rebote del trote de simio
     Xf id; id.c = 1.0f; id.s = 0.0f; id.ty = 0.0f; id.tz = 0.0f;
     Xf root = xf_rot(id, PIV_BODY_Y, PIV_BODY_Z, pitch);
     root.ty += bob;
     X[0] = root;
     X[1] = xf_rot(root, PIV_NECK_Y, PIV_NECK_Z, -0.5f * pitch + 0.10f * f * m + 0.07f * sinf(2.0f * ph - 0.8f) * m);
-    X[2] = xf_rot(root, PIV_SHA_Y, PIV_SHA_Z, -A * sinf(pA));
-    X[3] = xf_rot(X[2], PIV_ELA_Y, PIV_ELA_Z, 1.1f * A * fmaxf(0.0f, sinf(pA - 0.5f)));
-    X[4] = xf_rot(root, PIV_SHB_Y, PIV_SHB_Z, -A * sinf(pB));
-    X[5] = xf_rot(X[4], PIV_ELB_Y, PIV_ELB_Z, 1.1f * A * fmaxf(0.0f, sinf(pB - 0.5f)));
-    X[6] = xf_rot(root, PIV_HIPA_Y, PIV_HIPA_Z, -0.9f * A * sinf(lA));
-    X[7] = xf_rot(X[6], PIV_KNA_Y, PIV_KNA_Z, 1.2f * A * fmaxf(0.0f, sinf(lA - 0.4f)));
-    X[8] = xf_rot(root, PIV_HIPB_Y, PIV_HIPB_Z, -0.9f * A * sinf(lB));
-    X[9] = xf_rot(X[8], PIV_KNB_Y, PIV_KNB_Z, 1.2f * A * fmaxf(0.0f, sinf(lB - 0.4f)));
+    float AA = A * (1.0f + 0.30f * f);                              // los brazos largos barren mas que las piernas
+    // flexion suave (sin el "quiebre" de max(0,sin)): el codo/rodilla se doblan solo al levantar la extremidad
+#define FLEX(a) ({ float _s = sinf(a); _s > 0.0f ? 1.4f * _s * _s : 0.0f; })
+    X[2] = xf_rot(root, PIV_SHA_Y, PIV_SHA_Z, -AA * (sinf(pA) + 0.18f * f * sinf(2.0f * pA + 0.6f)));
+    X[3] = xf_rot(X[2], PIV_ELA_Y, PIV_ELA_Z, 0.85f * AA * FLEX(pA - 0.5f));
+    X[4] = xf_rot(root, PIV_SHB_Y, PIV_SHB_Z, -AA * (sinf(pB) + 0.18f * f * sinf(2.0f * pB + 0.6f)));
+    X[5] = xf_rot(X[4], PIV_ELB_Y, PIV_ELB_Z, 0.85f * AA * FLEX(pB - 0.5f));
+    X[6] = xf_rot(root, PIV_HIPA_Y, PIV_HIPA_Z, -0.9f * A * (sinf(lA) + 0.12f * f * sinf(2.0f * lA)));
+    X[7] = xf_rot(X[6], PIV_KNA_Y, PIV_KNA_Z, 0.95f * A * FLEX(lA - 0.4f));
+    X[8] = xf_rot(root, PIV_HIPB_Y, PIV_HIPB_Z, -0.9f * A * (sinf(lB) + 0.12f * f * sinf(2.0f * lB)));
+    X[9] = xf_rot(X[8], PIV_KNB_Y, PIV_KNB_Z, 0.95f * A * FLEX(lB - 0.4f));
+#undef FLEX
 }
 
 static void draw_monster(float t)
@@ -6716,8 +6715,8 @@ static void draw_monster(float t)
     mon_bones(X);
 
     float mm = clampf(mon_spd * 0.8f, 0.0f, 1.0f);
-    float sway  = (0.05f + 0.07f * mon_runf) * mm * sinf(mon_phase);          // el torso se escora al cargar el peso
-    float twist = (0.10f + 0.08f * mon_runf) * mm * sinf(mon_phase + 0.5f);   // hombros y caderas giran en contra
+    float sway  = (0.05f + 0.11f * mon_runf) * mm * sinf(mon_phase + 0.3f);          // el torso se escora al cargar el peso
+    float twist = (0.10f + 0.14f * mon_runf) * mm * sinf(mon_phase + 0.5f);   // hombros y caderas giran en contra
     static float w[MON_NV][3];
     for (int i = 0; i < MON_NV; i++) {
         float y = mon_v[i][1], z = mon_v[i][2];
@@ -7350,6 +7349,21 @@ static void compute_flow(int layer, int tx, int tz)
     }
 }
 
+// camino recto libre (sin muros) entre dos puntos: el monstruo corta camino en vez de ir de celda en celda
+static int mon_clear(int layer, float x0, float z0, float x1, float z1)
+{
+    float dx = x1 - x0, dz = z1 - z0, d = sqrtf(dx * dx + dz * dz);
+    int n = (int)(d / 0.7f) + 1;
+    float nx = d > 0.01f ? -dz / d : 0.0f, nz = d > 0.01f ? dx / d : 0.0f;
+    for (int i = 1; i <= n; i++) {
+        float t = (float)i / n;
+        for (int k = -1; k <= 1; k++) {                       // tres carriles: el cuerpo es ancho
+            int cx = (int)((x0 + dx * t + nx * 0.45f * k) / CS), cz = (int)((z0 + dz * t + nz * 0.45f * k) / CS);
+            if (cx < 0 || cz < 0 || cx >= MW || cz >= MH || solid_grid[layer][cz][cx]) return 0;
+        }
+    }
+    return 1;
+}
 static int need_flow = 1, last_layer = -1, last_foot = 0;   // estado de la IA (se reinicia en reset_game: online necesita partir igual)
 static void update_monster(float dt, int notes)
 {
@@ -7375,7 +7389,17 @@ static void update_monster(float dt, int notes)
     int mcx = (int)(sx_ / CS), mcz = (int)(sz_ / CS);
     if (mcx < 0 || mcz < 0 || mcx >= MW || mcz >= MH) return;
     float gx = tx, gz = tz;
-    if (mcx != (int)(tx / CS) || mcz != (int)(tz / CS)) {
+    int direct = 0;                                           // 1 = te ve en linea recta
+    if (mlayer == pl) {
+        float pdx0 = px - sx_, pdz0 = pz - sz_, pd0 = sqrtf(pdx0 * pdx0 + pdz0 * pdz0);
+        if (pd0 < 30.0f && mon_clear(mlayer, sx_, sz_, px, pz)) {
+            direct = 1;
+            float lead = clampf(pd0 / 6.0f, 0.0f, 0.9f);      // se adelanta a tu carrera: apunta a donde vas a estar
+            float ix = px + vel_x * lead, iz = pz + vel_z * lead;
+            if (mon_clear(mlayer, sx_, sz_, ix, iz)) { gx = ix; gz = iz; }
+        }
+    }
+    if (!direct && (mcx != (int)(tx / CS) || mcz != (int)(tz / CS))) {
         static const int dx[4] = {1, -1, 0, 0}, dz[4] = {0, 0, 1, -1};
         int best = dist_map[mcz][mcx], bx = mcx, bz = mcz;
         for (int k = 0; k < 4; k++) {
@@ -7384,6 +7408,12 @@ static void update_monster(float dt, int notes)
             if (dist_map[nz][nx] < best) { best = dist_map[nz][nx]; bx = nx; bz = nz; }
         }
         gx = (bx + 0.5f) * CS; gz = (bz + 0.5f) * CS;
+        // atajo: si ya ve libre el centro de la celda siguiente-siguiente, no hace zigzag en las esquinas
+        int cx2 = bx + (bx - mcx), cz2 = bz + (bz - mcz);
+        if (cx2 >= 0 && cz2 >= 0 && cx2 < MW && cz2 < MH && dist_map[cz2][cx2] < dist_map[bz][bx]) {
+            float ax = (cx2 + 0.5f) * CS, az = (cz2 + 0.5f) * CS;
+            if (mon_clear(mlayer, sx_, sz_, ax, az)) { gx = ax; gz = az; }
+        }
     }
     float ex = gx - sx_, ez = gz - sz_;
     float len = sqrtf(ex * ex + ez * ez);
@@ -7391,7 +7421,8 @@ static void update_monster(float dt, int notes)
     if (len > 0.01f) {
         float speed = 1.8f + 0.5f * notes;
         float pdx = px - sx_, pdz = pz - sz_;
-        if (mlayer == pl && pdx * pdx + pdz * pdz < 15.0f * 15.0f) speed *= 1.7f;   // te ve: corre
+        float pd2 = pdx * pdx + pdz * pdz;
+        if (mlayer == pl && ((direct && pd2 < 22.0f * 22.0f) || pd2 < 12.0f * 12.0f)) speed *= 1.7f;   // te ve (o te oye cerca): corre
         if (speed > 4.6f) speed = 4.6f;                                           // tu corres a 5.2
         sx_ += ex / len * speed * dt;
         sz_ += ez / len * speed * dt;
@@ -8286,6 +8317,7 @@ static void net_fill(struct sockaddr_in *a, int o0, int o1, int o2, int o3, int 
 // para siempre cuando no hay adaptador de red (por ejemplo en un emulador). Por eso se hacen en un hilo
 // aparte: el juego sigue dibujando, el jugador puede cancelar con O, y si en 10 segundos no termina se
 // abandona el intento con un mensaje (y no se vuelve a intentar, para no quedar pegado otra vez).
+static int net_static_try;             // ya probo la IP fija
 #ifdef USE_NET
 extern void *_gp;
 static unsigned char net_th_stack[16 * 1024] __attribute__((aligned(16)));
@@ -8320,7 +8352,7 @@ static int net_hw_poll(void)
     if (net_hw_ready) return 1;
     if (net_hw_stage == 0) { net_hw_stage = 1; return 0; }                 // deja pintar "INICIANDO RED..." antes de cargar
     if (net_hw_stage == 1) {
-        if (net_hw_dead) { snprintf(net_text, sizeof(net_text), "SIN RED (EN EMULADOR NO HAY ONLINE)"); return -1; }
+        if (net_hw_dead) { snprintf(net_text, sizeof(net_text), "SIN RED: ACTIVA ENABLE DEV9 ETHERNET (SOCKETS)"); return -1; }
         if (net_th_state == 0) {                                           // arranca la carga en un hilo aparte
             ee_thread_t th;
             memset(&th, 0, sizeof(th));
@@ -8339,24 +8371,34 @@ static int net_hw_poll(void)
     if (net_hw_stage == 2) {                                               // esperando al hilo (modulos de red)
         if (net_th_state == 3) {
             net_hw_dead = 1; net_hw_stage = 1;
-            if (net_th_err == 1) snprintf(net_text, sizeof(net_text), "SIN ADAPTADOR DE RED (EMULADOR?)");
+            if (net_th_err == 1) snprintf(net_text, sizeof(net_text), "DEV9 NO ENCONTRO RED (ACTIVA ETHERNET EN EL EMULADOR)");
             else if (net_th_err == 2) snprintf(net_text, sizeof(net_text), "NO CARGO NETMAN");
             else if (net_th_err == 3) snprintf(net_text, sizeof(net_text), "NO CARGO EL DRIVER DE RED (SMAP)");
             else snprintf(net_text, sizeof(net_text), "ERROR AL INICIAR NETMAN");
             return -1;
         }
         if (net_th_state == 2) { net_hw_stage = 3; net_hw_tick = 0; return 0; }
-        if (++net_hw_tick > 60 * 10) {                                     // se quedo esperando: abandona el hilo
+        if (++net_hw_tick > 60 * 30) {                                     // se quedo esperando (los emuladores tardan): abandona el hilo
             TerminateThread(net_th_id); DeleteThread(net_th_id);
             net_hw_dead = 1; net_hw_stage = 1;
-            snprintf(net_text, sizeof(net_text), "LA RED NO RESPONDE (EMULADOR?)");
+            snprintf(net_text, sizeof(net_text), "LA RED TARDO DEMASIADO (REVISA EL WIFI)");
             return -1;
         }
         return 0;
     }
     t_ip_info info;                                                        // etapa 3: esperando la IP del router
     if (ps2ip_getconfig("sm0", &info) >= 0 && info.ipaddr.s_addr != 0) { net_hw_ready = 1; return 1; }
-    if (++net_hw_tick > 60 * 15) { net_hw_tick = 0; snprintf(net_text, sizeof(net_text), "SIN RED: REVISA EL CABLE Y EL DHCP"); return -1; }
+    if (net_hw_tick > 60 * 10 && !net_static_try) {                       // el DHCP no contesta: IP fija (la red virtual de PCSX2 / NetherSX2 modo Sockets)
+        net_static_try = 1;
+        if (ps2ip_getconfig("sm0", &info) >= 0) {
+            info.dhcp_enabled = 0;
+            info.ipaddr.s_addr  = 192u | (168u << 8) | (0u << 16) | (100u << 24);      // 192.168.0.100
+            info.netmask.s_addr = 255u | (255u << 8) | (255u << 16) | (0u << 24);      // 255.255.255.0
+            info.gw.s_addr      = 192u | (168u << 8) | (0u << 16) | (1u << 24);        // 192.168.0.1
+            ps2ip_setconfig(&info);
+        }
+    }
+    if (++net_hw_tick > 60 * 25) { net_hw_tick = 0; snprintf(net_text, sizeof(net_text), "SIN RED: REVISA EL WIFI / DEV9 DEL EMULADOR"); return -1; }
     return 0;
 #else
     return 1;
@@ -8553,10 +8595,10 @@ static int net_connect_poll(void)
     if (hw < 0) return -1;
     if (hw == 0) {
         if (net_hw_stage >= 3) {                              // ya cargo los modulos: espera la IP del router (DHCP)
-            snprintf(net_text, sizeof(net_text), "BUSCANDO LA RED (DHCP)... %d", 15 - net_hw_tick / 60);
-            snprintf(net_text2, sizeof(net_text2), "NECESITA UNA PS2 REAL CON ADAPTADOR DE RED");
+            snprintf(net_text, sizeof(net_text), "BUSCANDO LA RED (DHCP)... %d", 25 - net_hw_tick / 60);
+            snprintf(net_text2, sizeof(net_text2), net_static_try ? "PROBANDO IP FIJA 192.168.0.100" : "O: CANCELAR");
         } else if (net_hw_stage == 2) {
-            snprintf(net_text, sizeof(net_text), "INICIANDO RED... %d", 10 - net_hw_tick / 60);
+            snprintf(net_text, sizeof(net_text), "INICIANDO RED... %d", 30 - net_hw_tick / 60);
             snprintf(net_text2, sizeof(net_text2), "O: CANCELAR");
         } else snprintf(net_text, sizeof(net_text), "INICIANDO RED...");
         return 0;
