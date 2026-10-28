@@ -1,5 +1,5 @@
 // ============================================================
-//  HORROR BETA 0.4 - BOSQUE  [version CIRCULO + ONLINE + RENDER]  (PS2 homebrew, PS2SDK + gsKit)
+//  HORROR BETA 0.4 - BOSQUE  [version CIRCULO + ONLINE + DETECTOR]  (PS2 homebrew, PS2SDK + gsKit)
 //
 //  Controles (DualShock 2):
 //    Stick izq  : moverse (empujalo al tope para CORRER, gasta estamina)
@@ -7,6 +7,7 @@
 //    X (cruz)   : saltar  (junto a un pozo: subir/bajar la escalera)
 //    O (circulo): agacharse / levantarse
 //    L1         : linterna ON/OFF       START : pausa
+//    DETECTOR   : el radio de tu mano izquierda marca a cuantos METROS esta el monstruo ("---" = esta en otro nivel)
 //    CUADRADO   : junto al cartel del inicio, toma el MAPA
 //    TRIANGULO  : abre / cierra el mapa (superficie + alcantarilla)
 //    CUADRADO   : junto a una puerta: abrirla con su llave de color / poner el codigo del candado
@@ -16,8 +17,12 @@
 //    ONLINE     : menu principal > ONLINE (necesita compilar con -DUSE_NET y el adaptador de red de la PS2)
 //                 CREAR PARTIDA abre una sala de espera (J1 / J2, boton COMENZAR); PARTIDAS PUBLICAS lista las salas de tu red
 //
-//  Objetivo: encuentra las 3 notas (cabana, cueva, alcantarilla)
-//  y llega a la caseta de la antena. Algo te esta buscando...
+//  Objetivo: abre las puertas en orden y reune las 3 LLAVES FINALES (cabana, cueva y caseta de la antena);
+//  con ellas se abre la PUERTA FINAL, escondida en la alcantarilla (cuarto del fondo, al sur). Algo te esta buscando...
+//  Orden: llave ROJA (camino) -> casa del inicio (llave AZUL) y casita de piedra (papel CABANA)
+//         llave AZUL -> establo (llave AMARILLA) y edificio NO (papel ANTENA)
+//         llave AMARILLA -> edificio NE (llave VERDE) -> cueva (LLAVE FINAL)
+//         codigo CABANA -> cabana (LLAVE FINAL)    codigo ANTENA -> caseta de la antena (LLAVE FINAL)
 // ============================================================
 #include <tamtypes.h>
 #include <kernel.h>
@@ -4317,13 +4322,13 @@ static const char *map1[MH] = {"################################################
 "#################################sssssssssssssssssssssssssssssssssssss##########################",
 "#################################svvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv##########################",
 "#########################################sv#####################################################",
-"########################################sssssss#################################################",
-"########################################sssssss#################################################",
-"########################################sssssss#################################################",
-"########################################sssssss#################################################",
-"########################################sssssss#################################################",
-"########################################sssssss#################################################",
-"########################################sssssss#################################################",
+"########################################sssssss##vsvsvsvsvs#####################################",
+"########################################sssssss##svsvsvsvsv#####################################",
+"########################################sssssss##vsvsvsvsvs#####################################",
+"########################################ssssssssssvsvsvsvsv#####################################",
+"########################################sssssss##vsvsvsvsvs#####################################",
+"########################################sssssss##svsvsvsvsv#####################################",
+"########################################sssssss##vsvsvsvsvs#####################################",
 "################################################################################################",
 "################################################################################################",
 "################################################################################################",
@@ -5323,7 +5328,7 @@ static const Col colliders[NCOL] = {
   {230.000f,110.000f,0.732f,1.532f,0.200f,0},
 };
 typedef struct { float x,y,z,rad; unsigned char r,g,b,ac; float period,range; unsigned char layer,los; } Beacon;
-#define NBC 36
+#define NBC 37
 static const Beacon beacons[NBC] = {
   {194.000f,35.000f,178.000f,1.400f,255,40,40,125,1.500f,220.000f,0,0},
   {178.000f,1.600f,163.700f,0.600f,255,200,120,90,0.000f,50.000f,0,1},
@@ -5351,6 +5356,7 @@ static const Beacon beacons[NBC] = {
   {194.000f,13.000f,50.000f,1.700f,255,255,225,115,4.000f,150.000f,0,0},
   {57.000f,0.500f,150.500f,0.400f,170,200,255,90,0.000f,28.000f,0,1},
   {324.000f,1.800f,327.500f,0.700f,255,190,90,100,0.000f,55.000f,0,1},
+  {216.000f,-5.200f,310.000f,0.900f,120,255,160,100,0.000f,40.000f,1,1},
   {139.000f,-5.600f,192.600f,0.500f,255,200,90,100,0.000f,50.000f,1,1},
   {291.000f,-5.600f,256.600f,0.500f,255,200,90,100,0.000f,50.000f,1,1},
   {174.000f,-6.400f,310.000f,0.400f,120,255,160,90,0.000f,30.000f,1,1},
@@ -5364,7 +5370,8 @@ static const Beacon beacons[NBC] = {
 };
 // Llaves en el piso: x, z, altura del piso, capa. (La de la cabana y la de la cueva estaban sobre un mueble: ahora
 // quedan en el suelo junto a el.)
-static const float notes_pos[3][4] = {{58.000f,258.800f,0.000f,0.000f},{342.000f,72.000f,0.000f,0.000f},{243.500f,105.500f,-7.000f,1.000f}};
+// LLAVES FINALES (blancas-azuladas): cada una esta detras de una puerta distinta; juntas abren la puerta final de la alcantarilla.
+static const float notes_pos[3][4] = {{58.000f,258.800f,0.000f,0.000f},{342.000f,72.000f,0.000f,0.000f},{178.000f,169.500f,0.000f,0.000f}};   // 1 = cabana, 2 = cueva, 3 = dentro de la caseta de la antena
 static const float key_ang[3] = { 0.35f, 2.20f, 4.00f };   // hacia donde apunta cada llave en el suelo
 #define NMH 2
 static const int manholes[NMH][2] = {{34,48},{72,64}};
@@ -5389,9 +5396,10 @@ static const int manholes[NMH][2] = {{34,48},{72,64}};
 // ---------------- Puertas, llaves y candados (estilo Granny) ----------------
 // Puerta: centro (x,z) en metros; orient 0 = cierra un hueco a lo largo de X, 1 = a lo largo de Z; hw = medio ancho;
 // (cx,cz) = celda del hueco (da la altura); type 0 = llave de color (id 0..3), type 1 = candado con codigo (id = codigo 0..1)
-#define ND 8
-#define DOOR_HUT 7              // la caseta de la antena (la salida)
-typedef struct { float x, z, hw; unsigned char orient, type, id; int cx, cz; } Door;
+#define ND 9
+#define DOOR_HUT 7              // la caseta de la antena (dentro hay una llave final)
+#define DOOR_FINAL 8            // PUERTA FINAL: escondida en la alcantarilla, se abre con las 3 llaves finales
+typedef struct { float x, z, hw; unsigned char orient, type, id; int cx, cz; unsigned char layer; } Door;
 static const Door doors[ND] = {
     { 234.0f, 294.0f, 2.0f, 0, 0, 0, 58, 73 },   // casa junto al inicio          : llave ROJA
     {  62.0f, 154.0f, 2.0f, 0, 0, 0, 15, 38 },   // casita de piedra              : llave ROJA
@@ -5401,6 +5409,7 @@ static const Door doors[ND] = {
     { 286.0f,  98.0f, 2.0f, 0, 0, 3, 71, 24 },   // cueva                         : llave VERDE
     {  62.0f, 274.0f, 2.0f, 0, 1, 0, 15, 68 },   // cabana                        : candado, codigo 0
     { 178.0f, 174.0f, 2.0f, 0, 1, 1, 44, 43 },   // caseta de la antena           : candado, codigo 1
+    { 190.0f, 310.0f, 2.0f, 1, 2, 0, 47, 77, 1 },// PUERTA FINAL (alcantarilla)   : las 3 llaves finales
 };
 #define NIT 6
 typedef struct { float x, z; unsigned char kind, id; } Item;     // kind 0 = llave (id = color), 1 = papel con codigo (id = codigo)
@@ -6216,10 +6225,11 @@ static int board_hit(float x, float z)
 
 static int door_hit(float x, float z)               // las puertas cerradas son solidas
 {
-    if (cur_layer != 0 || climbing) return 0;
+    if (climbing) return 0;
     for (int i = 0; i < ND; i++) {
         if (door_open[i]) continue;
         const Door *d = &doors[i];
+        if (d->layer != cur_layer) continue;
         float hx = d->orient ? 0.1f : d->hw, hz = d->orient ? d->hw : 0.1f;
         if (fabsf(x - d->x) < hx + 0.3f && fabsf(z - d->z) < hz + 0.3f) return 1;
     }
@@ -6239,12 +6249,13 @@ static float clampf(float v, float lo, float hi) { return v < lo ? lo : (v > hi 
 // Puerta cerrada mas cercana (a menos de 2.4 m de su borde), o -1
 static int door_near(void)
 {
-    if (cur_layer != 0 || climbing) return -1;
+    if (climbing) return -1;
     int best = -1;
     float bd = 2.4f * 2.4f;
     for (int i = 0; i < ND; i++) {
         if (door_open[i]) continue;
         const Door *d = &doors[i];
+        if (d->layer != cur_layer) continue;
         float nx = d->x, nz = d->z;
         if (d->orient) nz += clampf(pz - d->z, -d->hw, d->hw); else nx += clampf(px - d->x, -d->hw, d->hw);
         float dx = px - nx, dz = pz - nz, dd = dx * dx + dz * dz;
@@ -6830,6 +6841,106 @@ static void draw_flashlight(float t, int moving)
 #define GLOW_A         0.22f      // fuerza del halo calido dentro del haz
 
 // Haz de linterna: halo calido dentro del circulo + oscuridad fuera con borde suave
+// ---------------- DETECTOR: radio de mano que marca a cuantos metros esta el monstruo ----------------
+// Low poly (unas 60 caras): cuerpo negro, antena, pantalla BLANCA con numeros NEGROS de 7 segmentos, teclado y un LED que
+// parpadea mas rapido cuanto mas cerca esta el monstruo. Va en la mano izquierda (la linterna en la derecha).
+static void rd_pt(float lx, float ly, float lz, float *o)         // punto del modelo -> espacio de camara
+{
+    const float th = 0.40f, ya = -0.38f;                          // inclinado hacia tus ojos y girado hacia el centro
+    float ct = cosf(th), st = sinf(th), cy = cosf(ya), sy = sinf(ya);
+    float wa = walk_amp, sp = sinf(walk_ph);
+    float y1 = ly * ct - lz * st, z1 = ly * st + lz * ct;
+    float x2 = lx * cy + z1 * sy, z2 = -lx * sy + z1 * cy;
+    o[0] = x2 - 0.205f - 0.010f * wa * sinf(walk_ph + 0.9f);
+    o[1] = y1 - 0.200f + 0.008f * wa * sinf(2.0f * walk_ph + 0.4f) - 0.024f * step_imp;
+    o[2] = z2 + 0.450f;
+}
+static void rd_quad(const float a[3], const float b[3], const float c[3], const float d[3], const float *col)
+{
+    float p[4][3];
+    rd_pt(a[0], a[1], a[2], p[0]); rd_pt(b[0], b[1], b[2], p[1]);
+    rd_pt(c[0], c[1], c[2], p[2]); rd_pt(d[0], d[1], d[2], p[3]);
+    V v[4];
+    for (int i = 0; i < 4; i++) { v[i].x = p[i][0]; v[i].y = p[i][1]; v[i].z = p[i][2]; v[i].r = col[0]; v[i].g = col[1]; v[i].b = col[2]; }
+    tri_cam(v[0], v[1], v[2]); tri_cam(v[0], v[2], v[3]);
+}
+static void rd_rect(float x0, float y0, float x1, float y1, float z, const float *col)   // rectangulo sobre la cara frontal
+{
+    const float a[3] = { x0, y0, z }, b[3] = { x1, y0, z }, c[3] = { x1, y1, z }, d[3] = { x0, y1, z };
+    rd_quad(a, b, c, d, col);
+}
+static void rd_box(float cx, float cy, float cz, float hx, float hy, float hz, const float *col, const float *side)
+{
+    float x0 = cx - hx, x1 = cx + hx, y0 = cy - hy, y1 = cy + hy, z0 = cz - hz, z1 = cz + hz;   // cara frontal = z0
+    { const float a[3] = {x0,y0,z0}, b[3] = {x1,y0,z0}, c[3] = {x1,y1,z0}, d[3] = {x0,y1,z0}; rd_quad(a, b, c, d, col); }
+    { const float a[3] = {x0,y1,z0}, b[3] = {x1,y1,z0}, c[3] = {x1,y1,z1}, d[3] = {x0,y1,z1}; rd_quad(a, b, c, d, side); }     // arriba
+    { const float a[3] = {x0,y0,z0}, b[3] = {x0,y1,z0}, c[3] = {x0,y1,z1}, d[3] = {x0,y0,z1}; rd_quad(a, b, c, d, side); }     // izquierda
+    { const float a[3] = {x1,y0,z0}, b[3] = {x1,y1,z0}, c[3] = {x1,y1,z1}, d[3] = {x1,y0,z1}; rd_quad(a, b, c, d, side); }     // derecha
+}
+
+static void draw_detector(float t)
+{
+    // distancia al monstruo (en la otra capa del mapa no hay senal)
+    int ok = (mlayer == cur_layer);
+    float dx = sx_ - px, dz = sz_ - pz, dist = sqrtf(dx * dx + dz * dz);
+    int m = (int)(dist + 0.5f); if (m > 999) m = 999;
+
+    static const float body[3] = { 44.f, 46.f, 50.f }, side[3] = { 26.f, 27.f, 30.f }, frame[3] = { 14.f, 14.f, 16.f };
+    static const float white[3] = { 244.f, 246.f, 238.f }, black[3] = { 8.f, 8.f, 8.f };
+    static const float key[3] = { 92.f, 94.f, 100.f }, red[3] = { 220.f, 40.f, 34.f }, redoff[3] = { 90.f, 24.f, 22.f };
+    const float S = 0.80f;                                           // escala general del modelo
+    const float hx = 0.042f * S, hy = 0.085f * S, hz = 0.017f * S, zf = -hz;
+
+    vm_mode = 1;
+    {   // mano izquierda (bloque de piel) detras del aparato
+        float sk[3] = { hand_col[4][0], hand_col[4][1], hand_col[4][2] }, sk2[3] = { hand_col[2][0], hand_col[2][1], hand_col[2][2] };
+        rd_box(0.0f, -hy * 0.95f, hz + 0.012f, hx * 0.85f, hy * 0.42f, 0.030f, sk, sk2);
+    }
+    rd_box(0.0f, 0.0f, 0.0f, hx, hy, hz, body, side);                                   // cuerpo
+    rd_box(-hx * 0.62f, hy + 0.045f * S, 0.0f, 0.005f * S, 0.045f * S, 0.005f * S, frame, side);   // antena
+    rd_box(hx * 0.70f, hy + 0.006f * S, 0.0f, 0.007f * S, 0.006f * S, 0.007f * S, red, side);      // perilla
+    vm_mode = 0;
+
+    // detalles sobre la cara frontal: sin prueba de profundidad (se dibujan despues del cuerpo y nunca quedan tapados)
+    gsKit_set_test(gsGlobal, GS_ZTEST_OFF);
+    vm_mode = 1;
+    float zd = zf - 0.0004f;
+    rd_rect(-0.036f * S, 0.020f * S, 0.036f * S, 0.078f * S, zd, frame);                // marco de la pantalla
+    rd_rect(-0.032f * S, 0.024f * S, 0.032f * S, 0.074f * S, zd - 0.0001f, white);      // PANTALLA BLANCA
+    static const unsigned char seg7[10] = { 0x3F, 0x06, 0x5B, 0x4F, 0x66, 0x6D, 0x7D, 0x07, 0x7F, 0x6F };   // a b c d e f g
+    int dg[3] = { (m / 100) % 10, (m / 10) % 10, m % 10 };
+    for (int i = 0; i < 3; i++) {                                                       // 3 digitos negros de 7 segmentos
+        int mask;
+        if (!ok) mask = 0x40;                                                           // "---": sin senal
+        else if ((i == 0 && m < 100) || (i == 1 && m < 10)) mask = 0;                   // sin ceros a la izquierda
+        else mask = seg7[dg[i]];
+        float x0 = (-0.0295f + i * 0.0205f) * S, w = 0.0160f * S, h = 0.0420f * S, th = 0.0036f * S, y0 = 0.0285f * S;
+        float ym = y0 + h * 0.5f, yt = y0 + h;
+        float zz = zd - 0.0002f;
+        if (mask & 0x01) rd_rect(x0 + th, yt - th, x0 + w - th, yt, zz, black);         // a
+        if (mask & 0x02) rd_rect(x0 + w - th, ym, x0 + w, yt - th * 0.5f, zz, black);   // b
+        if (mask & 0x04) rd_rect(x0 + w - th, y0 + th * 0.5f, x0 + w, ym, zz, black);   // c
+        if (mask & 0x08) rd_rect(x0 + th, y0, x0 + w - th, y0 + th, zz, black);         // d
+        if (mask & 0x10) rd_rect(x0, y0 + th * 0.5f, x0 + th, ym, zz, black);           // e
+        if (mask & 0x20) rd_rect(x0, ym, x0 + th, yt - th * 0.5f, zz, black);           // f
+        if (mask & 0x40) rd_rect(x0 + th, ym - th * 0.5f, x0 + w - th, ym + th * 0.5f, zz, black);   // g
+    }
+    rd_rect(0.0285f * S, 0.0255f * S, 0.0315f * S, 0.0285f * S, zd - 0.0002f, black);   // marca de "metros"
+    for (int r = 0; r < 4; r++)                                                         // teclado: 3 x 4 teclas
+        for (int c = 0; c < 3; c++) {
+            float kx = (-0.026f + c * 0.0185f) * S, ky = (-0.074f + r * 0.0165f) * S;
+            rd_rect(kx, ky, kx + 0.0150f * S, ky + 0.0125f * S, zd, key);
+        }
+    for (int c = 0; c < 3; c++) rd_rect((-0.026f + c * 0.0185f) * S, 0.0035f * S, (-0.011f + c * 0.0185f) * S, 0.0105f * S, zd, key);   // botones de arriba
+    {   // LED: parpadea mas rapido cuanto mas cerca esta
+        float rate = !ok ? 0.0f : (dist < 8.0f ? 9.0f : (dist < 16.0f ? 5.0f : (dist < 30.0f ? 2.0f : 0.0f)));
+        int on = rate > 0.0f && ((int)(t * rate) & 1);
+        rd_rect(0.028f * S, 0.082f * S, 0.038f * S, 0.088f * S, zd, on ? red : redoff);
+    }
+    vm_mode = 0;
+    gsKit_set_test(gsGlobal, GS_ZTEST_ON);
+}
+
 static void draw_spot_overlay(void)
 {
     const int seg = gfx_seg[gfx], steps = gfx_steps[gfx], nr = steps + 3;
@@ -7318,10 +7429,8 @@ static void draw_glows(float t)
     for (int i = 0; i < 3; i++) {
         if (notes_got[i] || (int)notes_pos[i][3] != cur_layer) continue;
         if (los_to(notes_pos[i][0], notes_pos[i][1], 0.0f))
-            draw_glow(notes_pos[i][0], notes_pos[i][2] + 0.18f, notes_pos[i][1], 0.28f, 255, 230, 80, 95);
+            draw_glow(notes_pos[i][0], notes_pos[i][2] + 0.18f, notes_pos[i][1], 0.28f, 150, 230, 255, 95);
     }
-    if (got == 3 && cur_layer == 0 && los_to(EXIT_X, EXIT_Z, 0.0f))
-        draw_glow(EXIT_X, 1.5f, EXIT_Z, 0.7f, 80, 255, 120, 95);
     // Luces del mundo (antena, ventanas, velas...)
     for (int i = 0; i < NBC; i++) {
         const Beacon *b = &beacons[i];
@@ -7800,8 +7909,8 @@ static void key_part(float cx, float cz, float a, float lx, float lz, float da,
 
 static void draw_key(float x, float z, float fy, float a)
 {
-    static const float gold[3] = { 236.f, 188.f, 52.f };
-    static const float dark[3] = { 196.f, 146.f, 34.f };
+    static const float gold[3] = { 170.f, 226.f, 245.f };      // llave final: plata azulada (la amarilla es la de la puerta del noreste)
+    static const float dark[3] = { 120.f, 168.f, 196.f };
     const float em = 0.32f;
     const float y0 = fy + 0.015f, y1 = fy + 0.095f;
     const float R = 0.15f;                                    // radio medio de la argolla
@@ -7973,7 +8082,7 @@ static void draw_map_screen(void)
         map_sq(&A, u, v, r, c_well);
         map_sq(&B, u, v, r, c_well);
     }
-    map_sq(&A, EXIT_X / CS, EXIT_Z / CS, r, c_exit);          // caseta de la antena (la salida)
+    map_sq(&A, EXIT_X / CS, EXIT_Z / CS, r, c_exit);          // caseta de la antena
     map_sq(&A, SPAWN_X / CS, SPAWN_Z / CS, r, GS_SETREG_RGBAQ(255, 255, 255, 0x80, 0));   // inicio / cartel
 
     map_label(&A, notes_pos[0][0] / CS, notes_pos[0][1] / CS - 5.0f, "CABANA");
@@ -7983,7 +8092,7 @@ static void draw_map_screen(void)
 
     float lx = B.ox, ly = B.oy + (float)sh * s + 10.0f;       // leyenda bajo la alcantarilla
     if (ly + 8.0f < H - 14.0f) { map_legend(lx, ly, c_well, "POZO / ESCALERA"); ly += 11.0f; }
-    if (ly + 8.0f < H - 14.0f) { map_legend(lx, ly, c_exit, "ANTENA / SALIDA"); ly += 11.0f; }
+    if (ly + 8.0f < H - 14.0f) { map_legend(lx, ly, c_exit, "ANTENA"); ly += 11.0f; }
     if (ly + 8.0f < H - 14.0f) { map_legend(lx, ly, GS_SETREG_RGBAQ(255, 255, 255, 0x80, 0), "INICIO"); }
     draw_text_c(H - 11.0f, "TRIANGULO: CERRAR", 1, GS_SETREG_RGBAQ(190, 190, 195, 0x80, 0));
 }
@@ -7991,26 +8100,35 @@ static void draw_map_screen(void)
 // ---------------- Puertas, llaves, notas y candado: dibujo ----------------
 static void draw_doors(void)
 {
-    if (cur_layer != 0 && !climbing) return;
     for (int i = 0; i < ND; i++) {
         const Door *d = &doors[i];
+        if (d->layer != cur_layer && !climbing) continue;
         if (!in_view(d->x, d->z, d->hw + 1.0f, (gfx_pd[gfx] * rd_k))) continue;
-        float h = cell_info(map0[d->cz][d->cx], 0).ceil;
+        float fy = d->layer ? SEWER_Y : 0.0f;
+        float h = d->layer ? 3.4f : cell_info(map0[d->cz][d->cx], 0).ceil;
         if (h < 2.0f) h = 2.4f;
         float col[3], bright[3];
-        if (d->type == 0) for (int k = 0; k < 3; k++) { col[k] = key_rgb[d->id][k] * 0.55f; bright[k] = key_rgb[d->id][k]; }
+        if (d->type == 2) { col[0] = 70.f; col[1] = 78.f; col[2] = 84.f; bright[0] = 150.f; bright[1] = 230.f; bright[2] = 255.f; }
+        else if (d->type == 0) for (int k = 0; k < 3; k++) { col[k] = key_rgb[d->id][k] * 0.55f; bright[k] = key_rgb[d->id][k]; }
         else { col[0] = 104.f; col[1] = 72.f; col[2] = 44.f; bright[0] = 150.f; bright[1] = 150.f; bright[2] = 158.f; }
         float base = d->orient ? PI_F * 0.5f : 0.0f;
         float hx = d->orient ? d->x : d->x - d->hw;          // bisagra: la puerta gira hacia adentro del edificio
         float hz = d->orient ? d->z + d->hw : d->z;
         float a = base + door_ang[i];
-        box_rot(hx, hz, a, d->hw, 0.0f, d->hw * 0.98f, 0.09f, 0.0f, h, col, 0.10f);
+        box_rot(hx, hz, a, d->hw, 0.0f, d->hw * 0.98f, 0.09f, fy, fy + h, col, 0.10f);
         if (door_open[i]) continue;
-        if (d->type == 0)                                       // placa del color de la llave
-            box_rot(hx, hz, a, d->hw * 1.7f, 0.0f, 0.22f, 0.12f, 1.0f, 1.6f, bright, 0.45f);
+        if (d->type == 2) {                                     // puerta final: tres ranuras (una por llave final) que se encienden
+            int got = notes_got[0] + notes_got[1] + notes_got[2];
+            for (int k = 0; k < 3; k++) {
+                float on[3] = { 150.f, 230.f, 255.f }, off[3] = { 40.f, 40.f, 44.f };
+                box_rot(hx, hz, a, d->hw + (k - 1) * 0.55f, 0.0f, 0.16f, 0.13f, fy + 1.1f, fy + 1.9f, k < got ? on : off, k < got ? 0.9f : 0.05f);
+            }
+            box_rot(hx, hz, a, d->hw, 0.0f, 0.9f, 0.12f, fy + 2.4f, fy + 2.55f, bright, 0.5f);
+        } else if (d->type == 0)                                // placa del color de la llave
+            box_rot(hx, hz, a, d->hw * 1.7f, 0.0f, 0.22f, 0.12f, fy + 1.0f, fy + 1.6f, bright, 0.45f);
         else {                                                  // candado
-            box_rot(hx, hz, a, d->hw * 1.7f, 0.0f, 0.14f, 0.13f, 0.95f, 1.25f, bright, 0.30f);
-            box_rot(hx, hz, a, d->hw * 1.7f, 0.0f, 0.03f, 0.13f, 1.25f, 1.45f, bright, 0.30f);
+            box_rot(hx, hz, a, d->hw * 1.7f, 0.0f, 0.14f, 0.13f, fy + 0.95f, fy + 1.25f, bright, 0.30f);
+            box_rot(hx, hz, a, d->hw * 1.7f, 0.0f, 0.03f, 0.13f, fy + 1.25f, fy + 1.45f, bright, 0.30f);
         }
     }
 }
@@ -8039,6 +8157,9 @@ static void msg_text(int id, char *buf, int n)
 {
     buf[0] = '\0';
     if (id >= 1 && id <= 4) snprintf(buf, n, "NECESITAS LLAVE %s", key_name[id - 1]);
+    else if (id == 13) snprintf(buf, n, "PUERTA FINAL: FALTAN %d LLAVES FINALES", 3 - (notes_got[0] + notes_got[1] + notes_got[2]));
+    else if (id == 14) snprintf(buf, n, "LA PUERTA FINAL SE ABRE...");
+    else if (id == 15) snprintf(buf, n, "LLAVE FINAL %d DE 3", notes_got[0] + notes_got[1] + notes_got[2]);
     else if (id == 10) snprintf(buf, n, "CODIGO INCORRECTO");
     else if (id == 11) snprintf(buf, n, "PUERTA ABIERTA");
     else if (id == 12) snprintf(buf, n, "CANDADO ABIERTO");
@@ -8101,12 +8222,12 @@ static void draw_door_hud(void)
     }
     draw_text(20.0f, 94.0f, "R1: NOTAS", 1, gc);
     int dn = (map_open || code_door >= 0) ? -1 : door_near();
-    if (dn >= 0) draw_text_c(H - 34.0f, doors[dn].type ? "CUADRADO: PONER CODIGO" : "CUADRADO: ABRIR PUERTA", 2, yc);
+    if (dn >= 0) draw_text_c(H - 34.0f, doors[dn].type == 1 ? "CUADRADO: PONER CODIGO" : "CUADRADO: ABRIR PUERTA", 2, yc);
     if (door_msg > 0 && door_msg_id) {
         char b[48];
         msg_text(door_msg_id, b, (int)sizeof b);
-        draw_text_c(H - 62.0f, b, 2, (door_msg_id <= 4 || door_msg_id == 10) ? rc : yc);
-        if (door_msg_id >= 20) draw_text_c(H - 44.0f, "R1: VER NOTAS", 1, gc);
+        draw_text_c(H - 62.0f, b, 2, (door_msg_id <= 4 || door_msg_id == 10 || door_msg_id == 13) ? rc : yc);
+        if (door_msg_id >= 20 && door_msg_id < 40) draw_text_c(H - 44.0f, "R1: VER NOTAS", 1, gc);
     }
     if (inv_open) draw_inventory();
     if (code_door >= 0) draw_code_ui();
@@ -8120,7 +8241,16 @@ static void render_game(float t, int moving, int near_ladder, int notes)
             gsKit_clear(gsGlobal, bgc);
             if (js_t < 100) draw_monster(t);
         }
-        else if (state == 2) gsKit_clear(gsGlobal, GS_SETREG_RGBAQ(0x00, 0x50, 0x10, 0x80, 0x00));
+        else if (state == 2) {                             // FIN
+            gsKit_clear(gsGlobal, BLACK);
+            int a = 600 - state_timer; if (a > 120) a = 120;
+            int g = 255 * a / 120;
+            u64 fc = GS_SETREG_RGBAQ(g, g, g, 0x80, 0), sc = GS_SETREG_RGBAQ(g * 3 / 4, g, g * 3 / 4, 0x80, 0);
+            draw_text_c(H * 0.28f, "FIN", 8, fc);
+            draw_text_c(H * 0.28f + 80.0f, "LA PUERTA SE CIERRA DETRAS DE TI...", 2, sc);
+            draw_text_c(H * 0.28f + 104.0f, "ESCAPASTE DEL BOSQUE", 2, sc);
+            draw_text_c(H * 0.28f + 150.0f, "GRACIAS POR JUGAR", 2, fc);
+        }
         else if (map_open) draw_map_screen();                 // mapa abierto: solo se ve el mapa
         else {
             lights_prepare();
@@ -8140,10 +8270,6 @@ static void render_game(float t, int moving, int near_ladder, int notes)
                 if (in_view(notes_pos[i][0], notes_pos[i][1], 0.8f, (gfx_pd[gfx] * rd_k)))
                     draw_key(notes_pos[i][0], notes_pos[i][1], notes_pos[i][2], key_ang[i]);
             }
-            if (notes == 3 && cur_layer == 0) {
-                float gcol[3] = { 80.f, 255.f, 120.f };
-                box_rot(EXIT_X, EXIT_Z, 0, 0, 0, 0.3f, 0.3f, 0.0f, 2.0f, gcol, 0.7f);
-            }
             draw_other_player(t);                       // el otro jugador (pantalla dividida)
             if (mlayer == cur_layer && !climbing && in_view(sx_, sz_, 2.2f, 26.0f)) draw_monster(t);   // si no lo miras, ni se calcula
 
@@ -8155,11 +8281,12 @@ static void render_game(float t, int moving, int near_ladder, int notes)
             gsGlobal->PrimAlphaEnable = GS_SETTING_OFF;
 
             draw_flashlight(t, moving);
+            draw_detector(t);                           // el radio que marca la distancia al monstruo
 
             if (num_players == 2)                          // quien es quien en pantalla dividida
                 draw_text_c(6.0f, net_online ? net_names[pl_cur] : (pl_cur ? "J2" : "J1"), 2, pl_cur ? GS_SETREG_RGBAQ(70, 150, 255, 0x80, 0) : GS_SETREG_RGBAQ(235, 40, 36, 0x80, 0));
             for (int i = 0; i < 3; i++) {                 // HUD: notas
-                u64 c = notes_got[i] ? GS_SETREG_RGBAQ(255, 230, 80, 0x80, 0)
+                u64 c = notes_got[i] ? GS_SETREG_RGBAQ(150, 230, 255, 0x80, 0)
                                      : GS_SETREG_RGBAQ(50, 50, 50, 0x80, 0);
                 gsKit_prim_sprite(gsGlobal, 20.0f + i * 24.0f, 20.0f, 36.0f + i * 24.0f, 36.0f, 16777000, c);
             }
@@ -9201,7 +9328,10 @@ static int ui_input(u32 newp)
         if (!has_map && board_near()) { has_map = 1; map_msg = 240; sfx_play(SFX_CLICK, 1.0f); }
         else if (di >= 0 && !map_open) {
             const Door *d = &doors[di];
-            if (d->type == 0) {
+            if (d->type == 2) {                                 // PUERTA FINAL: necesita las 3 llaves finales
+                if (notes_got[0] + notes_got[1] + notes_got[2] >= 3) { door_open[di] = 1; door_msg = 150; door_msg_id = 14; sfx_play(SFX_CLICK, 1.0f); }
+                else { door_msg = 150; door_msg_id = 13; }
+            } else if (d->type == 0) {
                 if (have_key[d->id]) { door_open[di] = 1; door_msg = 120; door_msg_id = 11; sfx_play(SFX_CLICK, 1.0f); }
                 else { door_msg = 150; door_msg_id = 1 + d->id; }
             } else { code_door = di; code_val = 0; code_pos = 0; }
@@ -9331,7 +9461,7 @@ static void player_post(int notes)
     for (int i = 0; i < 3; i++) {
         if (notes_got[i] || (int)notes_pos[i][3] != cur_layer || climbing) continue;
         float ax = notes_pos[i][0] - px, az = notes_pos[i][1] - pz;
-        if (ax * ax + az * az < 1.7f) notes_got[i] = 1;
+        if (ax * ax + az * az < 1.7f) { notes_got[i] = 1; door_msg = 200; door_msg_id = 15; sfx_play(SFX_CLICK, 1.0f); }   // llave final recogida
     }
     for (int i = 0; i < NIT; i++) {                         // llaves y papeles con codigo (se recogen al pasar)
         if (item_got[i] || cur_layer != 0 || climbing) continue;
@@ -9342,10 +9472,7 @@ static void player_post(int notes)
             else { have_code[items[i].id] = 1; door_msg_id = 30 + items[i].id; }
         }
     }
-    if (notes == 3 && cur_layer == 0 && door_open[DOOR_HUT]) {
-        float ex = EXIT_X - px, ez = EXIT_Z - pz;
-        if (ex * ex + ez * ez < 2.5f * 2.5f) { state = 2; state_timer = 240; }
-    }
+    if (cur_layer == 1 && !climbing && door_open[DOOR_FINAL] && px > doors[DOOR_FINAL].x + 3.0f) { state = 2; state_timer = 600; }   // cruzaste la puerta final: FIN
 }
 
 // Camara final del frame, con el balanceo del andar (cada paso se siente) y las pisadas del monstruo
