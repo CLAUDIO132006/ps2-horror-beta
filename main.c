@@ -15,6 +15,7 @@
 //    L2 (mantener 1 s): luz ULTRAVIOLETA (la linterna se vuelve morada); otra vez para volver a la normal
 //    2 JUGADORES: pantalla dividida (J1 arriba con el control 1, J2 abajo con el control 2)
 //    SELECT     : invierte la luz si en tu emulador se ve al reves
+//    SERVIDOR   : ONLINE > SERVIDOR: SI + IP DEL SERVIDOR -> salas por internet y relay (ver horror_server.py)
 //    ONLINE     : menu principal > ONLINE (necesita compilar con -DUSE_NET y el adaptador de red de la PS2)
 //                 CREAR PARTIDA abre una sala de espera (J1 / J2, boton COMENZAR); PARTIDAS PUBLICAS lista las salas de tu red
 //
@@ -5473,6 +5474,11 @@ static float stamina = 1.0f, stam_delay;
 static int   exhausted;
 static float jump_h, jump_vy;
 static float mon_phase, mon_spd, mon_runf;           // animacion del monstruo
+// VISTA DEL MONSTRUO: campo de vision de 75 grados en horizontal y 30 metros, con paredes que tapan.
+#define MON_FOV_COS 0.7934f     // cos(37.5 grados): 37.5 a cada lado = 75 en total
+#define MON_SIGHT   30.0f       // alcance de la vista (metros)
+static float mon_face, mon_lx, mon_lz, mon_look_t, mon_wpx, mon_wpz;   // hacia donde mira / ultimo sitio donde te vio u oyo / tiempo mirando alrededor / punto de patrulla
+static int   mon_seen, mon_ll, mon_has, mon_wp_ok, mon_wp_n, mon_last_chase;   // te ve ahora / capa del ultimo sitio / recuerda donde estabas / patrulla
 static float mon_uv_t, mon_blind_t, mon_cover, mon_blind_yaw;   // luz UV: segundos apuntandole / segundos que le quedan ciego / manos en los ojos (0..1) / hacia donde mira
 static float crouch_f;                 // 0 de pie .. 1 agachado
 static float walk_ph, walk_amp, step_imp;   // caminata: fase (pi = un paso), intensidad 0..1, golpe de la pisada
@@ -6773,6 +6779,7 @@ static void draw_monster(float t)
     float ddx = sx_ - px, ddz = sz_ - pz;
     if (ddx * ddx + ddz * ddz > 26.0f * 26.0f) return;
     float a = atan2f(px - sx_, pz - sz_);
+    if ((screen == SC_PLAY || screen == SC_PAUSE) && state == 0) a = mon_face;      // en juego mira hacia donde camina (menu y susto: hacia ti)
     if (mon_blind_t > 0.0f) a = mon_blind_yaw;                  // ciego: ya no te sigue con la cabeza
     float s = sinf(a), c = cosf(a);
     Xf X[10];
@@ -7601,6 +7608,28 @@ static void mon_uv_update(float dt)
     } else mon_uv_t = fmaxf(0.0f, mon_uv_t - dt * 1.5f);                             // si dejas de apuntar, se recupera rapido
 }
 
+// A que jugador ve el monstruo ahora (el mas cercano dentro de su cono de 75 grados y a menos de 30 m, sin paredes en medio), o -1
+static int mon_vision(void)
+{
+    if (mon_blind_t > 0.0f) return -1;                        // ciego
+    float hx = sinf(mon_face), hz = cosf(mon_face);
+    int best = -1;
+    float bd = 1e9f;
+    for (int i = 0; i < num_players; i++) {
+        const Player *Q = &P[i];
+        if (Q->cur_layer != mlayer || Q->climbing) continue;
+        float dx = Q->px - sx_, dz = Q->pz - sz_, d2 = dx * dx + dz * dz;
+        if (d2 > MON_SIGHT * MON_SIGHT || d2 >= bd) continue;
+        float d = sqrtf(d2);
+        if (d > 1.0f && (dx * hx + dz * hz) / d < MON_FOV_COS) continue;      // fuera del cono: no te ve
+        if (!mon_clear(mlayer, sx_, sz_, Q->px, Q->pz)) continue;
+        bd = d2; best = i;
+    }
+    return best;
+}
+
+static float wrap_pi(float a) { while (a > PI_F) a -= 2.0f * PI_F; while (a < -PI_F) a += 2.0f * PI_F; return a; }
+
 static void update_monster(float dt, int notes)
 {
     mon_cover += ((mon_blind_t > 0.0f ? 1.0f : 0.0f) - mon_cover) * clampf(dt * (mon_blind_t > 0.0f ? 7.0f : 3.0f), 0.0f, 1.0f);
@@ -7608,12 +7637,55 @@ static void update_monster(float dt, int notes)
         mon_blind_t -= dt;
         mon_spd  += (0.0f - mon_spd)  * clampf(dt * 8.0f, 0.0f, 1.0f);
         mon_runf += (0.0f - mon_runf) * clampf(dt * 8.0f, 0.0f, 1.0f);
+        mon_face = mon_blind_yaw;
         if (mon_blind_t < 0.0f) mon_blind_t = 0.0f;
         return;
     }
     int pl = cur_layer;
-    float tx = px, tz = pz;
-    if (mlayer != pl) {                       // el jugador esta en otro nivel: va a la escalera
+
+    // ---- que sabe el monstruo: 2 = te ve, 1 = te oye / va a donde te vio, 0 = patrulla ----
+    int chase = 0;
+    if (mon_seen) { mon_lx = px; mon_lz = pz; mon_ll = pl; mon_has = 1; mon_look_t = 0.0f; chase = 2; }
+    else if (mlayer == pl && !climbing) {                     // oido: agachado casi no se te oye, corriendo se te oye lejos
+        float hdx = px - sx_, hdz = pz - sz_, hd = sqrtf(hdx * hdx + hdz * hdz);
+        float sp = sqrtf(vel_x * vel_x + vel_z * vel_z);
+        float hr = crouched ? 3.0f : (sp > 4.0f ? 16.0f : (sp > 1.0f ? 9.0f : 4.0f));
+        if (hd < hr) { mon_lx = px; mon_lz = pz; mon_ll = pl; mon_has = 1; mon_look_t = 0.0f; chase = 1; }
+    }
+    float tx, tz;
+    if (chase) { tx = px; tz = pz; }
+    else if (mon_has) { tx = mon_lx; tz = mon_lz; chase = 1; }       // va al ultimo sitio donde te vio
+    else {                                                            // patrulla
+        if (!mon_wp_ok) {
+            for (int k = 0; k < 40 && !mon_wp_ok; k++) {
+                unsigned int h = hash2((int)game_seed + mon_wp_n * 31 + k, 777 + mon_wp_n);
+                int wx = (int)(h % MW), wz = (int)((h >> 8) % MH);
+                float cx = (wx + 0.5f) * CS, cz = (wz + 0.5f) * CS;
+                if (solid_grid[mlayer][wz][wx]) continue;
+                if ((cx - sx_) * (cx - sx_) + (cz - sz_) * (cz - sz_) < 14.0f * 14.0f) continue;
+                mon_wpx = cx; mon_wpz = cz; mon_wp_ok = 1; need_flow = 1;
+            }
+            mon_wp_n++;
+        }
+        tx = mon_wpx; tz = mon_wpz;
+    }
+    if (chase != mon_last_chase) { need_flow = 1; mon_last_chase = chase; }
+
+    int mcx = (int)(sx_ / CS), mcz = (int)(sz_ / CS);
+    if (mcx < 0 || mcz < 0 || mcx >= MW || mcz >= MH) return;
+
+    // si te perdio de vista y llega al ultimo sitio, se queda mirando alrededor y luego patrulla
+    float ldx = tx - sx_, ldz = tz - sz_;
+    if (!mon_seen && mon_has && mlayer == mon_ll && ldx * ldx + ldz * ldz < 2.2f * 2.2f && chase == 1) {
+        int near_ladder = 0;
+        for (int i = 0; i < NMH; i++) {
+            float hx = (manholes[i][0] + 0.5f) * CS - sx_, hz = (manholes[i][1] + 0.5f) * CS - sz_;
+            if (hx * hx + hz * hz < 3.5f * 3.5f) near_ladder = 1;
+        }
+        if (!(near_ladder && mlayer != pl)) { mon_has = 0; mon_look_t = 4.0f; mon_wp_ok = 0; chase = 0; }
+    }
+
+    if (mon_has && mlayer != pl) {            // te vio bajar/subir: va a la escalera
         tx = (manholes[last_ladder][0] + 0.5f) * CS;
         tz = (manholes[last_ladder][1] + 0.5f) * CS;
         float ex = tx - sx_, ez = tz - sz_;
@@ -7621,26 +7693,28 @@ static void update_monster(float dt, int notes)
             mon_wait += dt;
             if (mon_wait > 4.0f) {            // sube o baja por la escalera
                 mlayer = pl; mon_y = pl ? SEWER_Y : 0.0f;
-                sx_ = tx; sz_ = tz - 1.4f; mon_wait = 0.0f; need_flow = 1;
+                sx_ = tx; sz_ = tz - 1.4f; mon_wait = 0.0f; need_flow = 1; mon_has = 0; mon_wp_ok = 0; mon_look_t = 3.0f;
             }
         }
+        chase = 1;
     } else mon_wait = 0.0f;
 
     if (frame_no % 15 == 0 || need_flow || last_layer != mlayer) {
         compute_flow(mlayer, (int)(tx / CS), (int)(tz / CS));
         need_flow = 0; last_layer = mlayer;
+        if (!chase && dist_map[mcz][mcx] == 9999) mon_wp_ok = 0;      // punto de patrulla inalcanzable: elige otro
     }
-    int mcx = (int)(sx_ / CS), mcz = (int)(sz_ / CS);
-    if (mcx < 0 || mcz < 0 || mcx >= MW || mcz >= MH) return;
     float gx = tx, gz = tz;
-    int direct = 0;                                           // 1 = te ve en linea recta
-    if (mlayer == pl) {
-        float pdx0 = px - sx_, pdz0 = pz - sz_, pd0 = sqrtf(pdx0 * pdx0 + pdz0 * pdz0);
-        if (pd0 < 30.0f && mon_clear(mlayer, sx_, sz_, px, pz)) {
+    int direct = 0;                                           // 1 = camino recto libre hasta el objetivo
+    if (mlayer == pl || !mon_has) {
+        float pdx0 = tx - sx_, pdz0 = tz - sz_, pd0 = sqrtf(pdx0 * pdx0 + pdz0 * pdz0);
+        if (pd0 < 30.0f && mon_clear(mlayer, sx_, sz_, tx, tz)) {
             direct = 1;
-            float lead = clampf(pd0 / 6.0f, 0.0f, 0.9f);      // se adelanta a tu carrera: apunta a donde vas a estar
-            float ix = px + vel_x * lead, iz = pz + vel_z * lead;
-            if (mon_clear(mlayer, sx_, sz_, ix, iz)) { gx = ix; gz = iz; }
+            if (chase == 2) {
+                float lead = clampf(pd0 / 6.0f, 0.0f, 0.9f);      // se adelanta a tu carrera: apunta a donde vas a estar
+                float ix = px + vel_x * lead, iz = pz + vel_z * lead;
+                if (mon_clear(mlayer, sx_, sz_, ix, iz)) { gx = ix; gz = iz; }
+            }
         }
     }
     if (!direct && (mcx != (int)(tx / CS) || mcz != (int)(tz / CS))) {
@@ -7662,15 +7736,24 @@ static void update_monster(float dt, int notes)
     float ex = gx - sx_, ez = gz - sz_;
     float len = sqrtf(ex * ex + ez * ez);
     float spd_now = 0.0f;
-    if (len > 0.01f) {
+    float want_face = mon_face, turn_rate = 3.5f;
+    if (mon_look_t > 0.0f && !chase) {                        // te perdio: se queda quieto mirando a los lados
+        mon_look_t -= dt;
+        want_face = mon_face + 0.0f;
+        mon_face += sinf(mon_look_t * 2.2f) * 1.6f * dt;      // barre la vista de lado a lado
+    } else if (len > 0.01f) {
         float speed = 1.8f + 0.5f * notes;
-        float pdx = px - sx_, pdz = pz - sz_;
-        float pd2 = pdx * pdx + pdz * pdz;
-        if (mlayer == pl && ((direct && pd2 < 22.0f * 22.0f) || pd2 < 12.0f * 12.0f)) speed *= 1.7f;   // te ve (o te oye cerca): corre
-        if (speed > 4.6f) speed = 4.6f;                                           // tu corres a 5.2
+        if (chase == 2) speed *= 1.7f;                                        // te ve: corre
+        else if (chase == 1) speed *= 1.3f;                                   // te oyo / va a donde te vio: rapido
+        else speed = 1.2f + 0.3f * notes;                                     // patrulla: camina
+        if (speed > 4.6f) speed = 4.6f;                                       // tu corres a 5.2
         sx_ += ex / len * speed * dt;
         sz_ += ez / len * speed * dt;
         spd_now = speed;
+        want_face = atan2f(ex, ez);
+        turn_rate = chase == 2 ? 6.0f : 3.5f;
+        float df = wrap_pi(want_face - mon_face), mx = turn_rate * dt;       // gira hacia donde camina (no de golpe)
+        mon_face += df > mx ? mx : (df < -mx ? -mx : df);
     }
     mon_spd  += (spd_now - mon_spd) * clampf(dt * 6.0f, 0.0f, 1.0f);
     mon_runf += (((mon_spd > 2.6f) ? 1.0f : 0.0f) - mon_runf) * clampf(dt * 5.0f, 0.0f, 1.0f);
@@ -7703,6 +7786,7 @@ static void reset_game(void)
     state = 0; state_timer = 0;
     mon_phase = 0.0f; mon_spd = 0.0f; mon_runf = 0.0f; mon_uv_t = 0.0f; mon_blind_t = 0.0f; mon_cover = 0.0f;
     mon_foot_event = 0; js_victim = 0; mon_target = 0;
+    mon_face = atan2f(SPAWN_X - MON_X, SPAWN_Z - MON_Z); mon_seen = 0; mon_has = 0; mon_wp_ok = 0; mon_wp_n = 0; mon_look_t = 0.0f; mon_last_chase = 0;
     for (int i = 0; i < 2; i++) {
         px = SPAWN_X + (i ? 1.8f : 0.0f); pz = SPAWN_Z; yaw = PI_F;      // el jugador 2 aparece al lado
         foot_y = 0.0f; cur_layer = 0; climbing = 0; climb_dir = 0; last_ladder = 0; flash_on = 1;
@@ -8594,6 +8678,55 @@ static void net_fill(struct sockaddr_in *a, int o0, int o1, int o2, int o3, int 
     a->sin_addr.s_addr = (unsigned int)o0 | ((unsigned int)o1 << 8) | ((unsigned int)o2 << 16) | ((unsigned int)o3 << 24);
 }
 
+// ---- SERVIDOR DEDICADO (horror_server.py): lista de salas por internet + relay ----
+// Con "SERVIDOR: SI" (ONLINE) las salas se crean y se buscan en el servidor, y los paquetes de la partida pasan por el: asi
+// funciona entre emuladores y detras de routers (nadie abre puertos, los dos solo se conectan HACIA el servidor).
+#define SRV_PORT  7778
+#define SRV_MAGIC 0x56535248u
+enum { SV_CREATE = 1, SV_LIST = 2, SV_JOIN = 3, SV_KEEP = 4, SV_LEAVE = 5, SV_ROOM = 16, SV_LISTRES = 17, SV_JOINED = 18, SV_ERR = 19 };
+static int  net_srv;                                   // opcion del menu ONLINE: usar el servidor
+static int  net_srv_act;                               // 1 = esta conexion pasa por el servidor
+static unsigned char srv_ip[4] = { 127, 0, 0, 1 };     // IP del servidor (se escribe en ONLINE > IP DEL SERVIDOR)
+static int  net_ip_srv;                                // 1 = la pantalla de IP esta editando la del servidor
+static unsigned int net_room_id;                       // sala del servidor (la que creaste o a la que entras)
+static int  net_srv_ok, net_srv_err;                   // el servidor ya confirmo la sala / codigo de error
+
+static void net_srv_send(int type, unsigned int arg)
+{
+    if (net_sock < 0) return;
+    unsigned char b[32];
+    memset(b, 0, sizeof(b));
+    put32(b, SRV_MAGIC); b[4] = (unsigned char)type;
+    if (type == SV_CREATE) snprintf((char *)b + 8, 24, "SALA DE %s", my_name);
+    else if (type == SV_JOIN) put32(b + 8, arg);
+    struct sockaddr_in a;
+    net_fill(&a, srv_ip[0], srv_ip[1], srv_ip[2], srv_ip[3], SRV_PORT);
+    NS_sendto(net_sock, b, sizeof(b), 0, (struct sockaddr *)&a, sizeof(a));
+}
+
+// Mensajes que vienen del servidor. Devuelve 1 si el paquete era del servidor.
+static int net_srv_handle(const unsigned char *b, int n)
+{
+    if (n < 8 || get32(b) != SRV_MAGIC) return 0;
+    int t = b[4];
+    if (t == SV_ROOM && n >= 12) { net_room_id = get32(b + 8); net_srv_ok = 1; }
+    else if (t == SV_JOINED) net_srv_ok = 1;
+    else if (t == SV_ERR) net_srv_err = b[5] ? b[5] : 1;
+    else if (t == SV_LISTRES) {                        // lista de salas: sustituye a la anterior
+        int cnt = b[5];
+        if (cnt > NET_MAXROOMS) cnt = NET_MAXROOMS;
+        memset(rooms, 0, sizeof(rooms));
+        for (int k = 0; k < cnt; k++) {
+            int off = 8 + k * 32;
+            if (n < off + 32) break;
+            Room *r = &rooms[k];
+            r->used = 1; put32(r->ip, get32(b + off)); r->players = b[off + 4]; r->seen = (unsigned int)frame_no;
+            memcpy(r->name, b + off + 5, 23); r->name[23] = '\0';
+        }
+    }
+    return 1;
+}
+
 // ---- Hardware de red de la PS2 (es lo unico que no se puede probar en PC) ----
 // 0 = trabajando, 1 = lista, -1 = error (texto en net_text)
 //
@@ -8790,6 +8923,7 @@ static void net_pump(void)
         socklen_t fl = sizeof(from);
         int n = NS_recvfrom(net_sock, b, sizeof(b), MSG_DONTWAIT, (struct sockaddr *)&from, &fl);
         if (n <= 0) break;
+        if (net_srv_handle(b, n)) continue;                                         // respuesta del servidor
         if (n < 28 || get32(b) != NET_MAGIC || net_drop()) continue;
         int type = b[4];
         if (type == NP_ANNOUNCE) continue;                                          // anuncios de salas: solo los lee la lista
@@ -8839,6 +8973,8 @@ static void net_pump(void)
 
 static void net_close(void)
 {
+    if (net_sock >= 0 && net_srv_act) net_srv_send(SV_LEAVE, 0);                  // avisa al servidor que sales
+    net_srv_ok = 0; net_srv_err = 0;
     if (net_sock >= 0) { NS_close(net_sock); net_sock = -1; }
     net_have_peer = 0; net_got_hello = net_got_welcome = net_bye = 0;
     net_in_lobby = 0; net_got_start = 0; net_guest_t = 0;
@@ -8894,16 +9030,29 @@ static int net_connect_poll(void)
         snprintf(net_names[net_host ? 0 : 1], sizeof(net_names[0]), "%s", my_name);                // tu nombre
         snprintf(net_names[net_host ? 1 : 0], sizeof(net_names[0]), "%s", net_host ? "JUGADOR 2" : "JUGADOR 1");   // el del otro, hasta que llegue su saludo
         if (net_host) net_seed = (unsigned int)(frame_no * 2654435761u) ^ 0x9E3779B9u;      // semilla de esta sala
-        if (!net_host) { net_fill(&net_peer, net_ip[0], net_ip[1], net_ip[2], net_ip[3], NET_PORT); net_have_peer = 1; }
+        if (net_srv_act) { net_fill(&net_peer, srv_ip[0], srv_ip[1], srv_ip[2], srv_ip[3], SRV_PORT); net_have_peer = 1; net_srv_ok = 0; net_srv_err = 0; }   // todo pasa por el servidor
+        else if (!net_host) { net_fill(&net_peer, net_ip[0], net_ip[1], net_ip[2], net_ip[3], NET_PORT); net_have_peer = 1; }
         net_psens_h[net_host ? 0 : 1] = sens_h; net_psens_v[net_host ? 0 : 1] = sens_v;
     }
     net_wait++;
     net_pump();
+    if (net_srv_act && !net_srv_ok) {                         // primero: crear / entrar a la sala en el servidor
+        if (net_srv_err) {
+            snprintf(net_text, sizeof(net_text), net_srv_err == 2 ? "ESA SALA ESTA LLENA" : (net_srv_err == 3 ? "EL SERVIDOR ESTA LLENO" : "ESA SALA YA NO EXISTE"));
+            return -1;
+        }
+        if (net_wait % 30 == 1) net_srv_send(net_host ? SV_CREATE : SV_JOIN, net_room_id);
+        snprintf(net_text, sizeof(net_text), "CONECTANDO AL SERVIDOR %d.%d.%d.%d ...", srv_ip[0], srv_ip[1], srv_ip[2], srv_ip[3]);
+        snprintf(net_text2, sizeof(net_text2), "O: CANCELAR");
+        if (net_wait > 60 * 10) { snprintf(net_text, sizeof(net_text), "EL SERVIDOR NO RESPONDE (REVISA SU IP)"); return -1; }
+        return 0;
+    }
     if (net_host) {                                           // anfitrion: pasa directo a la sala de espera
         net_in_lobby = 1; net_lobby_wait = 0;
         return 2;
     } else {
-        snprintf(net_text, sizeof(net_text), "CONECTANDO A %d.%d.%d.%d ...", net_ip[0], net_ip[1], net_ip[2], net_ip[3]);
+        if (net_srv_act) snprintf(net_text, sizeof(net_text), "ENTRANDO A LA SALA ...");
+        else snprintf(net_text, sizeof(net_text), "CONECTANDO A %d.%d.%d.%d ...", net_ip[0], net_ip[1], net_ip[2], net_ip[3]);
         if (net_got_welcome) { net_in_lobby = 1; net_rx_age = 0; net_lobby_wait = 0; return 2; }    // el anfitrion te dejo entrar
         if (net_wait % 30 == 1) net_send_pkt(NP_HELLO);
         if (net_wait > 60 * 20) { snprintf(net_text, sizeof(net_text), "EL ANFITRION NO RESPONDE"); return -1; }
@@ -8933,7 +9082,7 @@ static int net_lobby_poll(int ok)
     if (net_host) {
         if (net_got_hello && ++net_guest_t > 150) { net_got_hello = 0; net_have_peer = 0; }   // el invitado dejo de dar senales
         if (net_bye) { net_bye = 0; net_got_hello = 0; net_have_peer = 0; }                   // el invitado salio
-        if (net_ann_t++ % 60 == 0) net_announce();
+        if (net_ann_t++ % 60 == 0) { if (net_srv_act) net_srv_send(SV_KEEP, 0); else net_announce(); }   // la sala sigue viva
         if (ok && net_got_hello) {
             for (int k = 0; k < 3; k++) net_send_pkt(NP_START);
             net_match_begin();
@@ -8957,12 +9106,14 @@ static void net_lobby_exit(void)
 // Lista de partidas publicas: lee los anuncios de la red local y olvida las salas que dejaron de anunciarse
 static void net_list_pump(void)
 {
-    unsigned char b[64];
+    unsigned char b[256];
     struct sockaddr_in from;
     for (int guard = 0; guard < 24; guard++) {
         socklen_t fl = sizeof(from);
         int n = NS_recvfrom(net_sock, b, sizeof(b), MSG_DONTWAIT, (struct sockaddr *)&from, &fl);
         if (n <= 0) break;
+        if (net_srv_handle(b, n)) continue;                                  // lista de salas del servidor
+        if (net_srv_act) continue;
         if (n < 52 || get32(b) != NET_MAGIC || b[4] != NP_ANNOUNCE) continue;
         unsigned int ad = (unsigned int)from.sin_addr.s_addr;
         unsigned char ip[4] = { (unsigned char)(ad & 255u), (unsigned char)((ad >> 8) & 255u), (unsigned char)((ad >> 16) & 255u), (unsigned char)((ad >> 24) & 255u) };
@@ -8988,7 +9139,7 @@ static unsigned int sim_hash(void)
         HM(fbits(P[i].stamina)); HM(fbits(P[i].jump_h)); HM(P[i].cur_layer); HM(P[i].climbing);
         HM(P[i].flash_on); HM(P[i].uv_on); HM(P[i].has_map); HM(P[i].crouched); HM(P[i].code_door);
     }
-    HM(fbits(sx_)); HM(fbits(sz_)); HM(mlayer); HM(state); HM(mon_target); HM((int)(mon_blind_t * 60.0f)); HM((int)(mon_uv_t * 60.0f));
+    HM(fbits(sx_)); HM(fbits(sz_)); HM(mlayer); HM(state); HM(mon_target); HM(fbits(mon_face)); HM(mon_has); HM(mon_wp_n); HM((int)(mon_blind_t * 60.0f)); HM((int)(mon_uv_t * 60.0f));
     for (int i = 0; i < 3; i++) HM(notes_got[i]);
     for (int i = 0; i < ND; i++) HM(door_open[i]);
     for (int i = 0; i < NIT; i++) HM(item_got[i]);
@@ -9047,7 +9198,7 @@ static void menu_frame(u32 newp, float lv, int frame)
     if (pad2_warn > 0) pad2_warn--;
     const int scr0 = screen;                                   // pantalla con la que empieza este cuadro
 #ifdef HAVE_NET
-    if (screen == SC_NET) n = 5;
+    if (screen == SC_NET) n = 7;
     else if (screen == SC_NAME) n = 1;
     else if (screen == SC_NETLIST) n = room_count() > 0 ? room_count() : 1;
     else if (screen == SC_LOBBY) n = 1;
@@ -9107,24 +9258,28 @@ static void menu_frame(u32 newp, float lv, int frame)
     if (screen != scr0) {
         /* acaba de cambiar de pantalla en este cuadro: la X que la abrio no cuenta dentro de la nueva */
     } else if (screen == SC_NET) {                            // ONLINE: crear o unirse
-        if (back || (ok && *sel == 4)) screen = SC_MAIN;
+        if (back || (ok && *sel == 6)) screen = SC_MAIN;
         else if (ok && *sel == 3) { snprintf(name_buf, sizeof(name_buf), "%-10s", my_name); name_pos = 0; screen = SC_NAME; }   // CAMBIAR NOMBRE
-        else if (ok && *sel == 0) { net_host = 1; screen = SC_NETWAIT; net_close(); net_text[0] = 0; }      // CREAR: va a la sala de espera
-        else if (ok && *sel == 1) { screen = SC_NETIP; net_ip_sel = 0; }
-        else if (ok && *sel == 2) { net_host = 0; screen = SC_NETLIST; net_close(); net_text[0] = 0; list_sel = 0; memset(rooms, 0, sizeof(rooms)); }   // PARTIDAS PUBLICAS
+        else if (ok && *sel == 0) { net_host = 1; net_srv_act = net_srv; screen = SC_NETWAIT; net_close(); net_text[0] = 0; }      // CREAR: va a la sala de espera
+        else if (ok && *sel == 1) { net_srv_act = 0; net_ip_srv = 0; screen = SC_NETIP; net_ip_sel = 0; }                          // UNIRSE POR IP (directo)
+        else if (ok && *sel == 2) { net_host = 0; net_srv_act = net_srv; screen = SC_NETLIST; net_close(); net_text[0] = 0; list_sel = 0; memset(rooms, 0, sizeof(rooms)); }   // PARTIDAS PUBLICAS
+        else if (*sel == 4 && (ok || lt || rt)) net_srv = !net_srv;                                    // SERVIDOR: SI / NO
+        else if (ok && *sel == 5) { net_ip_srv = 1; screen = SC_NETIP; net_ip_sel = 0; }               // IP DEL SERVIDOR
     } else if (screen == SC_NETIP) {                          // escribir la IP del anfitrion
         static int rep_t = 0;
-        if (back) screen = SC_NET;
-        else if (ok) { net_host = 0; screen = SC_NETWAIT; net_close(); net_text[0] = 0; }
+        unsigned char *ipp = net_ip_srv ? srv_ip : net_ip;          // la IP que se esta editando
+        if (back) { screen = SC_NET; net_ip_srv = 0; }
+        else if (ok && net_ip_srv) { screen = SC_NET; net_ip_srv = 0; net_srv = 1; snprintf(net_notice, sizeof(net_notice), "SERVIDOR GUARDADO: %d.%d.%d.%d", srv_ip[0], srv_ip[1], srv_ip[2], srv_ip[3]); net_notice_t = 240; }
+        else if (ok) { net_host = 0; net_srv_act = 0; screen = SC_NETWAIT; net_close(); net_text[0] = 0; }
         else {
             if (lt) net_ip_sel = (net_ip_sel + 3) % 4;
             if (rt) net_ip_sel = (net_ip_sel + 1) % 4;
             int du = (newp & PAD_UP) != 0, dd = (newp & PAD_DOWN) != 0;
             if (pin[0].pd & (PAD_UP | PAD_DOWN)) { if (++rep_t > 20 && (rep_t % 3) == 0) { du = (pin[0].pd & PAD_UP) != 0; dd = (pin[0].pd & PAD_DOWN) != 0; } } else rep_t = 0;
             if (newp & PAD_R1) du = 1;                         // R1 / L1: +/- 10
-            if (du) net_ip[net_ip_sel] = (unsigned char)((net_ip[net_ip_sel] + ((newp & PAD_R1) ? 10 : 1)) & 255);
-            if (dd) net_ip[net_ip_sel] = (unsigned char)((net_ip[net_ip_sel] - 1) & 255);
-            if (newp & PAD_L1) net_ip[net_ip_sel] = (unsigned char)((net_ip[net_ip_sel] - 10) & 255);
+            if (du) ipp[net_ip_sel] = (unsigned char)((ipp[net_ip_sel] + ((newp & PAD_R1) ? 10 : 1)) & 255);
+            if (dd) ipp[net_ip_sel] = (unsigned char)((ipp[net_ip_sel] - 1) & 255);
+            if (newp & PAD_L1) ipp[net_ip_sel] = (unsigned char)((ipp[net_ip_sel] - 10) & 255);
         }
     } else if (screen == SC_NETWAIT) {                        // conectando / esperando
         if (back) { net_close(); screen = SC_NET; }
@@ -9171,6 +9326,7 @@ static void menu_frame(u32 newp, float lv, int frame)
                     else memset(rooms, 0, sizeof(rooms));
                 }
                 if (net_sock >= 0) {
+                    if (net_srv_act && frame_no % 60 == 0) net_srv_send(SV_LIST, 0);       // pide la lista de salas al servidor
                     net_list_pump();
                     int cnt = room_count();
                     if (list_sel >= cnt) list_sel = cnt > 0 ? cnt - 1 : 0;
@@ -9178,7 +9334,8 @@ static void menu_frame(u32 newp, float lv, int frame)
                     if (rm) {
                         if (rm->players >= 2) { snprintf(net_notice, sizeof(net_notice), "ESA SALA ESTA LLENA"); net_notice_t = 200; }
                         else {
-                            for (int k = 0; k < 4; k++) net_ip[k] = rm->ip[k];
+                            if (net_srv_act) net_room_id = get32(rm->ip);
+                            else for (int k = 0; k < 4; k++) net_ip[k] = rm->ip[k];
                             net_host = 0; net_close(); net_text[0] = 0; screen = SC_NETWAIT;
                         }
                     }
@@ -9298,26 +9455,29 @@ static void menu_frame(u32 newp, float lv, int frame)
 #ifdef HAVE_NET
     if (screen == SC_NET) {
         draw_text_c(50.0f, "ONLINE", 6, sel_c);
-        static const char *it[5] = { "CREAR PARTIDA", "UNIRSE POR IP", "PARTIDAS PUBLICAS", "CAMBIAR NOMBRE", "VOLVER" };
-        for (int i = 0; i < 5; i++) {
+        char sv_l[40], ip_l[40];
+        snprintf(sv_l, sizeof(sv_l), "SERVIDOR: %s", net_srv ? "SI" : "NO");
+        snprintf(ip_l, sizeof(ip_l), "IP SERVIDOR: %d.%d.%d.%d", srv_ip[0], srv_ip[1], srv_ip[2], srv_ip[3]);
+        const char *it[7] = { "CREAR PARTIDA", "UNIRSE POR IP", "PARTIDAS PUBLICAS", "CAMBIAR NOMBRE", sv_l, ip_l, "VOLVER" };
+        for (int i = 0; i < 7; i++) {
             snprintf(line, sizeof(line), i == net_sel ? "> %s <" : "%s", it[i]);
-            draw_text_c(112.0f + i * 38.0f, line, 3, i == net_sel ? sel_c : norm_c);
+            draw_text_c(108.0f + i * 32.0f, line, 3, i == net_sel ? sel_c : norm_c);
         }
         snprintf(line, sizeof(line), "TU NOMBRE: %s", my_name);
         draw_text_c(92.0f, line, 2, hint_c);
-        draw_text_c(H - 84.0f, "2 JUGADORES EN RED LOCAL O POR INTERNET", 2, hint_c);
+        draw_text_c(H - 84.0f, net_srv ? "CON SERVIDOR: SALAS POR INTERNET (CREAR / PUBLICAS)" : "2 JUGADORES EN RED LOCAL O POR IP", 1, hint_c);
         if (net_notice_t > 0) draw_text_c(H - 110.0f, net_notice, 2, GS_SETREG_RGBAQ(235, 130, 60, 0x80, 0));
     } else if (screen == SC_NETIP) {
-        draw_text_c(50.0f, "IP DEL ANFITRION", 5, sel_c);
+        draw_text_c(50.0f, net_ip_srv ? "IP DEL SERVIDOR" : "IP DEL ANFITRION", 5, sel_c);
         for (int i = 0; i < 4; i++) {
-            snprintf(line, sizeof(line), "%d", net_ip[i]);
+            snprintf(line, sizeof(line), "%d", (net_ip_srv ? srv_ip : net_ip)[i]);
             float cx = W * 0.5f - 190.0f + i * 100.0f;
             draw_text(cx + (3 - (int)strlen(line)) * 9.0f, 190.0f, line, 5, i == net_ip_sel ? sel_c : norm_c);
             if (i < 3) draw_text(cx + 84.0f, 190.0f, ".", 5, norm_c);
             if (i == net_ip_sel) { gsKit_prim_sprite(gsGlobal, cx, 236.0f, cx + 84.0f, 240.0f, 16777000, sel_c); }
         }
         draw_text_c(H - 84.0f, "IZQ/DER: CASILLA   ARRIBA/ABAJO: +1/-1   R1/L1: +10/-10", 1, hint_c);
-        draw_text_c(H - 34.0f, "X: CONECTAR   O: ATRAS", 2, hint_c);
+        draw_text_c(H - 34.0f, net_ip_srv ? "X: GUARDAR   O: ATRAS" : "X: CONECTAR   O: ATRAS", 2, hint_c);
     } else if (screen == SC_NAME) {
         static const char cs2[] = " ";
         (void)cs2;
@@ -9359,11 +9519,12 @@ static void menu_frame(u32 newp, float lv, int frame)
         if (net_host) {
             char ip[24];
             net_local_ip(ip, sizeof(ip));
-            snprintf(line, sizeof(line), "TU IP: %s  PUERTO UDP %d", ip, NET_PORT);
+            if (net_srv_act) snprintf(line, sizeof(line), "SALA EN EL SERVIDOR %d.%d.%d.%d", srv_ip[0], srv_ip[1], srv_ip[2], srv_ip[3]);
+            else snprintf(line, sizeof(line), "TU IP: %s  PUERTO UDP %d", ip, NET_PORT);
             draw_text_c(262.0f, line, 2, hint_c);
             if (net_got_hello) draw_text_c(300.0f, "> COMENZAR PARTIDA <", 4, sel_c);
             else draw_text_c(300.0f, "COMENZAR PARTIDA", 4, dim);
-            draw_text_c(H - 58.0f, net_got_hello ? "X: COMENZAR" : "ESPERANDO A UN JUGADOR (SALA PUBLICA EN TU RED)", 2, hint_c);
+            draw_text_c(H - 58.0f, net_got_hello ? "X: COMENZAR" : (net_srv_act ? "ESPERANDO A UN JUGADOR (SALA PUBLICA EN EL SERVIDOR)" : "ESPERANDO A UN JUGADOR (SALA PUBLICA EN TU RED)"), 2, hint_c);
         } else {
             draw_text_c(300.0f, "ESPERANDO A QUE EL ANFITRION COMIENCE...", 2, sel_c);
         }
@@ -9373,20 +9534,21 @@ static void menu_frame(u32 newp, float lv, int frame)
         if (net_sock < 0) draw_text_c(200.0f, net_text, 2, norm_c);
         else if (room_count() == 0) {
             int d = (frame_no / 20) % 4;
-            snprintf(line, sizeof(line), "BUSCANDO SALAS EN TU RED%.*s", d, "...");
+            snprintf(line, sizeof(line), net_srv_act ? "BUSCANDO SALAS EN EL SERVIDOR%.*s" : "BUSCANDO SALAS EN TU RED%.*s", d, "...");
             draw_text_c(200.0f, line, 2, norm_c);
             draw_text_c(236.0f, "NINGUNA SALA POR AHORA", 1, hint_c);
         } else {
             for (int i = 0; i < room_count(); i++) {
                 const Room *rm = room_at(i);
                 if (!rm) continue;
-                snprintf(line, sizeof(line), "%s  %d/2  %d.%d.%d.%d", rm->name, rm->players, rm->ip[0], rm->ip[1], rm->ip[2], rm->ip[3]);
+                if (net_srv_act) snprintf(line, sizeof(line), "%s  %d/2", rm->name, rm->players);
+                else snprintf(line, sizeof(line), "%s  %d/2  %d.%d.%d.%d", rm->name, rm->players, rm->ip[0], rm->ip[1], rm->ip[2], rm->ip[3]);
                 char l2[96];
                 snprintf(l2, sizeof(l2), i == list_sel ? "> %s <" : "%s", line);
                 draw_text_c(110.0f + i * 34.0f, l2, 2, rm->players >= 2 ? GS_SETREG_RGBAQ(150, 80, 70, 0x80, 0) : (i == list_sel ? sel_c : norm_c));
             }
         }
-        draw_text_c(H - 84.0f, "SOLO SALAS EN LA MISMA RED (WIFI / CABLE)", 1, hint_c);
+        draw_text_c(H - 84.0f, net_srv_act ? "SALAS DEL SERVIDOR (CUALQUIER RED / INTERNET)" : "SOLO SALAS EN LA MISMA RED (WIFI / CABLE)", 1, hint_c);
         if (net_notice_t > 0) draw_text_c(H - 110.0f, net_notice, 2, GS_SETREG_RGBAQ(235, 130, 60, 0x80, 0));
         draw_text_c(H - 58.0f, "ARRIBA/ABAJO: ELEGIR   X: UNIRSE", 2, hint_c);
         draw_text_c(H - 34.0f, "O: ATRAS", 2, hint_c);
@@ -9394,7 +9556,7 @@ static void menu_frame(u32 newp, float lv, int frame)
         draw_text_c(50.0f, net_host ? "CREAR PARTIDA" : "UNIRSE", 5, sel_c);
         draw_text_c(200.0f, net_text, 2, norm_c);
         if (net_text2[0]) draw_text_c(236.0f, net_text2, 2, sel_c);
-        if (net_host) draw_text_c(280.0f, "EL OTRO ESCRIBE ESA IP EN: ONLINE > UNIRSE", 1, hint_c);
+        if (net_host) draw_text_c(280.0f, net_srv_act ? "EL OTRO TE ENCUENTRA EN: ONLINE > PARTIDAS PUBLICAS" : "EL OTRO ESCRIBE ESA IP EN: ONLINE > UNIRSE", 1, hint_c);
         draw_text_c(H - 34.0f, "O: CANCELAR", 2, hint_c);
     }
 #endif
@@ -9827,7 +9989,10 @@ int main(void)
             for (int i = 0; i < ND; i++)                     // las puertas abiertas giran
                 if (door_open[i] && door_ang[i] < 1.55f) door_ang[i] = fminf(1.55f, door_ang[i] + 0.05f);
             mon_uv_update(dt);                               // luz UV contra el monstruo
+            int sg = mon_vision();                           // a quien ve (cono de 75 grados, 30 m)
+            mon_seen = (sg >= 0);
             int tg = pick_target();                          // el monstruo va a por uno
+            if (sg >= 0) { tg = sg; mon_target = sg; }       // ... y si ve a alguien, va a por ese
             player_load(tg);
             update_monster(dt, notes);
             player_save(tg);
