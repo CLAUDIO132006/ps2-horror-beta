@@ -12,7 +12,8 @@
 //    TRIANGULO  : abre / cierra el mapa (superficie + alcantarilla)
 //    CUADRADO   : junto a una puerta: abrirla con su llave de color / poner el codigo del candado
 //    R1 (mantener): ver tus llaves y los codigos que ya encontraste
-//    L2 (mantener 1 s): luz ULTRAVIOLETA (la linterna se vuelve morada); otra vez para volver a la normal
+//    L2 (mantener 1 s): luz ULTRAVIOLETA (la linterna se vuelve morada, gasta bateria); otra vez para volver a la normal
+//    L2 (dos toques rapidos): recargar la bateria UV con una pila (hay 10 pilas en el mapa)
 //    2 JUGADORES: pantalla dividida (J1 arriba con el control 1, J2 abajo con el control 2)
 //    SELECT     : invierte la luz si en tu emulador se ve al reves
 //    ONLINE     : menu principal > ONLINE (necesita compilar con -DUSE_NET y el adaptador de red de la PS2)
@@ -5473,6 +5474,21 @@ static float stamina = 1.0f, stam_delay;
 static int   exhausted;
 static float jump_h, jump_vy;
 static float mon_phase, mon_spd, mon_runf;           // animacion del monstruo
+#define MON_FOV_DEG 75.0f        // campo de vision del monstruo (grados, cono completo)
+#define MON_SIGHT   30.0f        // hasta que distancia ve (metros)
+static float mon_yaw, mon_seen_t = 99.0f, mon_lx, mon_lz, mon_scan_t, mon_pwx, mon_pwz, mon_pw_t;   // hacia donde mira / segundos sin verte / donde te vio / buscando / patrulla
+static int   mon_vis, mon_pw_ok;                         // 1 = te ve ahora mismo
+static unsigned int mon_rng;                             // azar de la patrulla (igual en las dos consolas online)
+static int   mon_pw_lad = -1;                            // el punto de patrulla es una escalera (numero de pozo) o -1
+static float mon_lad_t;                                  // segundos esperando en la escalera antes de cambiar de nivel
+#define MON_LOST_MULT 3.0f       // sin verte: velocidad x3 (la velocidad base del monstruo); en cuanto te ve vuelve a la normal
+// Puntos donde puede aparecer el monstruo (uno distinto cada partida, todos lejos del inicio del jugador)
+#define NMS 9
+static const float mon_spawns[NMS][2] = {
+    { 282.0f, 122.0f }, { 138.0f, 138.0f }, { 310.0f, 194.0f }, { 366.0f, 366.0f }, {  18.0f, 366.0f },
+    { 218.0f,  18.0f }, {  18.0f, 218.0f }, { 118.0f,  38.0f }, { 202.0f, 226.0f },
+};
+static int last_mon_spawn = -1;
 static float mon_uv_t, mon_blind_t, mon_cover, mon_blind_yaw;   // luz UV: segundos apuntandole / segundos que le quedan ciego / manos en los ojos (0..1) / hacia donde mira
 static float crouch_f;                 // 0 de pie .. 1 agachado
 static float walk_ph, walk_amp, step_imp;   // caminata: fase (pi = un paso), intensidad 0..1, golpe de la pisada
@@ -6059,6 +6075,24 @@ static float amb_r = 22.0f, light_flick = 1.0f;
 static int   flash_on = 1;
 static int   uv_on;                 // luz ultravioleta (la linterna se vuelve morada)
 static float uv_hold;               // segundos que llevas apretando L2 (al llegar a 1 se cambia de modo)
+static float uv_charge;             // bateria de la luz UV (0..1); se gasta mientras esta encendida y se recarga con una pila
+static float uv_tap = 99.0f;        // segundos desde el ultimo toque de L2 (dos toques rapidos = recargar)
+#define UV_SECS 45.0f               // segundos de luz UV que da una pila
+#define NPILA 10                    // pilas UV repartidas en cada partida
+#define NPP 16                      // lugares posibles (se eligen NPILA al azar)
+static int   pila_have;             // pilas que lleva el equipo (compartidas)
+static int   pila_got[NPILA], pila_ly[NPILA];
+static float pila_x[NPILA], pila_z[NPILA];
+static const float pila_pool[NPP][3] = {   // x, z, nivel (0 superficie, 1 alcantarilla): dentro de las estructuras y de la alcantarilla
+    { 306.0f,  54.0f, 0 }, { 342.0f,  94.0f, 0 }, { 286.0f,  94.0f, 0 },                         // cueva
+    {  58.0f,  70.0f, 0 }, {  54.0f,  54.0f, 0 },                                                 // edificio noroeste
+    {  62.0f, 146.0f, 0 },                                                                        // casita de piedra
+    { 314.0f, 170.0f, 0 }, { 302.0f, 174.0f, 0 },                                                 // edificio noreste
+    {  58.0f, 266.0f, 0 }, {  74.0f, 258.0f, 0 },                                                 // cabana
+    { 238.0f, 286.0f, 0 },                                                                        // casa junto al inicio
+    { 326.0f, 314.0f, 0 }, { 318.0f, 322.0f, 0 },                                                 // establo
+    { 146.0f, 178.0f, 1 }, { 314.0f, 266.0f, 1 }, { 266.0f,  90.0f, 1 },                         // alcantarilla
+};
 static float W, H, FOCAL;
 
 static float sx_, sz_;                  // monstruo
@@ -6079,7 +6113,7 @@ static short bqx[MW * MH], bqz[MW * MH];
 #define PL_FLOATS(F) F(px) F(pz) F(yaw) F(foot_y) F(cam_y) F(pitch) F(cpitch) F(spitch) \
     F(stamina) F(stam_delay) F(jump_h) F(jump_vy) F(crouch_f) F(walk_ph) F(walk_amp) \
     F(step_imp) F(mon_thud) F(cam_rc) F(cam_rs) F(fx) F(fz) F(rx) F(rz) F(amb_r) F(light_flick) \
-    F(vel_x) F(vel_z) F(step_kick) F(walk_spd) F(det_t) F(det_up) F(uv_hold)
+    F(vel_x) F(vel_z) F(step_kick) F(walk_spd) F(det_t) F(det_up) F(uv_hold) F(uv_charge) F(uv_tap)
 #define PL_INTS(F) F(exhausted) F(walk_step) F(crouched) F(cur_layer) F(climbing) F(climb_dir) \
     F(last_ladder) F(flash_on) F(p_moving) F(p_near) F(has_map) F(map_open) F(map_msg) F(door_msg) F(door_msg_id) F(code_door) F(code_val) F(code_pos) F(inv_open) F(uv_on)
 typedef struct {
@@ -6772,8 +6806,7 @@ static void draw_monster(float t)
     (void)t;
     float ddx = sx_ - px, ddz = sz_ - pz;
     if (ddx * ddx + ddz * ddz > 26.0f * 26.0f) return;
-    float a = atan2f(px - sx_, pz - sz_);
-    if (mon_blind_t > 0.0f) a = mon_blind_yaw;                  // ciego: ya no te sigue con la cabeza
+    float a = (mon_blind_t > 0.0f) ? mon_blind_yaw : mon_yaw;   // mira hacia donde camina (ciego: hacia quien lo cego)
     float s = sinf(a), c = cosf(a);
     Xf X[10];
     mon_bones(X);
@@ -7513,6 +7546,12 @@ static void draw_glows(float t)
             else draw_glow(lx, ly, lz, 0.20f, 255, 240, 190, 105);
         }
     }
+    for (int i = 0; i < NPILA; i++) {                       // pilas UV
+        if (pila_got[i] || pila_ly[i] != cur_layer) continue;
+        float ix = pila_x[i] - px, iz = pila_z[i] - pz;
+        if (ix * ix + iz * iz > 36.0f * 36.0f || !los_to(pila_x[i], pila_z[i], 0.0f)) continue;
+        draw_glow(pila_x[i], (cur_layer ? SEWER_Y : 0.0f) + 0.55f, pila_z[i], 0.22f, 170, 90, 255, 110);
+    }
     for (int i = 0; i < NIT; i++) {                         // llaves de color y papeles con codigo
         if (item_got[i] || cur_layer != 0) continue;
         float ix = items[i].x - px, iz = items[i].z - pz;
@@ -7597,8 +7636,63 @@ static void mon_uv_update(float dt)
     if (mon_blind_t > 0.0f) mon_uv_t = 0.0f;
     else if (aim) {
         mon_uv_t += dt;
-        if (mon_uv_t >= 3.0f) { mon_uv_t = 0.0f; mon_blind_t = 10.0f; }
+        if (mon_uv_t >= 3.0f) { mon_uv_t = 0.0f; mon_blind_t = 10.0f; mon_seen_t = 99.0f; mon_scan_t = 0.0f; mon_pw_ok = 0; }   // al recuperarse te ha perdido
     } else mon_uv_t = fmaxf(0.0f, mon_uv_t - dt * 1.5f);                             // si dejas de apuntar, se recupera rapido
+}
+
+// ---------------- Vision del monstruo ----------------
+// Solo te ve si estas dentro de su cono de vision (MON_FOV_DEG, centrado en hacia donde mira), a menos de MON_SIGHT
+// metros y sin paredes en medio. Si te pierde, va a donde te vio por ultima vez, mira a su alrededor y luego patrulla.
+static int mon_can_see(const Player *Q)
+{
+    if (Q->cur_layer != mlayer || Q->climbing) return 0;
+    float dx = Q->px - sx_, dz = Q->pz - sz_, d2 = dx * dx + dz * dz;
+    if (d2 > MON_SIGHT * MON_SIGHT) return 0;
+    if (d2 > 0.25f) {                                          // a menos de 0.5 m siempre te nota
+        float c = (dx * sinf(mon_yaw) + dz * cosf(mon_yaw)) / sqrtf(d2);
+        if (c < cosf(MON_FOV_DEG * 0.5f * (PI_F / 180.0f))) return 0;
+    }
+    return mon_clear(mlayer, sx_, sz_, Q->px, Q->pz);
+}
+
+static void mon_vision_update(float dt)
+{
+    mon_vis = 0;
+    if (mon_blind_t > 0.0f) return;                           // ciego: no ve nada
+    int bi = -1;
+    float bd = 1e9f;
+    for (int i = 0; i < num_players; i++)
+        if (mon_can_see(&P[i])) {
+            float dx = P[i].px - sx_, dz = P[i].pz - sz_, d = dx * dx + dz * dz;
+            if (d < bd) { bd = d; bi = i; }
+        }
+    if (bi >= 0) {
+        mon_vis = 1; mon_target = bi; mon_seen_t = 0.0f; mon_scan_t = 0.0f;
+        mon_lx = P[bi].px; mon_lz = P[bi].pz;
+    } else mon_seen_t += dt;
+}
+
+static float mon_rand01(void)
+{
+    mon_rng = mon_rng * 1664525u + 1013904223u;
+    return (float)((mon_rng >> 8) & 0xFFFF) / 65536.0f;
+}
+
+static void mon_pick_patrol(void)                             // nuevo punto de patrulla: cualquier lugar del mapa (a veces una escalera para cambiar de nivel)
+{
+    mon_pw_t = 0.0f; mon_pw_ok = 0; mon_pw_lad = -1; mon_lad_t = 0.0f; need_flow = 1;
+    if (mon_rand01() < 0.25f) {                               // 1 de cada 4: va a un pozo y baja/sube (busca tambien en la alcantarilla)
+        int k = (int)(mon_rand01() * (float)NMH) % NMH;
+        mon_pwx = ((float)manholes[k][0] + 0.5f) * CS; mon_pwz = ((float)manholes[k][1] + 0.5f) * CS;
+        mon_pw_lad = k; mon_pw_ok = 1;
+        return;
+    }
+    for (int k = 0; k < 24; k++) {
+        int ix = 1 + (int)(mon_rand01() * (float)(MW - 2)), iz = 1 + (int)(mon_rand01() * (float)(MH - 2));
+        if (ix >= MW - 1 || iz >= MH - 1 || solid_grid[mlayer][iz][ix]) continue;
+        mon_pwx = ((float)ix + 0.5f) * CS; mon_pwz = ((float)iz + 0.5f) * CS; mon_pw_ok = 1;
+        return;
+    }
 }
 
 static void update_monster(float dt, int notes)
@@ -7611,20 +7705,46 @@ static void update_monster(float dt, int notes)
         if (mon_blind_t < 0.0f) mon_blind_t = 0.0f;
         return;
     }
-    int pl = cur_layer;
-    float tx = px, tz = pz;
-    if (mlayer != pl) {                       // el jugador esta en otro nivel: va a la escalera
-        tx = (manholes[last_ladder][0] + 0.5f) * CS;
-        tz = (manholes[last_ladder][1] + 0.5f) * CS;
-        float ex = tx - sx_, ez = tz - sz_;
-        if (ex * ex + ez * ez < 1.8f * 1.8f) {
-            mon_wait += dt;
-            if (mon_wait > 4.0f) {            // sube o baja por la escalera
-                mlayer = pl; mon_y = pl ? SEWER_Y : 0.0f;
-                sx_ = tx; sz_ = tz - 1.4f; mon_wait = 0.0f; need_flow = 1;
+    int pl = cur_layer;                       // nivel del jugador cargado (el que persigue)
+    int mode;                                 // 0 = lo ve (o lo siguio por una escalera), 1 = va a donde lo vio, 2 = patrulla
+    if (mon_vis || (mon_seen_t < 10.0f && mlayer != pl)) mode = 0;
+    else if (mon_seen_t < 12.0f) mode = 1;
+    else mode = 2;
+    float tx, tz;
+    int tl = mlayer;                          // nivel del destino
+    if (mode == 0) {
+        tl = pl; tx = px; tz = pz;
+        if (mlayer != pl) {                   // el jugador esta en otro nivel: va a la escalera
+            tx = (manholes[last_ladder][0] + 0.5f) * CS;
+            tz = (manholes[last_ladder][1] + 0.5f) * CS;
+            float ex = tx - sx_, ez = tz - sz_;
+            if (ex * ex + ez * ez < 1.8f * 1.8f) {
+                mon_wait += dt;
+                if (mon_wait > 4.0f) {        // sube o baja por la escalera
+                    mlayer = pl; mon_y = pl ? SEWER_Y : 0.0f; tl = pl;
+                    sx_ = tx; sz_ = tz - 1.4f; mon_wait = 0.0f; need_flow = 1;
+                }
             }
+        } else mon_wait = 0.0f;
+    } else {
+        mon_wait = 0.0f;
+        if (mode == 1) { tx = mon_lx; tz = mon_lz; }
+        else {
+            mon_pw_t += dt;
+            float wx = mon_pwx - sx_, wz = mon_pwz - sz_, wd2 = wx * wx + wz * wz;
+            if (mon_pw_ok && mon_pw_lad >= 0 && wd2 < 1.8f * 1.8f) {    // en el pozo: cambia de nivel
+                mon_lad_t += dt;
+                if (mon_lad_t > 2.0f) {
+                    mlayer = 1 - mlayer; mon_y = mlayer ? SEWER_Y : 0.0f; tl = mlayer;
+                    sx_ = mon_pwx; sz_ = mon_pwz - 1.4f; mon_lad_t = 0.0f; mon_pw_ok = 0; need_flow = 1;
+                }
+            } else {
+                mon_lad_t = 0.0f;
+                if (!mon_pw_ok || (mon_pw_lad < 0 && wd2 < 2.5f * 2.5f) || mon_pw_t > 25.0f) mon_pick_patrol();
+            }
+            tx = mon_pwx; tz = mon_pwz;
         }
-    } else mon_wait = 0.0f;
+    }
 
     if (frame_no % 15 == 0 || need_flow || last_layer != mlayer) {
         compute_flow(mlayer, (int)(tx / CS), (int)(tz / CS));
@@ -7633,14 +7753,16 @@ static void update_monster(float dt, int notes)
     int mcx = (int)(sx_ / CS), mcz = (int)(sz_ / CS);
     if (mcx < 0 || mcz < 0 || mcx >= MW || mcz >= MH) return;
     float gx = tx, gz = tz;
-    int direct = 0;                                           // 1 = te ve en linea recta
-    if (mlayer == pl) {
-        float pdx0 = px - sx_, pdz0 = pz - sz_, pd0 = sqrtf(pdx0 * pdx0 + pdz0 * pdz0);
-        if (pd0 < 30.0f && mon_clear(mlayer, sx_, sz_, px, pz)) {
+    int direct = 0;                                           // 1 = camino libre en linea recta hacia el destino
+    if (mlayer == tl) {
+        float pdx0 = tx - sx_, pdz0 = tz - sz_, pd0 = sqrtf(pdx0 * pdx0 + pdz0 * pdz0);
+        if (pd0 < 30.0f && mon_clear(mlayer, sx_, sz_, tx, tz)) {
             direct = 1;
-            float lead = clampf(pd0 / 6.0f, 0.0f, 0.9f);      // se adelanta a tu carrera: apunta a donde vas a estar
-            float ix = px + vel_x * lead, iz = pz + vel_z * lead;
-            if (mon_clear(mlayer, sx_, sz_, ix, iz)) { gx = ix; gz = iz; }
+            if (mode == 0) {
+                float lead = clampf(pd0 / 6.0f, 0.0f, 0.9f);  // se adelanta a tu carrera: apunta a donde vas a estar
+                float ix = px + vel_x * lead, iz = pz + vel_z * lead;
+                if (mon_clear(mlayer, sx_, sz_, ix, iz)) { gx = ix; gz = iz; }
+            }
         }
     }
     if (!direct && (mcx != (int)(tx / CS) || mcz != (int)(tz / CS))) {
@@ -7659,19 +7781,35 @@ static void update_monster(float dt, int notes)
             if (mon_clear(mlayer, sx_, sz_, ax, az)) { gx = ax; gz = az; }
         }
     }
+    if (mode == 2 && !direct && dist_map[mcz][mcx] >= 9999) mon_pw_ok = 0;   // punto inalcanzable: elige otro
     float ex = gx - sx_, ez = gz - sz_;
     float len = sqrtf(ex * ex + ez * ez);
     float spd_now = 0.0f;
-    if (len > 0.01f) {
+    int scanning = 0;
+    if (mode == 1) {
+        float rx = mon_lx - sx_, rz = mon_lz - sz_;
+        if (rx * rx + rz * rz < 1.6f * 1.6f) {                // llego a donde te vio: mira a su alrededor
+            scanning = 1;
+            mon_scan_t += dt;
+            mon_yaw += 1.5f * dt;
+            if (mon_scan_t >= 4.0f) { mon_seen_t = 99.0f; mon_scan_t = 0.0f; mon_pw_ok = 0; }   // se rinde y patrulla
+        }
+    }
+    if (!scanning && len > 0.01f) {
         float speed = 1.8f + 0.5f * notes;
-        float pdx = px - sx_, pdz = pz - sz_;
-        float pd2 = pdx * pdx + pdz * pdz;
-        if (mlayer == pl && ((direct && pd2 < 22.0f * 22.0f) || pd2 < 12.0f * 12.0f)) speed *= 1.7f;   // te ve (o te oye cerca): corre
-        if (speed > 4.6f) speed = 4.6f;                                           // tu corres a 5.2
+        if (mon_vis) { speed *= 1.7f; if (speed > 4.6f) speed = 4.6f; }   // te ve: velocidad normal de persecucion
+        else speed *= MON_LOST_MULT;                          // no te ve: x3 hasta encontrarte (va a donde te vio y luego te busca por todo el mapa)
         sx_ += ex / len * speed * dt;
         sz_ += ez / len * speed * dt;
         spd_now = speed;
+        float dyaw = atan2f(ex, ez) - mon_yaw;                // gira hacia donde camina (el cono de vision lo sigue)
+        while (dyaw > PI_F) dyaw -= 2.0f * PI_F;
+        while (dyaw < -PI_F) dyaw += 2.0f * PI_F;
+        float rate = (mon_vis ? 8.0f : 3.5f) * dt;
+        mon_yaw += clampf(dyaw, -rate, rate);
     }
+    while (mon_yaw > PI_F) mon_yaw -= 2.0f * PI_F;
+    while (mon_yaw < -PI_F) mon_yaw += 2.0f * PI_F;
     mon_spd  += (spd_now - mon_spd) * clampf(dt * 6.0f, 0.0f, 1.0f);
     mon_runf += (((mon_spd > 2.6f) ? 1.0f : 0.0f) - mon_runf) * clampf(dt * 5.0f, 0.0f, 1.0f);
     mon_phase += mon_spd * dt * (3.0f - 1.2f * mon_runf);     // cadencia ligada a la velocidad: los pies no patinan
@@ -7690,7 +7828,13 @@ static void reset_game(void)
     if (net_online) game_seed = game_seed * 1664525u + 1013904223u;   // online: los dos juegos avanzan igual
     else game_seed = (unsigned int)frame_no;
     need_flow = 1; last_layer = -1; last_foot = 0;
-    sx_ = MON_X; sz_ = MON_Z; mlayer = 0; mon_y = 0.0f; mon_wait = 0.0f;
+    {   // el monstruo aparece en un sitio distinto cada partida (sin repetir el de la anterior)
+        int ms = (int)(hash2((int)game_seed, 777) % NMS);
+        if (ms == last_mon_spawn) ms = (ms + 1 + (int)(hash2((int)game_seed, 778) % (NMS - 1))) % NMS;
+        last_mon_spawn = ms;
+        sx_ = mon_spawns[ms][0]; sz_ = mon_spawns[ms][1];
+    }
+    mlayer = 0; mon_y = 0.0f; mon_wait = 0.0f; mon_pw_lad = -1; mon_lad_t = 0.0f;
     for (int i = 0; i < 3; i++) notes_got[i] = 0;
     for (int i = 0; i < ND; i++) { door_open[i] = 0; door_ang[i] = 0.0f; }          // puertas cerradas, items en su sitio
     for (int i = 0; i < NIT; i++) item_got[i] = 0;
@@ -7700,8 +7844,19 @@ static void reset_game(void)
     if (key_set == last_key_set) key_set = (key_set + 1 + (int)(hash2((int)game_seed, 99) % (NKSET - 1))) % NKSET;
     last_key_set = key_set;
     place_keys(key_set);
+    {   // pilas UV: 10 de los 16 lugares posibles, distintos cada partida
+        int idx[NPP];
+        for (int i = 0; i < NPP; i++) idx[i] = i;
+        for (int i = 0; i < NPILA; i++) {
+            int j = i + (int)(hash2((int)game_seed, 500 + i) % (unsigned)(NPP - i)), tmp = idx[i];
+            idx[i] = idx[j]; idx[j] = tmp;
+            pila_x[i] = pila_pool[idx[i]][0]; pila_z[i] = pila_pool[idx[i]][1]; pila_ly[i] = (int)pila_pool[idx[i]][2]; pila_got[i] = 0;
+        }
+        pila_have = 0;
+    }
     state = 0; state_timer = 0;
     mon_phase = 0.0f; mon_spd = 0.0f; mon_runf = 0.0f; mon_uv_t = 0.0f; mon_blind_t = 0.0f; mon_cover = 0.0f;
+    mon_yaw = atan2f(SPAWN_X - sx_, SPAWN_Z - sz_); mon_seen_t = 99.0f; mon_vis = 0; mon_scan_t = 0.0f; mon_pw_ok = 0; mon_rng = game_seed ^ 0x9E3779B9u;   // empieza patrullando
     mon_foot_event = 0; js_victim = 0; mon_target = 0;
     for (int i = 0; i < 2; i++) {
         px = SPAWN_X + (i ? 1.8f : 0.0f); pz = SPAWN_Z; yaw = PI_F;      // el jugador 2 aparece al lado
@@ -7714,7 +7869,7 @@ static void reset_game(void)
         vel_x = 0.0f; vel_z = 0.0f; step_kick = 0.0f; walk_spd = 0.0f; det_t = 0.0f; det_up = 0.0f;
         fx = sinf(yaw); fz = cosf(yaw); rx = cosf(yaw); rz = -sinf(yaw);
         cam_y = EYE; amb_r = 22.0f; light_flick = 1.0f;
-        has_map = 0; map_open = 0; map_msg = 0; uv_on = 0; uv_hold = 0.0f;
+        has_map = 0; map_open = 0; map_msg = 0; uv_on = 0; uv_hold = 0.0f; uv_charge = 0.0f; uv_tap = 99.0f;
         door_msg = 0; door_msg_id = 0; code_door = -1; code_val = 0; code_pos = 0; inv_open = 0;
         player_save(i);
     }
@@ -7924,6 +8079,7 @@ static void js_update(void)
     e *= e;
     float d = 3.6f + (1.45f - 3.6f) * e;                 // embestida
     sx_ = px + js_dx * d; sz_ = pz + js_dz * d;
+    mon_yaw = atan2f(-js_dx, -js_dz); mon_blind_t = 0.0f; mon_cover = 0.0f;        // se lanza mirandote
     mlayer = cur_layer; mon_y = cur_layer ? SEWER_Y : 0.0f;
     mon_spd = 3.5f; mon_runf = 1.0f; mon_phase += 0.9f;  // brazos y piernas frenéticos
     amb_r = 60.0f; light_flick = 1.0f;
@@ -8287,6 +8443,41 @@ static void draw_items(float t)
     }
 }
 
+static void draw_pilas(float t)                                  // pilas UV flotando (moradas)
+{
+    if (climbing) return;
+    for (int i = 0; i < NPILA; i++) {
+        if (pila_got[i] || pila_ly[i] != cur_layer) continue;
+        if (!in_view(pila_x[i], pila_z[i], 0.8f, gfx_pd[gfx])) continue;
+        float fy = cur_layer ? SEWER_Y : 0.0f, y = fy + 0.42f + 0.07f * sinf(t * 2.2f + (float)i), a = t * 1.1f + (float)i;
+        static const float body[3] = { 150.f, 70.f, 240.f }, band[3] = { 90.f, 36.f, 150.f }, cap[3] = { 205.f, 205.f, 214.f };
+        box_rot(pila_x[i], pila_z[i], a, 0.0f, 0.0f, 0.075f, 0.075f, y, y + 0.30f, body, 0.45f);            // cuerpo
+        box_rot(pila_x[i], pila_z[i], a, 0.0f, 0.0f, 0.080f, 0.080f, y + 0.10f, y + 0.14f, band, 0.30f);    // franja
+        box_rot(pila_x[i], pila_z[i], a, 0.0f, 0.0f, 0.032f, 0.032f, y + 0.30f, y + 0.36f, cap, 0.40f);     // polo
+    }
+}
+
+static void draw_pila_hud(void)                                  // abajo a la izquierda, un poco arriba del marcador del walkie: pilas del equipo y bateria UV
+{
+    float x0 = 20.0f, y1 = H - 62.0f, y0 = y1 - 16.0f;           // iconos de 10 x 16 con paso de 14 (cada uno es una pila)
+    u64 pu = GS_SETREG_RGBAQ(170, 90, 255, 0x80, 0), pl = GS_SETREG_RGBAQ(220, 180, 255, 0x80, 0);
+    for (int i = 0; i < NPILA; i++) {
+        float x = x0 + 14.0f * (float)i;
+        int on = (i < pila_have);
+        gsKit_prim_sprite(gsGlobal, x + 2.0f, y0 - 3.0f, x + 8.0f, y0, 16777000, BLACK);                       // polo
+        gsKit_prim_sprite(gsGlobal, x - 1.0f, y0 - 1.0f, x + 11.0f, y1 + 1.0f, 16777000, BLACK);              // borde
+        gsKit_prim_sprite(gsGlobal, x, y0, x + 10.0f, y1, 16777010, on ? pu : GS_SETREG_RGBAQ(34, 22, 48, 0x80, 0));
+        if (on) gsKit_prim_sprite(gsGlobal, x + 2.0f, y0 + 2.0f, x + 4.0f, y1 - 2.0f, 16777020, pl);          // brillo
+    }
+    {   // bateria de la luz UV (lo que queda de la pila que esta puesta)
+        float gw = 14.0f * (float)NPILA - 4.0f, gy = y1 + 5.0f;
+        gsKit_prim_sprite(gsGlobal, x0 - 1.0f, gy - 1.0f, x0 + gw + 1.0f, gy + 5.0f, 16777000, BLACK);
+        gsKit_prim_sprite(gsGlobal, x0, gy, x0 + gw, gy + 4.0f, 16777010, GS_SETREG_RGBAQ(34, 22, 48, 0x80, 0));
+        if (uv_charge > 0.01f) gsKit_prim_sprite(gsGlobal, x0, gy, x0 + gw * clampf(uv_charge, 0.0f, 1.0f), gy + 4.0f, 16777020, uv_charge < 0.2f ? GS_SETREG_RGBAQ(255, 90, 90, 0x80, 0) : pu);
+    }
+    draw_text(x0, y0 - 14.0f, "PILAS UV", 1, GS_SETREG_RGBAQ(190, 150, 255, 0x80, 0));
+}
+
 static void msg_text(int id, char *buf, int n)
 {
     buf[0] = '\0';
@@ -8298,6 +8489,11 @@ static void msg_text(int id, char *buf, int n)
     else if (id == 11) snprintf(buf, n, "PUERTA ABIERTA");
     else if (id == 12) snprintf(buf, n, "CANDADO ABIERTO");
     else if (id == 40) snprintf(buf, n, "LUZ ULTRAVIOLETA");
+    else if (id == 42) snprintf(buf, n, "SIN BATERIA UV");
+    else if (id == 43) snprintf(buf, n, "BATERIA UV RECARGADA");
+    else if (id == 44) snprintf(buf, n, "NO TIENES PILAS");
+    else if (id == 45) snprintf(buf, n, "BATERIA UV LLENA");
+    else if (id == 50) snprintf(buf, n, "PILA UV: %d", pila_have);
     else if (id == 41) snprintf(buf, n, "LUZ NORMAL");
     else if (id >= 20 && id <= 23) snprintf(buf, n, "LLAVE %s", key_name[id - 20]);
     else if (id == 30 || id == 31) snprintf(buf, n, "CODIGO %s: %04d", code_name[id - 30], code_num[id - 30]);
@@ -8364,6 +8560,7 @@ static void draw_door_hud(void)
         msg_text(door_msg_id, b, (int)sizeof b);
         draw_text_c(H - 62.0f, b, 2, (door_msg_id <= 4 || door_msg_id == 10 || door_msg_id == 13) ? rc : yc);
         if (door_msg_id >= 20 && door_msg_id < 40) draw_text_c(H - 44.0f, "R1: VER NOTAS", 1, gc);
+        if (door_msg_id == 50) draw_text_c(H - 44.0f, "L2 DOS VECES: RECARGAR LA LUZ UV", 1, gc);
     }
     {   // luz UV: aviso fijo y barra de carga mientras mantienes L2
         u64 uc = GS_SETREG_RGBAQ(190, 110, 255, 0x80, 0);
@@ -8415,6 +8612,7 @@ static void render_game(float t, int moving, int near_ladder, int notes)
             draw_map_board(t);
             draw_doors();
             draw_items(t);
+            draw_pilas(t);
             draw_shafts();
 
             for (int i = 0; i < 3; i++) {
@@ -8455,6 +8653,7 @@ static void render_game(float t, int moving, int near_ladder, int notes)
             }
             draw_map_hud();
             draw_door_hud();
+            draw_pila_hud();
             if (near_ladder >= 0 && !climbing && ((frame_no / 20) & 1)) {   // aviso: pulsa X
                 u64 wc = GS_SETREG_RGBAQ(255, 255, 255, 0x80, 0);
                 float bx = W * 0.5f, by = H - 70.0f;
@@ -8473,6 +8672,7 @@ static void menu_bg_main(void)
     px = 0.0f; pz = 0.0f; yaw = 0.0f; pitch = 0.0f; cpitch = 1.0f; spitch = 0.0f;
     fx = 0.0f; fz = 1.0f; rx = 1.0f; rz = 0.0f; cam_y = 1.5f; foot_y = 0.0f;
     flash_on = 1; amb_r = 30.0f; light_flick = 1.0f; cur_layer = 0; climbing = 0;
+    mon_yaw = atan2f(px - 1.0f, pz - 3.6f); mon_blind_t = 0.0f; mon_cover = 0.0f;   // en el menu mira a la camara
     sx_ = 1.0f; sz_ = 3.6f; mon_y = 0.0f; mon_spd = 1.6f; mon_runf = 0.0f; mon_phase += 1.6f * (1.0f / 60.0f) * 3.0f;
     gsKit_clear(gsGlobal, SKY);
     draw_stars();
@@ -8849,7 +9049,7 @@ static void net_match_begin(void)
 {
     net_online = 1; num_players = 2; net_local = net_host ? 0 : 1;
     net_psens_h[net_local] = sens_h; net_psens_v[net_local] = sens_v;
-    frame_no = 0; js_rng = 12345u; game_seed = net_seed; last_key_set = -1;
+    frame_no = 0; js_rng = 12345u; game_seed = net_seed; last_key_set = -1; last_mon_spawn = -1;
     memset(pin, 0, sizeof(pin));
     for (unsigned int i = 0; i < NET_RING; i++) { loc_fr[i] = rem_fr[i] = 0xFFFFFFFFu; net_neutral(&loc_in[i]); net_neutral(&rem_in[i]); }
     for (unsigned int i = 0; i < NET_DELAY; i++) { loc_fr[i] = rem_fr[i] = i; }    // los primeros cuadros son sin pulsar nada
@@ -8988,11 +9188,11 @@ static unsigned int sim_hash(void)
         HM(fbits(P[i].stamina)); HM(fbits(P[i].jump_h)); HM(P[i].cur_layer); HM(P[i].climbing);
         HM(P[i].flash_on); HM(P[i].uv_on); HM(P[i].has_map); HM(P[i].crouched); HM(P[i].code_door);
     }
-    HM(fbits(sx_)); HM(fbits(sz_)); HM(mlayer); HM(state); HM(mon_target); HM((int)(mon_blind_t * 60.0f)); HM((int)(mon_uv_t * 60.0f));
+    HM(fbits(sx_)); HM(fbits(sz_)); HM(mlayer); HM(state); HM(mon_target); HM((int)(mon_blind_t * 60.0f)); HM(fbits(mon_yaw)); HM(mon_vis); HM((int)(mon_uv_t * 60.0f));
     for (int i = 0; i < 3; i++) HM(notes_got[i]);
     for (int i = 0; i < ND; i++) HM(door_open[i]);
     for (int i = 0; i < NIT; i++) HM(item_got[i]);
-    HM(key_set);
+    HM(key_set); HM(pila_have); for (int i = 0; i < NPILA; i++) HM(pila_got[i]);
 #undef HM
     return h;
 }
@@ -9502,23 +9702,31 @@ static void player_move(float dt, float t, const PadIn *in)
     if (newp & PAD_L1) { flash_on = !flash_on; sfx_play(SFX_CLICK, 0.8f); }
     if (ui_input(newp)) { fwd = str = turn = look = mag = 0.0f; newp = 0; }   // ventana abierta (mapa / candado): no te mueves
     inv_open = (in->pd & PAD_R1) ? 1 : 0;                                       // R1 (mantener): ver llaves y codigos
-    {   // L2 (mantener 1 s): cambia la linterna a luz ULTRAVIOLETA (morada) y de vuelta a la normal
+    {   // L2: mantener 1 s = luz ULTRAVIOLETA (necesita bateria) / luz normal;  DOS TOQUES RAPIDOS = recargar la bateria UV con una pila
+        uv_tap += dt;
+        if (uv_tap > 99.0f) uv_tap = 99.0f;
+        if ((newp & PAD_L2) && !map_open && code_door < 0) {
+            if (uv_tap < 0.4f) {                                                // segundo toque rapido
+                uv_tap = 99.0f;
+                if (uv_charge >= 0.95f)  { door_msg = 90;  door_msg_id = 45; }  // ya esta llena
+                else if (pila_have <= 0) { door_msg = 120; door_msg_id = 44; }  // sin pilas
+                else { pila_have--; uv_charge = 1.0f; door_msg = 120; door_msg_id = 43; sfx_play(SFX_CLICK, 1.0f); }
+            } else uv_tap = 0.0f;
+        }
         int hold = (in->pd & PAD_L2) && flash_on && !map_open && code_door < 0;
         if (!hold) uv_hold = 0.0f;
         else if (uv_hold < 50.0f) {
             uv_hold += dt;
             if (uv_hold >= 1.0f) {
-                uv_on = !uv_on; uv_hold = 100.0f;                               // 100 = ya cambio: suelta L2 para volver a empezar
-                door_msg = 90; door_msg_id = uv_on ? 40 : 41; sfx_play(SFX_CLICK, 1.0f);
+                uv_hold = 100.0f;                                               // 100 = ya cambio: suelta L2 para volver a empezar
+                if (!uv_on && uv_charge <= 0.0f) { door_msg = 120; door_msg_id = 42; }       // sin bateria: no enciende
+                else { uv_on = !uv_on; door_msg = 90; door_msg_id = uv_on ? 40 : 41; sfx_play(SFX_CLICK, 1.0f); }
             }
         }
-    }
-    {   // R2 (mantener 5 s): carga el DETECTOR; al llenarse sube al centro de la camara mientras sigas apretando
-        int hold = (in->pd & PAD_R2) && !map_open && code_door < 0;
-        if (hold) { det_t += dt; if (det_t > DET_TIME) det_t = DET_TIME; } else det_t = 0.0f;
-        float tgt = (hold && det_t >= DET_TIME) ? 1.0f : 0.0f;
-        det_up += (tgt - det_up) * clampf(dt * (tgt > det_up ? 6.0f : 12.0f), 0.0f, 1.0f);
-        if (!hold && det_up < 0.01f) det_up = 0.0f;
+        if (uv_on && flash_on) {                                                // la luz UV gasta bateria
+            uv_charge -= dt / UV_SECS;
+            if (uv_charge <= 0.0f) { uv_charge = 0.0f; uv_on = 0; door_msg = 120; door_msg_id = 42; }
+        }
     }
     fx = sinf(yaw); fz = cosf(yaw);
     rx = cosf(yaw); rz = -sinf(yaw);
@@ -9643,6 +9851,11 @@ static void player_post(int notes)
             else { have_code[items[i].id] = 1; door_msg_id = 30 + items[i].id; }
         }
     }
+    for (int i = 0; i < NPILA; i++) {                       // pilas UV (se recogen al pasar)
+        if (pila_got[i] || pila_ly[i] != cur_layer || climbing) continue;
+        float ax = pila_x[i] - px, az = pila_z[i] - pz;
+        if (ax * ax + az * az < 1.5f) { pila_got[i] = 1; pila_have++; door_msg = 200; door_msg_id = 50; sfx_play(SFX_CLICK, 1.0f); }
+    }
     if (cur_layer == 1 && !climbing && door_open[DOOR_FINAL] && px > doors[DOOR_FINAL].x + 3.0f) { state = 2; state_timer = 600; }   // cruzaste la puerta final: FIN
 }
 
@@ -9669,6 +9882,7 @@ static void player_camera(float t)
 static int pick_target(void)
 {
     if (num_players < 2) return 0;
+    if (mon_vis) return mon_target;                      // ve a alguien: va a por ese
     float d[2];
     for (int i = 0; i < 2; i++) {
         float dx = P[i].px - sx_, dz = P[i].pz - sz_;
@@ -9827,6 +10041,7 @@ int main(void)
             for (int i = 0; i < ND; i++)                     // las puertas abiertas giran
                 if (door_open[i] && door_ang[i] < 1.55f) door_ang[i] = fminf(1.55f, door_ang[i] + 0.05f);
             mon_uv_update(dt);                               // luz UV contra el monstruo
+            mon_vision_update(dt);                           // el monstruo mira: cono de vision
             int tg = pick_target();                          // el monstruo va a por uno
             player_load(tg);
             update_monster(dt, notes);
