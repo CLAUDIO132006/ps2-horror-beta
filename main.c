@@ -12,6 +12,7 @@
 //    TRIANGULO  : abre / cierra el mapa (superficie + alcantarilla)
 //    CUADRADO   : junto a una puerta: abrirla con su llave de color / poner el codigo del candado
 //    R1 (mantener): ver tus llaves y los codigos que ya encontraste
+//    L2 (mantener 1 s): luz ULTRAVIOLETA (la linterna se vuelve morada); otra vez para volver a la normal
 //    2 JUGADORES: pantalla dividida (J1 arriba con el control 1, J2 abajo con el control 2)
 //    SELECT     : invierte la luz si en tu emulador se ve al reves
 //    ONLINE     : menu principal > ONLINE (necesita compilar con -DUSE_NET y el adaptador de red de la PS2)
@@ -6055,6 +6056,8 @@ static int   climbing, climb_dir, last_ladder;
 static float fx, fz, rx, rz;
 static float amb_r = 22.0f, light_flick = 1.0f;
 static int   flash_on = 1;
+static int   uv_on;                 // luz ultravioleta (la linterna se vuelve morada)
+static float uv_hold;               // segundos que llevas apretando L2 (al llegar a 1 se cambia de modo)
 static float W, H, FOCAL;
 
 static float sx_, sz_;                  // monstruo
@@ -6075,9 +6078,9 @@ static short bqx[MW * MH], bqz[MW * MH];
 #define PL_FLOATS(F) F(px) F(pz) F(yaw) F(foot_y) F(cam_y) F(pitch) F(cpitch) F(spitch) \
     F(stamina) F(stam_delay) F(jump_h) F(jump_vy) F(crouch_f) F(walk_ph) F(walk_amp) \
     F(step_imp) F(mon_thud) F(cam_rc) F(cam_rs) F(fx) F(fz) F(rx) F(rz) F(amb_r) F(light_flick) \
-    F(vel_x) F(vel_z) F(step_kick) F(walk_spd) F(det_t) F(det_up)
+    F(vel_x) F(vel_z) F(step_kick) F(walk_spd) F(det_t) F(det_up) F(uv_hold)
 #define PL_INTS(F) F(exhausted) F(walk_step) F(crouched) F(cur_layer) F(climbing) F(climb_dir) \
-    F(last_ladder) F(flash_on) F(p_moving) F(p_near) F(has_map) F(map_open) F(map_msg) F(door_msg) F(door_msg_id) F(code_door) F(code_val) F(code_pos) F(inv_open)
+    F(last_ladder) F(flash_on) F(p_moving) F(p_near) F(has_map) F(map_open) F(map_msg) F(door_msg) F(door_msg_id) F(code_door) F(code_val) F(code_pos) F(inv_open) F(uv_on)
 typedef struct {
 #define F(n) float n;
     PL_FLOATS(F)
@@ -6336,9 +6339,15 @@ static V mk(float wx, float wy, float wz, const float *c, float emit)
     float att = 1.0f - d / reach;
     if (att < 0) att = 0;
     att *= att;
-    float L = 0.015f + att * (flash_on ? 1.0f : 0.7f) + emit;
-    if (L > 1.0f) L = 1.0f;
-    v.r = c[0] * L; v.g = c[1] * L; v.b = c[2] * L;
+    float A = att * (flash_on ? 1.0f : 0.7f), E = 0.015f + emit;
+    if (uv_on && flash_on) {                  // luz UV: solo la luz de la linterna es morada (lo que brilla solo no cambia)
+        float Lr = E + A * 0.62f, Lg = E + A * 0.20f, Lb = E + A * 1.0f;
+        v.r = c[0] * (Lr > 1.0f ? 1.0f : Lr); v.g = c[1] * (Lg > 1.0f ? 1.0f : Lg); v.b = c[2] * (Lb > 1.0f ? 1.0f : Lb);
+    } else {
+        float L = E + A;
+        if (L > 1.0f) L = 1.0f;
+        v.r = c[0] * L; v.g = c[1] * L; v.b = c[2] * L;
+    }
     return v;
 }
 
@@ -6839,6 +6848,7 @@ static void draw_flashlight(float t, int moving)
         if (vm_lens[k] == 1) {
             float f = flash_on ? 1.0f : 0.3f;
             r = 255.f * f; g = 248.f * f; b = 200.f * f;
+            if (uv_on && flash_on) { r = 190.f; g = 110.f; b = 255.f; }
         }
         int ix[3] = { vm_t[k][0], vm_t[k][1], vm_t[k][2] };
         V v[3];
@@ -7016,8 +7026,9 @@ static void draw_spot_overlay(void)
     if (flash_on) {                                   // halo calido: un solo triangulo por lado (centro -> borde, se desvanece)
         float ga = GLOW_A * 1.1f * (0.7f + 0.3f * light_flick);
         float r2 = (clear_r + soft_r * 0.95f) * W;
-        u64 c0 = GS_SETREG_RGBAQ(255, 236, 190, ba((int)(ga * 128.0f)), 0x00);
-        u64 c2 = GS_SETREG_RGBAQ(255, 236, 190, ba(0), 0x00);
+        int hr = uv_on ? 170 : 255, hg = uv_on ? 80 : 236, hb = uv_on ? 255 : 190;          // luz UV: halo morado
+        u64 c0 = GS_SETREG_RGBAQ(hr, hg, hb, ba((int)(ga * 128.0f)), 0x00);
+        u64 c2 = GS_SETREG_RGBAQ(hr, hg, hb, ba(0), 0x00);
         for (int j = 0; j < seg; j++)
             gsKit_prim_triangle_gouraud_3d(gsGlobal, cx, cy, Z, cx + ct[j] * r2, cy + st[j] * r2, Z,
                                            cx + ct[j + 1] * r2, cy + st[j + 1] * r2, Z, c0, c2, c2);
@@ -7035,7 +7046,7 @@ static void draw_spot_overlay(void)
             a = dark * (u * u * (3.0f - 2.0f * u));
         } else                      { r = W * 1.1f;           a = dark; }
         a = clampf(a, 0.0f, 1.0f);
-        col[i] = GS_SETREG_RGBAQ(4, 6, 14, ba((int)(a * 128.0f)), 0x00);
+        col[i] = uv_on ? GS_SETREG_RGBAQ(10, 3, 22, ba((int)(a * 128.0f)), 0x00) : GS_SETREG_RGBAQ(4, 6, 14, ba((int)(a * 128.0f)), 0x00);
         for (int j = 0; j <= seg; j++) { X[i][j] = cx + ct[j] * r; Y[i][j] = cy + st[j] * r; }
     }
     for (int i = 1; i < nr - 1; i++)                  // (el centro, totalmente claro, no se dibuja: era transparente)
@@ -7332,6 +7343,7 @@ static void draw_other_player(float t)
     const float mouth[3] = { skin[0] * 0.60f, skin[1] * 0.47f, skin[2] * 0.48f };      // nariz y boca siguen el color de la piel
     const float nose[3]  = { skin[0] * 0.84f, skin[1] * 0.77f, skin[2] * 0.77f };
     float lens[3] = { 255.f, 246.f, 200.f };
+    if (Q->uv_on) { lens[0] = 190.f; lens[1] = 110.f; lens[2] = 255.f; }
     if (!Q->flash_on) { lens[0] = 90.f; lens[1] = 90.f; lens[2] = 92.f; }
     const float em = 0.07f;
     if (K->tex) {                                              // skin con textura (STEVE ORIGINAL, SANTA...)
@@ -7439,7 +7451,8 @@ static void draw_other_beam(void)
         float x = ox + dx * s, z = oz + dz * s, y = oy + dy * s;
         if (y < 3.0f && (solid(x, z) || tree_hit(x, z))) { shit = s; break; }
     }
-    pool_rgb[0] = 255.0f; pool_rgb[1] = 236.0f; pool_rgb[2] = 180.0f;
+    if (Q->uv_on) { pool_rgb[0] = 170.0f; pool_rgb[1] = 90.0f; pool_rgb[2] = 255.0f; }
+    else { pool_rgb[0] = 255.0f; pool_rgb[1] = 236.0f; pool_rgb[2] = 180.0f; }
     pool_mode = 1;
     if (shit > 0.0f) {                                                // choca contra algo: disco vertical frente a la luz
         float s = fmaxf(shit - 0.35f, 0.3f);
@@ -7463,8 +7476,10 @@ static void draw_glows(float t)
 {
     {   // linterna del otro jugador (se ve de lejos)
         float lx, ly, lz;
-        if (other_lens_world(&lx, &ly, &lz) && los_to(lx, lz, 0.0f))
-            draw_glow(lx, ly, lz, 0.20f, 255, 240, 190, 105);
+        if (other_lens_world(&lx, &ly, &lz) && los_to(lx, lz, 0.0f)) {
+            if (P[1 - pl_cur].uv_on) draw_glow(lx, ly, lz, 0.20f, 180, 100, 255, 105);
+            else draw_glow(lx, ly, lz, 0.20f, 255, 240, 190, 105);
+        }
     }
     for (int i = 0; i < NIT; i++) {                         // llaves de color y papeles con codigo
         if (item_got[i] || cur_layer != 0) continue;
@@ -7633,7 +7648,7 @@ static void reset_game(void)
         vel_x = 0.0f; vel_z = 0.0f; step_kick = 0.0f; walk_spd = 0.0f; det_t = 0.0f; det_up = 0.0f;
         fx = sinf(yaw); fz = cosf(yaw); rx = cosf(yaw); rz = -sinf(yaw);
         cam_y = EYE; amb_r = 22.0f; light_flick = 1.0f;
-        has_map = 0; map_open = 0; map_msg = 0;
+        has_map = 0; map_open = 0; map_msg = 0; uv_on = 0; uv_hold = 0.0f;
         door_msg = 0; door_msg_id = 0; code_door = -1; code_val = 0; code_pos = 0; inv_open = 0;
         player_save(i);
     }
@@ -7830,7 +7845,7 @@ static void js_begin(void)
     state = 1; state_timer = 150; js_t = 0;
     climbing = 0; crouched = 0; crouch_f = 0.0f; jump_h = 0.0f; jump_vy = 0.0f;
     js_victim = pl_cur; map_open = 0; code_door = -1;
-    yaw = js_yaw; flash_on = 1;
+    yaw = js_yaw; flash_on = 1; uv_on = 0;
     sfx_play(SFX_SCREAM, 1.0f);
 }
 
@@ -8216,6 +8231,8 @@ static void msg_text(int id, char *buf, int n)
     else if (id == 10) snprintf(buf, n, "CODIGO INCORRECTO");
     else if (id == 11) snprintf(buf, n, "PUERTA ABIERTA");
     else if (id == 12) snprintf(buf, n, "CANDADO ABIERTO");
+    else if (id == 40) snprintf(buf, n, "LUZ ULTRAVIOLETA");
+    else if (id == 41) snprintf(buf, n, "LUZ NORMAL");
     else if (id >= 20 && id <= 23) snprintf(buf, n, "LLAVE %s", key_name[id - 20]);
     else if (id == 30 || id == 31) snprintf(buf, n, "CODIGO %s: %04d", code_name[id - 30], code_num[id - 30]);
 }
@@ -8281,6 +8298,16 @@ static void draw_door_hud(void)
         msg_text(door_msg_id, b, (int)sizeof b);
         draw_text_c(H - 62.0f, b, 2, (door_msg_id <= 4 || door_msg_id == 10 || door_msg_id == 13) ? rc : yc);
         if (door_msg_id >= 20 && door_msg_id < 40) draw_text_c(H - 44.0f, "R1: VER NOTAS", 1, gc);
+    }
+    {   // luz UV: aviso fijo y barra de carga mientras mantienes L2
+        u64 uc = GS_SETREG_RGBAQ(190, 110, 255, 0x80, 0);
+        if (uv_on && flash_on) draw_text(20.0f, 106.0f, "LUZ UV", 1, uc);
+        if (uv_hold > 0.0f && uv_hold < 1.0f) {
+            float bw = 64.0f, x0 = W * 0.5f - bw * 0.5f, y0 = H - 22.0f;
+            gsKit_prim_sprite(gsGlobal, x0 - 1.0f, y0 - 1.0f, x0 + bw + 1.0f, y0 + 6.0f, 16777000, BLACK);
+            gsKit_prim_sprite(gsGlobal, x0, y0, x0 + bw * uv_hold, y0 + 5.0f, 16777010, GS_SETREG_RGBAQ(150, 70, 255, 0x80, 0));
+            draw_text_c(y0 - 12.0f, uv_on ? "LUZ NORMAL" : "LUZ UV", 1, uc);
+        }
     }
     if (inv_open) draw_inventory();
     if (code_door >= 0) draw_code_ui();
@@ -8887,7 +8914,7 @@ static unsigned int sim_hash(void)
     for (int i = 0; i < 2; i++) {
         HM(fbits(P[i].px)); HM(fbits(P[i].pz)); HM(fbits(P[i].yaw)); HM(fbits(P[i].pitch));
         HM(fbits(P[i].stamina)); HM(fbits(P[i].jump_h)); HM(P[i].cur_layer); HM(P[i].climbing);
-        HM(P[i].flash_on); HM(P[i].has_map); HM(P[i].crouched); HM(P[i].code_door);
+        HM(P[i].flash_on); HM(P[i].uv_on); HM(P[i].has_map); HM(P[i].crouched); HM(P[i].code_door);
     }
     HM(fbits(sx_)); HM(fbits(sz_)); HM(mlayer); HM(state); HM(mon_target);
     for (int i = 0; i < 3; i++) HM(notes_got[i]);
@@ -9403,6 +9430,17 @@ static void player_move(float dt, float t, const PadIn *in)
     if (newp & PAD_L1) { flash_on = !flash_on; sfx_play(SFX_CLICK, 0.8f); }
     if (ui_input(newp)) { fwd = str = turn = look = mag = 0.0f; newp = 0; }   // ventana abierta (mapa / candado): no te mueves
     inv_open = (in->pd & PAD_R1) ? 1 : 0;                                       // R1 (mantener): ver llaves y codigos
+    {   // L2 (mantener 1 s): cambia la linterna a luz ULTRAVIOLETA (morada) y de vuelta a la normal
+        int hold = (in->pd & PAD_L2) && flash_on && !map_open && code_door < 0;
+        if (!hold) uv_hold = 0.0f;
+        else if (uv_hold < 50.0f) {
+            uv_hold += dt;
+            if (uv_hold >= 1.0f) {
+                uv_on = !uv_on; uv_hold = 100.0f;                               // 100 = ya cambio: suelta L2 para volver a empezar
+                door_msg = 90; door_msg_id = uv_on ? 40 : 41; sfx_play(SFX_CLICK, 1.0f);
+            }
+        }
+    }
     {   // R2 (mantener 5 s): carga el DETECTOR; al llenarse sube al centro de la camara mientras sigas apretando
         int hold = (in->pd & PAD_R2) && !map_open && code_door < 0;
         if (hold) { det_t += dt; if (det_t > DET_TIME) det_t = DET_TIME; } else det_t = 0.0f;
