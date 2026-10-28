@@ -5473,6 +5473,7 @@ static float stamina = 1.0f, stam_delay;
 static int   exhausted;
 static float jump_h, jump_vy;
 static float mon_phase, mon_spd, mon_runf;           // animacion del monstruo
+static float mon_uv_t, mon_blind_t, mon_cover, mon_blind_yaw;   // luz UV: segundos apuntandole / segundos que le quedan ciego / manos en los ojos (0..1) / hacia donde mira
 static float crouch_f;                 // 0 de pie .. 1 agachado
 static float walk_ph, walk_amp, step_imp;   // caminata: fase (pi = un paso), intensidad 0..1, golpe de la pisada
 static int   walk_step;                     // numero de paso (para sincronizar el sonido con la camara)
@@ -6748,10 +6749,17 @@ static void mon_bones(Xf X[10])
     float AA = A * (1.0f + 0.30f * f);                              // los brazos largos barren mas que las piernas
     // flexion suave (sin el "quiebre" de max(0,sin)): el codo/rodilla se doblan solo al levantar la extremidad
 #define FLEX(a) ({ float _s = sinf(a); _s > 0.0f ? 1.4f * _s * _s : 0.0f; })
-    X[2] = xf_rot(root, PIV_SHA_Y, PIV_SHA_Z, -AA * (sinf(pA) + 0.18f * f * sinf(2.0f * pA + 0.6f)));
-    X[3] = xf_rot(X[2], PIV_ELA_Y, PIV_ELA_Z, 0.85f * AA * FLEX(pA - 0.5f));
-    X[4] = xf_rot(root, PIV_SHB_Y, PIV_SHB_Z, -AA * (sinf(pB) + 0.18f * f * sinf(2.0f * pB + 0.6f)));
-    X[5] = xf_rot(X[4], PIV_ELB_Y, PIV_ELB_Z, 0.85f * AA * FLEX(pB - 0.5f));
+    float shA = -AA * (sinf(pA) + 0.18f * f * sinf(2.0f * pA + 0.6f)), elA = 0.85f * AA * FLEX(pA - 0.5f);
+    float shB = -AA * (sinf(pB) + 0.18f * f * sinf(2.0f * pB + 0.6f)), elB = 0.85f * AA * FLEX(pB - 0.5f);
+    if (mon_cover > 0.0f) {                                         // ciego: dobla los codos y sube las manos a los ojos
+        float cv = mon_cover;
+        shA += (0.05f - shA) * cv; elA += (-2.5f - elA) * cv;
+        shB += (0.05f - shB) * cv; elB += (-2.5f - elB) * cv;
+    }
+    X[2] = xf_rot(root, PIV_SHA_Y, PIV_SHA_Z, shA);
+    X[3] = xf_rot(X[2], PIV_ELA_Y, PIV_ELA_Z, elA);
+    X[4] = xf_rot(root, PIV_SHB_Y, PIV_SHB_Z, shB);
+    X[5] = xf_rot(X[4], PIV_ELB_Y, PIV_ELB_Z, elB);
     X[6] = xf_rot(root, PIV_HIPA_Y, PIV_HIPA_Z, -0.9f * A * (sinf(lA) + 0.12f * f * sinf(2.0f * lA)));
     X[7] = xf_rot(X[6], PIV_KNA_Y, PIV_KNA_Z, 0.95f * A * FLEX(lA - 0.4f));
     X[8] = xf_rot(root, PIV_HIPB_Y, PIV_HIPB_Z, -0.9f * A * (sinf(lB) + 0.12f * f * sinf(2.0f * lB)));
@@ -6765,9 +6773,22 @@ static void draw_monster(float t)
     float ddx = sx_ - px, ddz = sz_ - pz;
     if (ddx * ddx + ddz * ddz > 26.0f * 26.0f) return;
     float a = atan2f(px - sx_, pz - sz_);
+    if (mon_blind_t > 0.0f) a = mon_blind_yaw;                  // ciego: ya no te sigue con la cabeza
     float s = sinf(a), c = cosf(a);
     Xf X[10];
     mon_bones(X);
+    float cov = mon_cover, E[2][2], U[2][2];                    // codo y eje del antebrazo de cada brazo (solo si se tapa los ojos)
+    if (cov > 0.001f) {
+        for (int k = 0; k < 2; k++) {
+            const Xf *sh = &X[2 + 2 * k], *fo = &X[3 + 2 * k];
+            E[k][0] = sh->c * PIV_ELA_Y - sh->s * PIV_ELA_Z + sh->ty;
+            E[k][1] = sh->s * PIV_ELA_Y + sh->c * PIV_ELA_Z + sh->tz;
+            float hy = fo->c * 0.1275f - fo->s * 1.0745f + fo->ty, hz = fo->s * 0.1275f + fo->c * 1.0745f + fo->tz;   // centro de la mano
+            float ux = hy - E[k][0], uz = hz - E[k][1], ul = sqrtf(ux * ux + uz * uz);
+            if (ul < 1e-4f) ul = 1.0f;
+            U[k][0] = ux / ul; U[k][1] = uz / ul;
+        }
+    }
 
     float mm = clampf(mon_spd * 0.8f, 0.0f, 1.0f);
     float sway  = (0.05f + 0.11f * mon_runf) * mm * sinf(mon_phase + 0.3f);          // el torso se escora al cargar el peso
@@ -6781,6 +6802,17 @@ static void draw_monster(float t)
         float y1 = q->c * y - q->s * z + q->ty, z1 = q->s * y + q->c * z + q->tz;
         float yy = y1 + (y0 - y1) * wa, zz = z1 + (z0 - z1) * wa;
         float x = mon_v[i][0];
+        if (cov > 0.001f) {                                                    // antebrazos: se acortan y las manos van al centro de la cara
+            int b0 = mon_b[i][0], b1 = mon_b[i][1];
+            float fw = ((b0 == 3 || b0 == 5) ? wa : 0.0f) + ((b1 == 3 || b1 == 5) ? 1.0f - wa : 0.0f);
+            if (fw > 0.0f) {
+                int sd = (b0 == 3 || b1 == 3) ? 0 : 1;
+                float al = (yy - E[sd][0]) * U[sd][0] + (zz - E[sd][1]) * U[sd][1];
+                float sh = al * 0.5f * cov * fw;                               // encoge hasta la mitad a lo largo del antebrazo
+                yy -= U[sd][0] * sh; zz -= U[sd][1] * sh;
+                x -= (sd == 0 ? 1.0f : -1.0f) * 0.67f * cov * fw;
+            }
+        }
         float hh = clampf((y - 0.6f) / 1.2f, 0.0f, 1.0f);                     // 0 patas .. 1 hombros y cabeza
         zz += x * twist * (2.0f * hh - 1.0f);
         x += sway * hh;
@@ -7543,8 +7575,42 @@ static int mon_clear(int layer, float x0, float z0, float x1, float z1)
     return 1;
 }
 static int need_flow = 1, last_layer = -1, last_foot = 0;   // estado de la IA (se reinicia en reset_game: online necesita partir igual)
+// Luz UV contra el monstruo: si le apuntas con la linterna UV durante 3 segundos se queda ciego 10 segundos
+// (se tapa los ojos, se detiene y no puede atraparte). Pasa lo mismo para los dos jugadores en pantalla dividida / online.
+static void mon_uv_update(float dt)
+{
+    int aim = 0;
+    if (mon_blind_t <= 0.0f)
+        for (int i = 0; i < num_players && !aim; i++) {
+            const Player *Q = &P[i];
+            if (!Q->flash_on || !Q->uv_on || Q->climbing || Q->cur_layer != mlayer) continue;
+            float dx = sx_ - Q->px, dz = sz_ - Q->pz, dy = (mon_y + 1.3f) - Q->cam_y;
+            float d = sqrtf(dx * dx + dy * dy + dz * dz);
+            if (d < 0.5f || d > 16.0f) continue;                                     // alcance de la luz UV
+            float pe = clampf(Q->pitch, -1.2f, 1.3f) - 0.04f;
+            float ax = sinf(Q->yaw) * cosf(pe), ay = sinf(pe), az = cosf(Q->yaw) * cosf(pe);
+            if ((dx * ax + dy * ay + dz * az) / d < 0.96f) continue;                // dentro del haz (unos 16 grados)
+            if (!mon_clear(mlayer, Q->px, Q->pz, sx_, sz_)) continue;               // sin paredes en medio
+            aim = 1;
+            mon_blind_yaw = atan2f(Q->px - sx_, Q->pz - sz_);                       // se queda mirando hacia quien lo cego
+        }
+    if (mon_blind_t > 0.0f) mon_uv_t = 0.0f;
+    else if (aim) {
+        mon_uv_t += dt;
+        if (mon_uv_t >= 3.0f) { mon_uv_t = 0.0f; mon_blind_t = 10.0f; }
+    } else mon_uv_t = fmaxf(0.0f, mon_uv_t - dt * 1.5f);                             // si dejas de apuntar, se recupera rapido
+}
+
 static void update_monster(float dt, int notes)
 {
+    mon_cover += ((mon_blind_t > 0.0f ? 1.0f : 0.0f) - mon_cover) * clampf(dt * (mon_blind_t > 0.0f ? 7.0f : 3.0f), 0.0f, 1.0f);
+    if (mon_blind_t > 0.0f) {                                 // ciego: se queda quieto tapandose los ojos
+        mon_blind_t -= dt;
+        mon_spd  += (0.0f - mon_spd)  * clampf(dt * 8.0f, 0.0f, 1.0f);
+        mon_runf += (0.0f - mon_runf) * clampf(dt * 8.0f, 0.0f, 1.0f);
+        if (mon_blind_t < 0.0f) mon_blind_t = 0.0f;
+        return;
+    }
     int pl = cur_layer;
     float tx = px, tz = pz;
     if (mlayer != pl) {                       // el jugador esta en otro nivel: va a la escalera
@@ -7635,7 +7701,7 @@ static void reset_game(void)
     last_key_set = key_set;
     place_keys(key_set);
     state = 0; state_timer = 0;
-    mon_phase = 0.0f; mon_spd = 0.0f; mon_runf = 0.0f;
+    mon_phase = 0.0f; mon_spd = 0.0f; mon_runf = 0.0f; mon_uv_t = 0.0f; mon_blind_t = 0.0f; mon_cover = 0.0f;
     mon_foot_event = 0; js_victim = 0; mon_target = 0;
     for (int i = 0; i < 2; i++) {
         px = SPAWN_X + (i ? 1.8f : 0.0f); pz = SPAWN_Z; yaw = PI_F;      // el jugador 2 aparece al lado
@@ -8302,6 +8368,12 @@ static void draw_door_hud(void)
     {   // luz UV: aviso fijo y barra de carga mientras mantienes L2
         u64 uc = GS_SETREG_RGBAQ(190, 110, 255, 0x80, 0);
         if (uv_on && flash_on) draw_text(20.0f, 106.0f, "LUZ UV", 1, uc);
+        if (mon_uv_t > 0.05f && mon_blind_t <= 0.0f) {                      // le estas apuntando con la UV: barra de ceguera
+            float bw = 64.0f, x0 = W * 0.5f - bw * 0.5f, y0 = H * 0.62f;
+            gsKit_prim_sprite(gsGlobal, x0 - 1.0f, y0 - 1.0f, x0 + bw + 1.0f, y0 + 6.0f, 16777000, BLACK);
+            gsKit_prim_sprite(gsGlobal, x0, y0, x0 + bw * (mon_uv_t / 3.0f), y0 + 5.0f, 16777010, GS_SETREG_RGBAQ(190, 110, 255, 0x80, 0));
+            draw_text_c(y0 - 12.0f, "CEGANDO", 1, uc);
+        }
         if (uv_hold > 0.0f && uv_hold < 1.0f) {
             float bw = 64.0f, x0 = W * 0.5f - bw * 0.5f, y0 = H - 22.0f;
             gsKit_prim_sprite(gsGlobal, x0 - 1.0f, y0 - 1.0f, x0 + bw + 1.0f, y0 + 6.0f, 16777000, BLACK);
@@ -8916,7 +8988,7 @@ static unsigned int sim_hash(void)
         HM(fbits(P[i].stamina)); HM(fbits(P[i].jump_h)); HM(P[i].cur_layer); HM(P[i].climbing);
         HM(P[i].flash_on); HM(P[i].uv_on); HM(P[i].has_map); HM(P[i].crouched); HM(P[i].code_door);
     }
-    HM(fbits(sx_)); HM(fbits(sz_)); HM(mlayer); HM(state); HM(mon_target);
+    HM(fbits(sx_)); HM(fbits(sz_)); HM(mlayer); HM(state); HM(mon_target); HM((int)(mon_blind_t * 60.0f)); HM((int)(mon_uv_t * 60.0f));
     for (int i = 0; i < 3; i++) HM(notes_got[i]);
     for (int i = 0; i < ND; i++) HM(door_open[i]);
     for (int i = 0; i < NIT; i++) HM(item_got[i]);
@@ -9556,7 +9628,7 @@ static void player_post(int notes)
             mon_thud = fmaxf(mon_thud, (1.0f - td / 16.0f) * (0.45f + 0.55f * mon_runf));
     }
     float ddx = sx_ - px, ddz = sz_ - pz;
-    if (mlayer == cur_layer && !climbing && ddx * ddx + ddz * ddz < 3.6f) { js_begin(); return; }   // alcance de sus garras (1.9 m)
+    if (mon_blind_t <= 0.0f && mlayer == cur_layer && !climbing && ddx * ddx + ddz * ddz < 3.6f) { js_begin(); return; }   // alcance de sus garras (1.9 m)
     for (int i = 0; i < 3; i++) {
         if (notes_got[i] || (int)notes_pos[i][3] != cur_layer || climbing) continue;
         float ax = notes_pos[i][0] - px, az = notes_pos[i][1] - pz;
@@ -9754,6 +9826,7 @@ int main(void)
             }
             for (int i = 0; i < ND; i++)                     // las puertas abiertas giran
                 if (door_open[i] && door_ang[i] < 1.55f) door_ang[i] = fminf(1.55f, door_ang[i] + 0.05f);
+            mon_uv_update(dt);                               // luz UV contra el monstruo
             int tg = pick_target();                          // el monstruo va a por uno
             player_load(tg);
             update_monster(dt, notes);
