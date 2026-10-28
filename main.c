@@ -7639,11 +7639,30 @@ static const int   gfx_nf[3]    = { 1, 1, 2 };             // ... y lejos
 static const int   gfx_seg[3]   = { 24, 40, 56 };          // suavidad del circulo de luz
 static const int   gfx_steps[3] = { 5, 7, 8 };
 static const float gfx_reach[3] = { 0.85f, 1.0f, 1.2f };   // alcance de la luz
-enum { SC_MAIN, SC_OPT, SC_PLAY, SC_PAUSE, SC_CTRL, SC_NET, SC_NETIP, SC_NETWAIT, SC_LOBBY, SC_NETLIST, SC_NAME };
+enum { SC_MAIN, SC_OPT, SC_PLAY, SC_PAUSE, SC_CTRL, SC_NET, SC_NETIP, SC_NETWAIT, SC_LOBBY, SC_NETLIST, SC_NAME, SC_SKIN };
 static int net_online;                  // 1 = partida online en curso (los dos juegos simulan lo mismo)
 static unsigned int game_seed;          // semilla de la partida (los codigos de los candados salen de ella)
 static int net_sel;                     // menu ONLINE
 static int net_local;                   // 0 = J1 (anfitrion), 1 = J2 (invitado)
+// ---------------- Skins (OPCIONES > SKINS) ----------------
+// Cada skin es una paleta del modelo Steve. Para agregar un modelo 3D nuevo basta sumarlo a esta tabla.
+typedef struct { const char *name; float skin[3], hair[3], shirt[3], pants[3], shoe[3]; } SkinDef;
+static const SkinDef skins[] = {
+    { "STEVE",       { 200.f, 150.f, 112.f }, { 62.f, 41.f, 22.f },  { 0.f, 156.f, 168.f },  { 58.f, 56.f, 150.f },  { 72.f, 72.f, 76.f } },
+    { "STEVE ROJO",  { 200.f, 150.f, 112.f }, { 40.f, 28.f, 20.f },  { 200.f, 40.f, 36.f },  { 60.f, 60.f, 66.f },   { 40.f, 40.f, 44.f } },
+    { "STEVE VERDE", { 190.f, 140.f, 104.f }, { 120.f, 80.f, 30.f }, { 50.f, 170.f, 80.f },  { 70.f, 50.f, 30.f },   { 60.f, 60.f, 60.f } },
+    { "STEVE NEGRO", { 170.f, 120.f, 90.f },  { 20.f, 20.f, 22.f },  { 40.f, 40.f, 46.f },   { 25.f, 25.f, 30.f },   { 90.f, 90.f, 96.f } },
+};
+#define NSKIN ((int)(sizeof(skins) / sizeof(skins[0])))
+static int skin_pick[2];                // [0] = MI SKIN (J1 / online), [1] = J2 en pantalla dividida
+static int net_pskin_rem;               // skin del otro jugador en una partida online
+static int skin_sel;                    // fila elegida en el menu SKINS
+// Skin que lleva el jugador i (en linea: la tuya y la que mando el otro)
+static int skin_of(int i)
+{
+    int k = net_online ? ((i == net_local) ? skin_pick[0] : net_pskin_rem) : skin_pick[i ? 1 : 0];
+    return (k >= 0 && k < NSKIN) ? k : 0;
+}
 static char my_name[12] = "JUGADOR";            // tu nombre en el online (ONLINE > CAMBIAR NOMBRE)
 static char net_names[2][12] = { "JUGADOR 1", "JUGADOR 2" };   // nombres de J1 y J2 en la partida online
 static int   screen = SC_MAIN, menu_sel, opt_sel, opt_from = SC_MAIN, ctl_sel;
@@ -8636,11 +8655,12 @@ static void draw_other_player(float t)
     if (!in_view(Q->px, Q->pz, 1.5f, gfx_pd[gfx])) return;
     StPose S; st_pose(Q, &S);
     const StCtx *C = &S.C;
-    static const float skin[3]  = { 200.f, 150.f, 112.f }, hair[3] = { 62.f, 41.f, 22.f };
-    static const float shirt[3] = { 0.f, 156.f, 168.f },  pants[3] = { 58.f, 56.f, 150.f };
-    static const float shoe[3]  = { 72.f, 72.f, 76.f },   dark[3]  = { 38.f, 38.f, 42.f };
+    const SkinDef *K = &skins[skin_of(1 - pl_cur)];            // la skin del OTRO jugador
+    const float *skin = K->skin, *hair = K->hair, *shirt = K->shirt, *pants = K->pants, *shoe = K->shoe;
+    static const float dark[3]  = { 38.f, 38.f, 42.f };
     static const float white[3] = { 235.f, 235.f, 240.f }, iris[3] = { 70.f, 50.f, 130.f };
-    static const float mouth[3] = { 120.f, 70.f, 54.f },  nose[3]  = { 168.f, 116.f, 86.f };
+    const float mouth[3] = { skin[0] * 0.60f, skin[1] * 0.47f, skin[2] * 0.48f };      // nariz y boca siguen el color de la piel
+    const float nose[3]  = { skin[0] * 0.84f, skin[1] * 0.77f, skin[2] * 0.77f };
     float lens[3] = { 255.f, 246.f, 200.f };
     if (!Q->flash_on) { lens[0] = 90.f; lens[1] = 90.f; lens[2] = 92.f; }
     const float em = 0.07f;
@@ -9901,6 +9921,7 @@ static void net_send_pkt(int type)
     int len = 28 + count * 6;
     if (type == NP_HELLO || type == NP_WELCOME) {                       // tu nombre viaja en el saludo
         memcpy(b + 28, my_name, 12);
+        b[28 + 11] = (unsigned char)(skin_pick[0] + 1);                 // tu skin (0 = sin dato)
         len = 28 + 12;
     }
     net_send_raw(b, len);
@@ -9941,11 +9962,13 @@ static void net_pump(void)
         if (type == NP_HELLO && net_host) {
             if (!net_have_peer) { net_peer = from; net_have_peer = 1; }
             net_psens_h[1] = b[5]; net_psens_v[1] = b[6];
+            if (n >= 40 && b[39] >= 1 && b[39] <= NSKIN) net_pskin_rem = b[39] - 1;
             net_got_hello = 1; net_guest_t = 0;
             net_take_name(net_names[1], b, n);
             if (net_online || net_in_lobby) net_send_pkt(NP_WELCOME);   // confirma que esta en la sala (o se repite el WELCOME perdido)
         } else if (type == NP_WELCOME && !net_host) {
             net_seed = get32(b + 16); net_psens_h[0] = b[5]; net_psens_v[0] = b[6];
+            if (n >= 40 && b[39] >= 1 && b[39] <= NSKIN) net_pskin_rem = b[39] - 1;
             net_got_welcome = 1;
             net_take_name(net_names[0], b, n);
         } else if (type == NP_BYE) {
@@ -10169,9 +10192,10 @@ static void menu_frame(u32 newp, float lv, int frame)
     int dn = (newp & PAD_DOWN) || (sdir == 1 && sprev == 0);
     sprev = sdir;
     int was_ctrl = (screen == SC_CTRL);                         // evita que la X que abre el submenu cuente dentro de el
+    int was_skin = (screen == SC_SKIN);
     int ok = (newp & PAD_CROSS) != 0, back = (newp & PAD_CIRCLE) != 0;
     int lt = (newp & PAD_LEFT) != 0, rt = (newp & PAD_RIGHT) != 0;
-    int n = (screen == SC_OPT) ? 6 : (screen == SC_CTRL ? 3 : (screen == SC_MAIN ? 5 : (screen == SC_NET ? 3 : (screen == SC_NETIP || screen == SC_NETWAIT ? 1 : 4))));
+    int n = (screen == SC_OPT) ? 7 : (screen == SC_SKIN ? 3 : screen == SC_CTRL ? 3 : (screen == SC_MAIN ? 5 : (screen == SC_NET ? 3 : (screen == SC_NETIP || screen == SC_NETWAIT ? 1 : 4))));
     if (pad2_warn > 0) pad2_warn--;
     const int scr0 = screen;                                   // pantalla con la que empieza este cuadro
 #ifdef HAVE_NET
@@ -10180,7 +10204,7 @@ static void menu_frame(u32 newp, float lv, int frame)
     else if (screen == SC_NETLIST) n = room_count() > 0 ? room_count() : 1;
     else if (screen == SC_LOBBY) n = 1;
 #endif
-    int *sel = (screen == SC_OPT) ? &opt_sel : (screen == SC_CTRL ? &ctl_sel : (screen == SC_NET ? &net_sel : &menu_sel));
+    int *sel = (screen == SC_OPT) ? &opt_sel : (screen == SC_SKIN ? &skin_sel : screen == SC_CTRL ? &ctl_sel : (screen == SC_NET ? &net_sel : &menu_sel));
 #ifdef HAVE_NET
     if (screen == SC_NETLIST) sel = &list_sel;
     static int name_dummy;
@@ -10214,7 +10238,8 @@ static void menu_frame(u32 newp, float lv, int frame)
         }
     } else if (screen == SC_OPT) {
         int d = rt ? 1 : (lt ? -1 : (ok ? 1 : 0));
-        if (back || (ok && *sel == 5)) screen = opt_from;
+        if (back || (ok && *sel == 6)) screen = opt_from;
+        else if (ok && *sel == 5) { screen = SC_SKIN; skin_sel = 0; }
         else if (ok && *sel == 4) { screen = SC_CTRL; ctl_sel = 0; }
         else if (d != 0) {
             if (*sel == 0) gfx = (gfx + d + 3) % 3;
@@ -10310,6 +10335,12 @@ static void menu_frame(u32 newp, float lv, int frame)
     }
 #endif
 
+    if (was_skin) {                                           // OPCIONES > SKINS
+        int d = rt ? 1 : (lt ? -1 : (ok ? 1 : 0));
+        if (back || (ok && *sel == 2)) screen = SC_OPT;
+        else if (d != 0 && *sel < 2 && !net_online)           // en una partida online no se cambia (el otro no se enteraria)
+            skin_pick[*sel] = (skin_pick[*sel] + d + NSKIN) % NSKIN;
+    }
     if (was_ctrl) {                                           // OPCIONES > CONTROLES
         int d = rt ? 1 : (lt ? -1 : (ok ? 1 : 0));
         if (back || (ok && *sel == 2)) screen = SC_OPT;
@@ -10321,7 +10352,7 @@ static void menu_frame(u32 newp, float lv, int frame)
 
     if (screen == SC_PLAY) return;                            // la partida online acaba de empezar
     // ---- dibujo ----
-    if (screen == SC_MAIN || screen == SC_NET || screen == SC_NETIP || screen == SC_NETWAIT || screen == SC_LOBBY || screen == SC_NETLIST || screen == SC_NAME || ((screen == SC_OPT || screen == SC_CTRL) && opt_from == SC_MAIN)) menu_bg_main();
+    if (screen == SC_MAIN || screen == SC_NET || screen == SC_NETIP || screen == SC_NETWAIT || screen == SC_LOBBY || screen == SC_NETLIST || screen == SC_NAME || ((screen == SC_OPT || screen == SC_CTRL || screen == SC_SKIN) && opt_from == SC_MAIN)) menu_bg_main();
     else { render_frame(last_t, 1); menu_dim(); }
 
     u64 sel_c = GS_SETREG_RGBAQ(255, 230, 90, 0x80, 0), norm_c = GS_SETREG_RGBAQ(170, 170, 175, 0x80, 0);
@@ -10349,7 +10380,7 @@ static void menu_frame(u32 newp, float lv, int frame)
         draw_text_c(40.0f, "OPCIONES", 5, sel_c);
         static const char *gq[3] = { "BAJO", "MEDIO", "ALTO" };
         char vt[8]; vt[0] = (char)('0' + vol_lv); vt[1] = '\0';
-        for (int i = 0; i < 6; i++) {
+        for (int i = 0; i < 7; i++) {
             const char *name = "";
             char val[12]; val[0] = '\0';
             if (i == 0) { name = "GRAFICOS"; snprintf(val, sizeof(val), "%s", gq[gfx]); }
@@ -10357,11 +10388,37 @@ static void menu_frame(u32 newp, float lv, int frame)
             else if (i == 2) { name = "VOLUMEN"; snprintf(val, sizeof(val), "%s", vt); }
             else if (i == 3) { name = "INVERTIR LUZ"; snprintf(val, sizeof(val), "%s", blend_flip ? "SI" : "NO"); }
             else if (i == 4) name = "CONTROLES";
+            else if (i == 5) name = "SKINS";
             else name = "VOLVER";
             if (val[0]) snprintf(line, sizeof(line), i == opt_sel ? "> %s: %s <" : "%s: %s", name, val);
             else snprintf(line, sizeof(line), i == opt_sel ? "> %s <" : "%s", name);
-            draw_text_c(110.0f + i * 40.0f, line, 3, i == opt_sel ? sel_c : norm_c);
+            draw_text_c(100.0f + i * 36.0f, line, 3, i == opt_sel ? sel_c : norm_c);
         }
+    }
+    if (screen == SC_SKIN) {
+        draw_text_c(40.0f, "SKINS", 5, sel_c);
+        for (int i = 0; i < 3; i++) {
+            const char *label = (i == 0) ? "MI SKIN" : "SKIN DE J2";
+            if (i < 2) snprintf(line, sizeof(line), i == skin_sel ? "> %s: %s <" : "%s: %s", label, skins[skin_pick[i]].name);
+            else snprintf(line, sizeof(line), i == skin_sel ? "> VOLVER <" : "VOLVER");
+            draw_text_c(112.0f + i * 40.0f, line, 3, i == skin_sel ? sel_c : norm_c);
+        }
+        // vista previa de la skin elegida (muneco de colores)
+        const SkinDef *K = &skins[skin_pick[skin_sel < 2 ? skin_sel : 0]];
+        float cx = W * 0.5f, y0 = 246.0f;
+#define SKC(v) GS_SETREG_RGBAQ((int)(v)[0], (int)(v)[1], (int)(v)[2], 0x80, 0)
+#define SKR(x0, y0_, x1, y1, col) gsKit_prim_sprite(gsGlobal, cx + (x0), y0 + (y0_), cx + (x1), y0 + (y1), 16777000, col)
+        SKR(-14, 0, 14, 28, SKC(K->skin));                        // cabeza
+        SKR(-14, 0, 14, 8, SKC(K->hair));                         // pelo
+        SKR(-8, 12, -3, 16, GS_SETREG_RGBAQ(235, 235, 240, 0x80, 0)); SKR(3, 12, 8, 16, GS_SETREG_RGBAQ(235, 235, 240, 0x80, 0));
+        SKR(-14, 28, 14, 64, SKC(K->shirt));                      // torso
+        SKR(-24, 28, -14, 44, SKC(K->shirt)); SKR(14, 28, 24, 44, SKC(K->shirt));      // mangas
+        SKR(-24, 44, -14, 62, SKC(K->skin));  SKR(14, 44, 24, 62, SKC(K->skin));       // brazos
+        SKR(-14, 64, -1, 92, SKC(K->pants));  SKR(1, 64, 14, 92, SKC(K->pants));       // piernas
+        SKR(-14, 86, -1, 92, SKC(K->shoe));   SKR(1, 86, 14, 92, SKC(K->shoe));        // zapatos
+#undef SKR
+#undef SKC
+        if (net_online) draw_text_c(H - 84.0f, "NO SE PUEDE CAMBIAR EN UNA PARTIDA ONLINE", 2, GS_SETREG_RGBAQ(235, 130, 60, 0x80, 0));
     }
     if (screen == SC_CTRL) {
         draw_text_c(40.0f, "CONTROLES", 5, sel_c);
@@ -10479,7 +10536,7 @@ static void menu_frame(u32 newp, float lv, int frame)
     }
 #endif
     if (screen != SC_NETIP && screen != SC_NETWAIT && screen != SC_LOBBY && screen != SC_NETLIST && screen != SC_NAME)
-    draw_text_c(H - 34.0f, (screen == SC_OPT || screen == SC_CTRL) ? "IZQ/DER: CAMBIAR   O: ATRAS" : "ARRIBA/ABAJO: MOVER   X: ELEGIR", 2, hint_c);
+    draw_text_c(H - 34.0f, (screen == SC_OPT || screen == SC_CTRL || screen == SC_SKIN) ? "IZQ/DER: CAMBIAR   O: ATRAS" : "ARRIBA/ABAJO: MOVER   X: ELEGIR", 2, hint_c);
     if (screen == SC_MAIN || screen == SC_OPT) draw_text_c(H - 58.0f, "LUZ AL REVES? PULSA SELECT", 2, hint_c);
     if (screen == SC_OPT)
         draw_text_c(H - 82.0f, audio_state == 2 ? "AUDIO: ACTIVO" : (audio_state == 1 ? "AUDIO: NO ARRANCO" : "AUDIO: NO INCLUIDO"),
