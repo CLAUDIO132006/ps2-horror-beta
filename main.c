@@ -1,5 +1,5 @@
 // ============================================================
-//  HORROR BETA 0.4 - BOSQUE  [version CIRCULO + ONLINE + DETECTOR]  (PS2 homebrew, PS2SDK + gsKit)
+//  HORROR BETA 0.4 - BOSQUE  [version CIRCULO + ONLINE]  (PS2 homebrew, PS2SDK + gsKit)
 //
 //  Controles (DualShock 2):
 //    Stick izq  : moverse (empujalo al tope para CORRER, gasta estamina)
@@ -7,7 +7,7 @@
 //    X (cruz)   : saltar  (junto a un pozo: subir/bajar la escalera)
 //    O (circulo): agacharse / levantarse
 //    L1         : linterna ON/OFF       START : pausa
-//    DETECTOR   : el radio de tu mano izquierda marca a cuantos METROS esta el monstruo ("---" = esta en otro nivel)
+//    R2 (mantener 5 s): carga el DETECTOR (barra abajo a la izquierda); lleno, sube al centro y marca los METROS al monstruo ("---" = otro nivel)
 //    CUADRADO   : junto al cartel del inicio, toma el MAPA
 //    TRIANGULO  : abre / cierra el mapa (superficie + alcantarilla)
 //    CUADRADO   : junto a una puerta: abrirla con su llave de color / poner el codigo del candado
@@ -5451,6 +5451,8 @@ static float mon_thud;                      // sacudida de camara por las pisada
 static float cam_rc = 1.0f, cam_rs = 0.0f;  // balanceo (roll) de la camara: cos / sin
 static int   crouched, blend_flip;
 static int   p_moving, p_near;              // datos de HUD de cada jugador
+#define DET_TIME 5.0f                       // segundos que hay que mantener R2 para sacar el detector
+static float det_t, det_up;                 // carga de R2 (0..DET_TIME) / cuanto sube el aparato al centro (0..1)
 static float vel_x, vel_z;                  // velocidad al caminar (con inercia)
 static float step_kick, walk_spd;           // golpe de pisada (sin suavizar) / rapidez real suavizada
 // ---- opciones (GRAFICOS: 0 bajo, 1 medio, 2 alto) ----
@@ -6045,7 +6047,7 @@ static short bqx[MW * MH], bqz[MW * MH];
 #define PL_FLOATS(F) F(px) F(pz) F(yaw) F(foot_y) F(cam_y) F(pitch) F(cpitch) F(spitch) \
     F(stamina) F(stam_delay) F(jump_h) F(jump_vy) F(crouch_f) F(walk_ph) F(walk_amp) \
     F(step_imp) F(mon_thud) F(cam_rc) F(cam_rs) F(fx) F(fz) F(rx) F(rz) F(amb_r) F(light_flick) \
-    F(vel_x) F(vel_z) F(step_kick) F(walk_spd)
+    F(vel_x) F(vel_z) F(step_kick) F(walk_spd) F(det_t) F(det_up)
 #define PL_INTS(F) F(exhausted) F(walk_step) F(crouched) F(cur_layer) F(climbing) F(climb_dir) \
     F(last_ladder) F(flash_on) F(p_moving) F(p_near) F(has_map) F(map_open) F(map_msg) F(door_msg) F(door_msg_id) F(code_door) F(code_val) F(code_pos) F(inv_open)
 typedef struct {
@@ -6844,16 +6846,16 @@ static void draw_flashlight(float t, int moving)
 // ---------------- DETECTOR: radio de mano que marca a cuantos metros esta el monstruo ----------------
 // Low poly (unas 60 caras): cuerpo negro, antena, pantalla BLANCA con numeros NEGROS de 7 segmentos, teclado y un LED que
 // parpadea mas rapido cuanto mas cerca esta el monstruo. Va en la mano izquierda (la linterna en la derecha).
+static void draw_text(float x, float y, const char *str, int sc, u64 col);
+static float rd_th, rd_ya, rd_ox, rd_oy, rd_oz;                    // pose del aparato (se calcula en draw_detector)
 static void rd_pt(float lx, float ly, float lz, float *o)         // punto del modelo -> espacio de camara
 {
-    const float th = 0.40f, ya = -0.38f;                          // inclinado hacia tus ojos y girado hacia el centro
-    float ct = cosf(th), st = sinf(th), cy = cosf(ya), sy = sinf(ya);
-    float wa = walk_amp, sp = sinf(walk_ph);
+    float ct = cosf(rd_th), st = sinf(rd_th), cy = cosf(rd_ya), sy = sinf(rd_ya);
     float y1 = ly * ct - lz * st, z1 = ly * st + lz * ct;
     float x2 = lx * cy + z1 * sy, z2 = -lx * sy + z1 * cy;
-    o[0] = x2 - 0.205f - 0.010f * wa * sinf(walk_ph + 0.9f);
-    o[1] = y1 - 0.200f + 0.008f * wa * sinf(2.0f * walk_ph + 0.4f) - 0.024f * step_imp;
-    o[2] = z2 + 0.450f;
+    o[0] = x2 + rd_ox;
+    o[1] = y1 + rd_oy;
+    o[2] = z2 + rd_oz;
 }
 static void rd_quad(const float a[3], const float b[3], const float c[3], const float d[3], const float *col)
 {
@@ -6880,6 +6882,21 @@ static void rd_box(float cx, float cy, float cz, float hx, float hy, float hz, c
 
 static void draw_detector(float t)
 {
+    if (det_t > 0.0f && det_up < 0.99f) {                          // barra de carga (abajo a la izquierda)
+        float f = clampf(det_t / DET_TIME, 0.0f, 1.0f);
+        gsKit_prim_sprite(gsGlobal, 18.0f, H - 30.0f, 182.0f, H - 14.0f, 16777000, GS_SETREG_RGBAQ(0, 0, 0, 0x80, 0));
+        gsKit_prim_sprite(gsGlobal, 20.0f, H - 28.0f, 180.0f, H - 16.0f, 16777000, GS_SETREG_RGBAQ(35, 35, 38, 0x80, 0));
+        if (f > 0.01f) gsKit_prim_sprite(gsGlobal, 20.0f, H - 28.0f, 20.0f + 160.0f * f, H - 16.0f, 16777000, GS_SETREG_RGBAQ(150, 230, 255, 0x80, 0));
+        draw_text(20.0f, H - 44.0f, "DETECTOR...", 1, GS_SETREG_RGBAQ(190, 190, 195, 0x80, 0));
+    }
+    if (det_up < 0.02f) return;
+    {   // pose: sube desde abajo hasta el centro de la camara, grande
+        float u = det_up, e = u * u * (3.0f - 2.0f * u);
+        rd_th = 0.10f + 0.30f * (1.0f - e); rd_ya = -0.38f * (1.0f - e);
+        rd_ox = 0.0f + 0.01f * walk_amp * sinf(walk_ph + 0.9f);
+        rd_oy = -0.015f - 0.55f * (1.0f - e) + 0.006f * walk_amp * sinf(2.0f * walk_ph + 0.4f) - 0.015f * step_imp;
+        rd_oz = 0.34f;
+    }
     // distancia al monstruo (en la otra capa del mapa no hay senal)
     int ok = (mlayer == cur_layer);
     float dx = sx_ - px, dz = sz_ - pz, dist = sqrtf(dx * dx + dz * dz);
@@ -6888,13 +6905,17 @@ static void draw_detector(float t)
     static const float body[3] = { 44.f, 46.f, 50.f }, side[3] = { 26.f, 27.f, 30.f }, frame[3] = { 14.f, 14.f, 16.f };
     static const float white[3] = { 244.f, 246.f, 238.f }, black[3] = { 8.f, 8.f, 8.f };
     static const float key[3] = { 92.f, 94.f, 100.f }, red[3] = { 220.f, 40.f, 34.f }, redoff[3] = { 90.f, 24.f, 22.f };
-    const float S = 0.80f;                                           // escala general del modelo
+    const float S = 1.0f;                                            // escala general del modelo
     const float hx = 0.042f * S, hy = 0.085f * S, hz = 0.017f * S, zf = -hz;
 
     vm_mode = 1;
     {   // mano izquierda (bloque de piel) detras del aparato
         float sk[3] = { hand_col[4][0], hand_col[4][1], hand_col[4][2] }, sk2[3] = { hand_col[2][0], hand_col[2][1], hand_col[2][2] };
-        rd_box(0.0f, -hy * 0.95f, hz + 0.012f, hx * 0.85f, hy * 0.42f, 0.030f, sk, sk2);
+        rd_box(0.0f, -hy * 0.80f, hz + 0.020f, hx * 1.05f, hy * 0.50f, 0.026f, sk, sk2);          // palma (detras)
+        rd_box(-hx - 0.007f, -hy * 0.35f, 0.0f, 0.009f, 0.010f, hz + 0.006f, sk, sk2);             // dedos que rodean el aparato
+        rd_box(-hx - 0.007f, -hy * 0.62f, 0.0f, 0.009f, 0.010f, hz + 0.006f, sk, sk2);
+        rd_box(-hx - 0.007f, -hy * 0.89f, 0.0f, 0.009f, 0.010f, hz + 0.006f, sk, sk2);
+        rd_box(hx + 0.010f, -hy * 0.20f, -hz * 0.4f, 0.011f, 0.020f, hz * 1.2f, sk, sk2);          // pulgar al otro lado
     }
     rd_box(0.0f, 0.0f, 0.0f, hx, hy, hz, body, side);                                   // cuerpo
     rd_box(-hx * 0.62f, hy + 0.045f * S, 0.0f, 0.005f * S, 0.045f * S, 0.005f * S, frame, side);   // antena
@@ -7577,7 +7598,7 @@ static void reset_game(void)
         crouched = 0; crouch_f = 0.0f;
         walk_ph = 0.0f; walk_amp = 0.0f; step_imp = 0.0f; walk_step = 0; mon_thud = 0.0f;
         cam_rc = 1.0f; cam_rs = 0.0f; p_moving = 0; p_near = -1;
-        vel_x = 0.0f; vel_z = 0.0f; step_kick = 0.0f; walk_spd = 0.0f;
+        vel_x = 0.0f; vel_z = 0.0f; step_kick = 0.0f; walk_spd = 0.0f; det_t = 0.0f; det_up = 0.0f;
         fx = sinf(yaw); fz = cosf(yaw); rx = cosf(yaw); rz = -sinf(yaw);
         cam_y = EYE; amb_r = 22.0f; light_flick = 1.0f;
         has_map = 0; map_open = 0; map_msg = 0;
@@ -9349,6 +9370,13 @@ static void player_move(float dt, float t, const PadIn *in)
     if (newp & PAD_L1) { flash_on = !flash_on; sfx_play(SFX_CLICK, 0.8f); }
     if (ui_input(newp)) { fwd = str = turn = look = mag = 0.0f; newp = 0; }   // ventana abierta (mapa / candado): no te mueves
     inv_open = (in->pd & PAD_R1) ? 1 : 0;                                       // R1 (mantener): ver llaves y codigos
+    {   // R2 (mantener 5 s): carga el DETECTOR; al llenarse sube al centro de la camara mientras sigas apretando
+        int hold = (in->pd & PAD_R2) && !map_open && code_door < 0;
+        if (hold) { det_t += dt; if (det_t > DET_TIME) det_t = DET_TIME; } else det_t = 0.0f;
+        float tgt = (hold && det_t >= DET_TIME) ? 1.0f : 0.0f;
+        det_up += (tgt - det_up) * clampf(dt * (tgt > det_up ? 6.0f : 12.0f), 0.0f, 1.0f);
+        if (!hold && det_up < 0.01f) det_up = 0.0f;
+    }
     fx = sinf(yaw); fz = cosf(yaw);
     rx = cosf(yaw); rz = -sinf(yaw);
 
