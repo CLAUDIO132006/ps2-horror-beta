@@ -1,5 +1,5 @@
 // ============================================================
-//  HORROR BETA 0.4 - BOSQUE  [version CIRCULO + ONLINE]  (PS2 homebrew, PS2SDK + gsKit)
+//  HORROR BETA 0.4 - BOSQUE  [version CIRCULO + ONLINE + RENDER]  (PS2 homebrew, PS2SDK + gsKit)
 //
 //  Controles (DualShock 2):
 //    Stick izq  : moverse (empujalo al tope para CORRER, gasta estamina)
@@ -5447,6 +5447,11 @@ static float step_kick, walk_spd;           // golpe de pisada (sin suavizar) / 
 // ---- opciones (GRAFICOS: 0 bajo, 1 medio, 2 alto) ----
 static int   gfx = 1, snd_on = 1, vol_lv = 4;
 static float draw_lim;     // distancia maxima de dibujo este cuadro (ver lights_prepare)
+// RENDER (opciones): 1..8. El nivel 3 es la distancia de siempre; mas alto = se ve mas lejos. El tope baja solo (rd_max)
+// cuando los FPS caen de 50 con un nivel mayor al 3: asi la opcion "llega" hasta donde se mantienen los 50 FPS.
+#define RD_DEF 3
+static int rd_lv = RD_DEF, rd_max = 8;
+#define rd_k (0.6f + 0.2f * (float)(rd_lv - 1))
 static const int   gfx_R[3]     = { 5, 5, 6 };            // celdas dibujadas alrededor (mas alla la luz ya no se ve)
 static const float gfx_maxd[3]  = { 24.0f, 33.0f, 30.0f }; // distancia de dibujo
 static const float gfx_pd[3]    = { 15.0f, 18.0f, 21.0f }; // arboles y objetos (con menos luz que esto ya se ven negros)
@@ -6504,7 +6509,7 @@ static void draw_layer(int layer)
     const char **m = layer ? map1 : map0;
     float fy = layer ? SEWER_Y : 0.0f;
     int pcx = (int)(px / CS), pcz = (int)(pz / CS);
-    const int gR = gfx_R[gfx];
+    const int gR = (int)((float)gfx_R[gfx] * rd_k + 0.5f);
     for (int cz = pcz - gR; cz <= pcz + gR; cz++) {
         if (cz < 0 || cz >= MH) continue;
         for (int cx = pcx - gR; cx <= pcx + gR; cx++) {
@@ -6547,12 +6552,12 @@ static void draw_layer(int layer)
 static void draw_trees(void)
 {
     int pcx = (int)(px / CS), pcz = (int)(pz / CS);
-    const int gR = gfx_R[gfx];
+    const int gR = (int)((float)gfx_R[gfx] * rd_k + 0.5f);
     for (int cz = pcz - gR; cz <= pcz + gR; cz++)
         for (int cx = pcx - gR; cx <= pcx + gR; cx++) {
             float tx, tz, s; int dead;
             if (!tree_at(cx, cz, &tx, &tz, &s, &dead)) continue;
-            if (!in_view(tx, tz, 1.6f, fminf(draw_lim, gfx_pd[gfx]))) continue;
+            if (!in_view(tx, tz, 1.6f, fminf(draw_lim, (gfx_pd[gfx] * rd_k)))) continue;
             float bark[3] = { 78.f, 58.f, 40.f };
             if (dead) {
                 float bk[3] = { 64.f, 52.f, 44.f };
@@ -6561,7 +6566,7 @@ static void draw_trees(void)
                 box_rot(tx, tz, 2.2f, 0.45f * s, 0, 0.45f * s, 0.06f, 2.9f * s, 3.0f * s, bk, 0);
             } else {
                 float g1[3] = { 34.f, 72.f, 36.f }, g2[3] = { 42.f, 86.f, 44.f };
-                float ex = tx - px, ez = tz - pz, lim = fminf(draw_lim, gfx_pd[gfx]);
+                float ex = tx - px, ez = tz - pz, lim = fminf(draw_lim, (gfx_pd[gfx] * rd_k));
                 box_rot(tx, tz, 0, 0, 0, 0.17f * s, 0.17f * s, 0, 2.4f * s, bark, 0);
                 if (ex * ex + ez * ez > 0.36f * lim * lim)                    // lejos: un solo cono (casi no se nota)
                     pyr_rot(tx, tz, 1.1f * s, 1.5f * s, 5.2f * s, g1);
@@ -6579,7 +6584,7 @@ static void draw_props(float t)
         const Prop *p = &props[i];
         if (p->layer != cur_layer && !climbing) continue;
         float rad = fmaxf(p->hx, p->hz) * 1.45f + 0.6f;
-        if (!in_view(p->x, p->z, rad, fminf(draw_lim, gfx_pd[gfx]))) continue;
+        if (!in_view(p->x, p->z, rad, fminf(draw_lim, (gfx_pd[gfx] * rd_k)))) continue;
         float col[3] = { (float)p->r, (float)p->g, (float)p->b };
         if (p->type == 0 && p->emit == 0.0f && p->x > 192.0f && p->x < 196.2f && p->z > 176.0f && p->z < 180.0f &&
             p->y1 - p->y0 < 0.2f && p->y0 < 34.0f) {      // antena: menos travesanos (la torre y su alcance de dibujado siguen igual)
@@ -7157,7 +7162,7 @@ static void draw_other_player(float t)
     if (num_players < 2 || state != 0) return;
     const Player *Q = &P[1 - pl_cur];
     if (!(Q->cur_layer == cur_layer || Q->climbing || climbing)) return;
-    if (!in_view(Q->px, Q->pz, 1.5f, gfx_pd[gfx])) return;
+    if (!in_view(Q->px, Q->pz, 1.5f, (gfx_pd[gfx] * rd_k))) return;
     StPose S; st_pose(Q, &S);
     const StCtx *C = &S.C;
     const SkinDef *K = &skins[skin_of(1 - pl_cur)];            // la skin del OTRO jugador
@@ -7224,8 +7229,8 @@ static void draw_other_player(float t)
 // Si el otro jugador tiene la linterna encendida se conserva la distancia completa (su circulo puede estar lejos).
 static void lights_prepare(void)
 {
-    draw_lim = gfx_maxd[gfx];
-    { float lim = 18.0f * gfx_reach[gfx] + 1.0f; if (lim < draw_lim) draw_lim = lim; }   // a mas del 80% del alcance de la luz todo esta negro
+    draw_lim = gfx_maxd[gfx] * rd_k;
+    { float lim = (18.0f * gfx_reach[gfx] + 1.0f) * rd_k; if (lim < draw_lim) draw_lim = lim; }   // a mas del 80% del alcance de la luz todo esta negro
 }
 
 // ---------------- Luz de la linterna del otro jugador ----------------
@@ -7815,7 +7820,7 @@ static void draw_key(float x, float z, float fy, float a)
 static void draw_map_board(float t)
 {
     if (cur_layer != 0 && !climbing) return;
-    if (!in_view(MAPB_X, MAPB_Z, 2.0f, gfx_pd[gfx])) return;
+    if (!in_view(MAPB_X, MAPB_Z, 2.0f, (gfx_pd[gfx] * rd_k))) return;
     static const float wood[3]  = {  96.f,  66.f,  40.f };
     static const float board[3] = { 128.f,  92.f,  58.f };
     static const float paper[3] = { 222.f, 204.f, 158.f };
@@ -7989,7 +7994,7 @@ static void draw_doors(void)
     if (cur_layer != 0 && !climbing) return;
     for (int i = 0; i < ND; i++) {
         const Door *d = &doors[i];
-        if (!in_view(d->x, d->z, d->hw + 1.0f, gfx_pd[gfx])) continue;
+        if (!in_view(d->x, d->z, d->hw + 1.0f, (gfx_pd[gfx] * rd_k))) continue;
         float h = cell_info(map0[d->cz][d->cx], 0).ceil;
         if (h < 2.0f) h = 2.4f;
         float col[3], bright[3];
@@ -8016,7 +8021,7 @@ static void draw_items(float t)
     for (int i = 0; i < NIT; i++) {
         if (item_got[i]) continue;
         const Item *it = &items[i];
-        if (!in_view(it->x, it->z, 0.8f, gfx_pd[gfx])) continue;
+        if (!in_view(it->x, it->z, 0.8f, (gfx_pd[gfx] * rd_k))) continue;
         float y = 0.45f + 0.08f * sinf(t * 2.0f + (float)i), a = t * 1.2f + (float)i;
         if (it->kind == 0) {                                    // llave flotando
             float col[3] = { key_rgb[it->id][0], key_rgb[it->id][1], key_rgb[it->id][2] };
@@ -8132,7 +8137,7 @@ static void render_game(float t, int moving, int near_ladder, int notes)
 
             for (int i = 0; i < 3; i++) {
                 if (notes_got[i] || (int)notes_pos[i][3] != cur_layer) continue;
-                if (in_view(notes_pos[i][0], notes_pos[i][1], 0.8f, gfx_pd[gfx]))
+                if (in_view(notes_pos[i][0], notes_pos[i][1], 0.8f, (gfx_pd[gfx] * rd_k)))
                     draw_key(notes_pos[i][0], notes_pos[i][1], notes_pos[i][2], key_ang[i]);
             }
             if (notes == 3 && cur_layer == 0) {
@@ -8758,7 +8763,7 @@ static void menu_frame(u32 newp, float lv, int frame)
     int was_skin = (screen == SC_SKIN);
     int ok = (newp & PAD_CROSS) != 0, back = (newp & PAD_CIRCLE) != 0;
     int lt = (newp & PAD_LEFT) != 0, rt = (newp & PAD_RIGHT) != 0;
-    int n = (screen == SC_OPT) ? 7 : (screen == SC_SKIN ? 3 : screen == SC_CTRL ? 3 : (screen == SC_MAIN ? 5 : (screen == SC_NET ? 3 : (screen == SC_NETIP || screen == SC_NETWAIT ? 1 : 4))));
+    int n = (screen == SC_OPT) ? 8 : (screen == SC_SKIN ? 3 : screen == SC_CTRL ? 3 : (screen == SC_MAIN ? 5 : (screen == SC_NET ? 3 : (screen == SC_NETIP || screen == SC_NETWAIT ? 1 : 4))));
     if (pad2_warn > 0) pad2_warn--;
     const int scr0 = screen;                                   // pantalla con la que empieza este cuadro
 #ifdef HAVE_NET
@@ -8788,7 +8793,7 @@ static void menu_frame(u32 newp, float lv, int frame)
                 snprintf(net_notice, sizeof(net_notice), "ONLINE NO INCLUIDO (COMPILA CON -DUSE_NET)"); net_notice_t = 240;
 #endif
             }
-            else if (*sel == 3) { opt_from = SC_MAIN; screen = SC_OPT; opt_sel = 0; }
+            else if (*sel == 3) { opt_from = SC_MAIN; screen = SC_OPT; opt_sel = 0; rd_max = 8; }
             else Exit(0);
         }
     } else if (screen == SC_PAUSE) {
@@ -8796,19 +8801,24 @@ static void menu_frame(u32 newp, float lv, int frame)
         else if (ok) {
             if (*sel == 0) screen = SC_PLAY;
             else if (*sel == 1) { reset_game(); screen = SC_PLAY; }             // REINICIAR
-            else if (*sel == 2) { opt_from = SC_PAUSE; screen = SC_OPT; opt_sel = 0; }
+            else if (*sel == 2) { opt_from = SC_PAUSE; screen = SC_OPT; opt_sel = 0; rd_max = 8; }
             else { screen = SC_MAIN; menu_sel = 0; }
         }
     } else if (screen == SC_OPT) {
         int d = rt ? 1 : (lt ? -1 : (ok ? 1 : 0));
-        if (back || (ok && *sel == 6)) screen = opt_from;
-        else if (ok && *sel == 5) { screen = SC_SKIN; skin_sel = 0; }
-        else if (ok && *sel == 4) { screen = SC_CTRL; ctl_sel = 0; }
+        if (back || (ok && *sel == 7)) screen = opt_from;
+        else if (ok && *sel == 6) { screen = SC_SKIN; skin_sel = 0; }
+        else if (ok && *sel == 5) { screen = SC_CTRL; ctl_sel = 0; }
         else if (d != 0) {
             if (*sel == 0) gfx = (gfx + d + 3) % 3;
             else if (*sel == 1) snd_on = !snd_on;
             else if (*sel == 2) { vol_lv += d; if (vol_lv > 5) vol_lv = ok ? 1 : 5; if (vol_lv < 1) vol_lv = 1; }
             else if (*sel == 3) blend_flip = !blend_flip;
+            else if (*sel == 4) {                                              // RENDER: llega hasta el tope que aguantan los 50 FPS
+                rd_lv += d;
+                if (rd_lv > rd_max) rd_lv = ok ? 1 : rd_max;
+                if (rd_lv < 1) rd_lv = 1;
+            }
         }
     }
 
@@ -8943,19 +8953,20 @@ static void menu_frame(u32 newp, float lv, int frame)
         draw_text_c(40.0f, "OPCIONES", 5, sel_c);
         static const char *gq[3] = { "BAJO", "MEDIO", "ALTO" };
         char vt[8]; vt[0] = (char)('0' + vol_lv); vt[1] = '\0';
-        for (int i = 0; i < 7; i++) {
+        for (int i = 0; i < 8; i++) {
             const char *name = "";
             char val[12]; val[0] = '\0';
             if (i == 0) { name = "GRAFICOS"; snprintf(val, sizeof(val), "%s", gq[gfx]); }
             else if (i == 1) { name = "SONIDO"; snprintf(val, sizeof(val), "%s", snd_on ? "SI" : "NO"); }
             else if (i == 2) { name = "VOLUMEN"; snprintf(val, sizeof(val), "%s", vt); }
             else if (i == 3) { name = "INVERTIR LUZ"; snprintf(val, sizeof(val), "%s", blend_flip ? "SI" : "NO"); }
-            else if (i == 4) name = "CONTROLES";
-            else if (i == 5) name = "SKINS";
+            else if (i == 4) { name = "RENDER"; snprintf(val, sizeof(val), rd_lv == rd_max && rd_max < 8 ? "%d MAX" : "%d", rd_lv); }
+            else if (i == 5) name = "CONTROLES";
+            else if (i == 6) name = "SKINS";
             else name = "VOLVER";
             if (val[0]) snprintf(line, sizeof(line), i == opt_sel ? "> %s: %s <" : "%s: %s", name, val);
             else snprintf(line, sizeof(line), i == opt_sel ? "> %s <" : "%s", name);
-            draw_text_c(100.0f + i * 36.0f, line, 3, i == opt_sel ? sel_c : norm_c);
+            draw_text_c(92.0f + i * 32.0f, line, 3, i == opt_sel ? sel_c : norm_c);
         }
     }
     if (screen == SC_SKIN) {
@@ -9110,6 +9121,8 @@ static void menu_frame(u32 newp, float lv, int frame)
     if (screen != SC_NETIP && screen != SC_NETWAIT && screen != SC_LOBBY && screen != SC_NETLIST && screen != SC_NAME)
     draw_text_c(H - 34.0f, (screen == SC_OPT || screen == SC_CTRL || screen == SC_SKIN) ? "IZQ/DER: CAMBIAR   O: ATRAS" : "ARRIBA/ABAJO: MOVER   X: ELEGIR", 2, hint_c);
     if (screen == SC_MAIN || screen == SC_OPT) draw_text_c(H - 58.0f, "LUZ AL REVES? PULSA SELECT", 2, hint_c);
+    if (screen == SC_OPT)
+        draw_text_c(H - 106.0f, "RENDER: 3 = NORMAL. MAS ALTO = VES MAS LEJOS (BAJA SOLO SI LOS FPS CAEN DE 50)", 1, hint_c);
     if (screen == SC_OPT)
         draw_text_c(H - 82.0f, audio_state == 2 ? "AUDIO: ACTIVO" : (audio_state == 1 ? "AUDIO: NO ARRANCO" : "AUDIO: NO INCLUIDO"),
                     2, audio_state == 2 ? GS_SETREG_RGBAQ(90, 210, 110, 0x80, 0) : GS_SETREG_RGBAQ(220, 90, 60, 0x80, 0));
@@ -9460,6 +9473,13 @@ int main(void)
     while (1) {
         frame_no++;
         fps_update();
+        {   // RENDER: si con un nivel mayor al normal los FPS bajan de 50, baja un nivel y ese pasa a ser el tope
+            static int low = 0;
+            if (screen == SC_PLAY && fps_val > 1.0f && fps_val < 50.0f && rd_lv > RD_DEF) {
+                if (++low > 100) { rd_lv--; rd_max = rd_lv; low = -60; }
+            } else if (low > 0 || screen != SC_PLAY) low = 0;
+            else if (low < 0) low++;
+        }
         float t = frame_no * dt;
 #ifdef HEADLESS_FRAMES
         if (frame_no >= HEADLESS_FRAMES) break;
