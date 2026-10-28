@@ -1,5 +1,5 @@
 // ============================================================
-//  HORROR BETA 0.4 - BOSQUE  [version CIRCULO + ONLINE]  (PS2 homebrew, PS2SDK + gsKit)
+//  HORROR BETA 0.5 - BOSQUE  [version CIRCULO + ONLINE + SETS DE LLAVES]  (PS2 homebrew, PS2SDK + gsKit)
 //
 //  Controles (DualShock 2):
 //    Stick izq  : moverse (empujalo al tope para CORRER, gasta estamina)
@@ -5371,7 +5371,7 @@ static const Beacon beacons[NBC] = {
 // Llaves en el piso: x, z, altura del piso, capa. (La de la cabana y la de la cueva estaban sobre un mueble: ahora
 // quedan en el suelo junto a el.)
 // LLAVES FINALES (blancas-azuladas): cada una esta detras de una puerta distinta; juntas abren la puerta final de la alcantarilla.
-static const float notes_pos[3][4] = {{58.000f,258.800f,0.000f,0.000f},{342.000f,72.000f,0.000f,0.000f},{178.000f,169.500f,0.000f,0.000f}};   // 1 = cabana, 2 = cueva, 3 = dentro de la caseta de la antena
+static float notes_pos[3][4] = {{58.000f,258.800f,0.000f,0.000f},{342.000f,72.000f,0.000f,0.000f},{178.000f,169.500f,0.000f,0.000f}};   // se rellena en place_keys() al empezar cada partida (set de llaves al azar)
 static const float key_ang[3] = { 0.35f, 2.20f, 4.00f };   // hacia donde apunta cada llave en el suelo
 #define NMH 2
 static const int manholes[NMH][2] = {{34,48},{72,64}};
@@ -5413,7 +5413,7 @@ static const Door doors[ND] = {
 };
 #define NIT 6
 typedef struct { float x, z; unsigned char kind, id; } Item;     // kind 0 = llave (id = color), 1 = papel con codigo (id = codigo)
-static const Item items[NIT] = {
+static Item items[NIT] = {   // x, z se rellenan en place_keys() (valores de abajo = set 0)
     { 198.0f, 336.0f, 0, 0 },   // llave ROJA: en el camino, cerca del inicio
     { 234.0f, 287.0f, 0, 1 },   // llave AZUL: dentro de la casa del inicio
     { 324.0f, 308.0f, 0, 2 },   // llave AMARILLA: dentro del establo
@@ -5421,6 +5421,34 @@ static const Item items[NIT] = {
     {  58.0f,  60.0f, 1, 1 },   // codigo de la antena: dentro del edificio noroeste
     { 306.0f, 168.0f, 0, 3 },   // llave VERDE: dentro del edificio del noreste
 };
+
+// ---------------- Sets de llaves: en cada partida se elige uno AL AZAR ----------------
+// Lugares posibles (x, z). Cada uno esta detras de una puerta (o libre), y los sets estan comprobados para que SIEMPRE se pueda ganar:
+//   0 camino de inicio (libre)   1 casa junto al inicio (llave ROJA)   2 establo (AZUL)   3 casita de piedra (ROJA)
+//   4 edificio noroeste (AZUL)   5 edificio noreste (AMARILLA)         6 cabana (candado, codigo 0)
+//   7 cueva (VERDE)              8 caseta de la antena (candado, codigo 1)
+#define NSLOT 9
+#define NKSET 5
+static const float slot_xz[NSLOT][2] = {
+    { 198.0f, 336.0f }, { 234.0f, 287.0f }, { 324.0f, 308.0f }, { 60.0f, 148.0f }, { 58.0f, 60.0f },
+    { 306.0f, 168.0f }, { 58.0f, 258.8f }, { 342.0f, 72.0f }, { 178.0f, 169.5f } };
+// Cada set dice en que lugar queda cada objeto, en este orden:
+//   llave ROJA, AZUL, AMARILLA, VERDE, papel con el codigo de la CABANA, papel con el codigo de la ANTENA, llaves finales 1, 2 y 3
+static const unsigned char key_sets[NKSET][9] = {
+    { 0, 1, 2, 5, 3, 4, 6, 7, 8 },   // set 0
+    { 8, 7, 1, 0, 5, 2, 3, 6, 4 },   // set 1
+    { 2, 5, 0, 6, 3, 1, 8, 4, 7 },   // set 2
+    { 2, 6, 4, 3, 8, 0, 7, 1, 5 },   // set 3
+    { 5, 0, 6, 2, 4, 7, 1, 3, 8 },   // set 4
+};
+static const unsigned char item_of_logic[NIT] = { 0, 1, 2, 4, 5, 3 };   // items[i] -> columna del set (ROJA, AZUL, AMARILLA, codigo cabana, codigo antena, VERDE)
+static int key_set, last_key_set = -1;                                  // set de la partida / el de la partida anterior (para no repetir seguido)
+static void place_keys(int set)
+{
+    const unsigned char *a = key_sets[set];
+    for (int i = 0; i < NIT; i++) { items[i].x = slot_xz[a[item_of_logic[i]]][0]; items[i].z = slot_xz[a[item_of_logic[i]]][1]; }
+    for (int i = 0; i < 3; i++) { notes_pos[i][0] = slot_xz[a[6 + i]][0]; notes_pos[i][1] = slot_xz[a[6 + i]][1]; notes_pos[i][2] = 0.0f; notes_pos[i][3] = 0.0f; }
+}
 static const char *key_name[4]  = { "ROJA", "AZUL", "AMARILLA", "VERDE" };
 static const char *code_name[2] = { "CABANA", "ANTENA" };
 static const float key_rgb[4][3] = { { 210.f, 40.f, 36.f }, { 50.f, 100.f, 235.f }, { 235.f, 205.f, 50.f }, { 50.f, 200.f, 90.f } };
@@ -7587,6 +7615,10 @@ static void reset_game(void)
     for (int i = 0; i < NIT; i++) item_got[i] = 0;
     for (int i = 0; i < 4; i++) have_key[i] = 0;
     for (int i = 0; i < 2; i++) { have_code[i] = 0; code_num[i] = 1000 + (int)(hash2(game_seed + 17 * i, 91 + 37 * i) % 9000u); }   // codigos distintos cada partida
+    key_set = (int)(hash2((int)game_seed, 4242) % NKSET);                       // set de llaves al azar (no repite el de la partida anterior)
+    if (key_set == last_key_set) key_set = (key_set + 1 + (int)(hash2((int)game_seed, 99) % (NKSET - 1))) % NKSET;
+    last_key_set = key_set;
+    place_keys(key_set);
     state = 0; state_timer = 0;
     mon_phase = 0.0f; mon_spd = 0.0f; mon_runf = 0.0f;
     mon_foot_event = 0; js_victim = 0; mon_target = 0;
@@ -8106,8 +8138,8 @@ static void draw_map_screen(void)
     map_sq(&A, EXIT_X / CS, EXIT_Z / CS, r, c_exit);          // caseta de la antena
     map_sq(&A, SPAWN_X / CS, SPAWN_Z / CS, r, GS_SETREG_RGBAQ(255, 255, 255, 0x80, 0));   // inicio / cartel
 
-    map_label(&A, notes_pos[0][0] / CS, notes_pos[0][1] / CS - 5.0f, "CABANA");
-    map_label(&A, notes_pos[1][0] / CS - 8.0f, notes_pos[1][1] / CS - 13.0f, "CUEVA");
+    map_label(&A, slot_xz[6][0] / CS, slot_xz[6][1] / CS - 5.0f, "CABANA");
+    map_label(&A, slot_xz[7][0] / CS - 8.0f, slot_xz[7][1] / CS - 13.0f, "CUEVA");
     map_label(&A, EXIT_X / CS + 2.0f, EXIT_Z / CS - 4.5f, "ANTENA");
     map_label(&A, SPAWN_X / CS, SPAWN_Z / CS + 2.4f, "INICIO");
 
@@ -8718,7 +8750,7 @@ static void net_match_begin(void)
 {
     net_online = 1; num_players = 2; net_local = net_host ? 0 : 1;
     net_psens_h[net_local] = sens_h; net_psens_v[net_local] = sens_v;
-    frame_no = 0; js_rng = 12345u; game_seed = net_seed;
+    frame_no = 0; js_rng = 12345u; game_seed = net_seed; last_key_set = -1;
     memset(pin, 0, sizeof(pin));
     for (unsigned int i = 0; i < NET_RING; i++) { loc_fr[i] = rem_fr[i] = 0xFFFFFFFFu; net_neutral(&loc_in[i]); net_neutral(&rem_in[i]); }
     for (unsigned int i = 0; i < NET_DELAY; i++) { loc_fr[i] = rem_fr[i] = i; }    // los primeros cuadros son sin pulsar nada
@@ -8861,6 +8893,7 @@ static unsigned int sim_hash(void)
     for (int i = 0; i < 3; i++) HM(notes_got[i]);
     for (int i = 0; i < ND; i++) HM(door_open[i]);
     for (int i = 0; i < NIT; i++) HM(item_got[i]);
+    HM(key_set);
 #undef HM
     return h;
 }
