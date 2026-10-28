@@ -9118,6 +9118,20 @@ static void st_plane(const StCtx *C, const StPart *p, int axis, int sgn, float v
     quad_sub(q, col, 1, emit);
 }
 
+// Igual que st_plane pero SIN la prueba de espaldas: para rectangulos de una cara que ya se sabe visible
+static void st_quad(const StCtx *C, const StPart *p, int axis, float v,
+                    float a0, float a1, float b0, float b1, const float *col, float emit)
+{
+    float q[4][3];
+    const float A[4] = { a0, a1, a1, a0 }, B[4] = { b0, b0, b1, b1 };
+    for (int i = 0; i < 4; i++) {
+        if (axis == 0)      st_pt(C, p, v, A[i], B[i], q[i]);
+        else if (axis == 1) st_pt(C, p, A[i], v, B[i], q[i]);
+        else                st_pt(C, p, A[i], B[i], v, q[i]);
+    }
+    quad_sub(q, col, 1, emit);
+}
+
 static void st_box(const StCtx *C, const StPart *p, float x0, float x1, float y0, float y1,
                    float z0, float z1, const float *col, float emit)
 {
@@ -9155,17 +9169,80 @@ static int st_facing(const StCtx *C, const StPart *p, int axis, int sgn, float v
     return wx * (px - q[0]) + ny * (cam_y - q[1]) + wz * (pz - q[2]) > 0.0f;
 }
 
+// ---- Cache de rectangulos por skin ----
+// Cada cara de la skin se reduce al nivel de detalle pedido (bloques de 1, 2 o 4 texeles, promediando colores) y los
+// bloques vecinos del mismo color se UNEN en rectangulos grandes (en horizontal y en vertical). Se calcula una sola
+// vez por skin / parte / cara / detalle; despues cada cuadro solo recorre la lista (antes se promediaba y se unia
+// en cada cuadro, y solo se unia en horizontal).
+typedef struct { unsigned char c0, r0, c1, r1, rgb[3], pad; } TexQuad;      // c0..c1 / r0..r1 en bloques (c1, r1 no incluidos)
+typedef struct { unsigned short start, cnt; unsigned char gw, gh; } TxqRef;
+#define TXQ_POOL 12000
+static TexQuad txq_pool[TXQ_POOL];
+static TxqRef  txq_ref[NSKIN][4][2][6][3];          // [skin][parte: 0 cabeza 1 torso 2 brazo 3 pierna][espejo][cara][detalle 1/2/4]
+static int     txq_used, txq_init;
+
+static const TexQuad *txq_get(int ski, int kind, int mirror, int f, int bsi, const TxqRef **out)
+{
+    if (!txq_init) { memset(txq_ref, 0xFF, sizeof(txq_ref)); txq_used = 0; txq_init = 1; }
+    TxqRef *rf = &txq_ref[ski][kind][mirror][f][bsi];
+    if (rf->cnt == 0xFFFF) {
+        static const TexRect *tabs[4] = { tx_head, tx_body, tx_arm, tx_leg };
+        const unsigned char *tex = skins[ski].tex;
+        int bs = 1 << bsi, tf = f, flipc = 0;
+        if (mirror) { if (f == 2) tf = 3; else if (f == 3) tf = 2; else flipc = 1; }
+        const TexRect *R = &tabs[kind][tf];
+        int gw = R->w / bs, gh = R->h / bs;
+        unsigned int col[12][8];
+        unsigned char used[12][8];
+        for (int gr = 0; gr < gh; gr++)
+            for (int gc = 0; gc < gw; gc++) {
+                int sr = 0, sg = 0, sb = 0;
+                for (int kr = 0; kr < bs; kr++)
+                    for (int kc = 0; kc < bs; kc++) {
+                        int tc = flipc ? (R->w - 1 - (gc * bs + kc)) : (gc * bs + kc);
+                        const unsigned char *q = &tex[((R->v + gr * bs + kr) * 64 + R->u + tc) * 3];
+                        sr += q[0]; sg += q[1]; sb += q[2];
+                    }
+                int cnt = bs * bs;
+                col[gr][gc] = ((unsigned int)(sr / cnt) << 16) | ((unsigned int)(sg / cnt) << 8) | (unsigned int)(sb / cnt);
+                used[gr][gc] = 0;
+            }
+        rf->start = (unsigned short)txq_used; rf->gw = (unsigned char)gw; rf->gh = (unsigned char)gh;
+        int n = 0;
+        for (int r = 0; r < gh; r++)
+            for (int c = 0; c < gw; c++) {
+                if (used[r][c]) continue;
+                unsigned int k = col[r][c];
+                int w = 1, h = 1;
+                while (c + w < gw && !used[r][c + w] && col[r][c + w] == k) w++;          // ensancha
+                for (;;) {                                                                 // y alarga hacia abajo si toda la fila coincide
+                    int ok = (r + h < gh);
+                    for (int x = 0; ok && x < w; x++) if (used[r + h][c + x] || col[r + h][c + x] != k) ok = 0;
+                    if (!ok) break;
+                    h++;
+                }
+                for (int a = 0; a < h; a++) for (int b = 0; b < w; b++) used[r + a][c + b] = 1;
+                if (txq_used < TXQ_POOL) {
+                    TexQuad *Q = &txq_pool[txq_used++];
+                    Q->c0 = (unsigned char)c; Q->c1 = (unsigned char)(c + w); Q->r0 = (unsigned char)r; Q->r1 = (unsigned char)(r + h);
+                    Q->rgb[0] = (unsigned char)((k >> 16) & 255); Q->rgb[1] = (unsigned char)((k >> 8) & 255); Q->rgb[2] = (unsigned char)(k & 255);
+                    n++;
+                }
+            }
+        rf->cnt = (unsigned short)n;
+    }
+    *out = rf;
+    return &txq_pool[rf->start];
+}
+
 // Una caja con textura. mirror = 1 para el brazo/pierna izquierdos (la skin clasica los refleja).
-// bs = tamano del bloque en texeles (1 de cerca, 2 o 4 de lejos: promedia colores y dibuja menos).
-static void st_tex_box(const StCtx *C, const StPart *p, const unsigned char *tex, const TexRect *T, int mirror,
-                       float X0, float X1, float Y0, float Y1, float Z0, float Z1, int bs, float emit)
+// bs = bloque en texeles para todas las caras (1, 2 o 4: menos resolucion = menos rectangulos);
+// bsf = bloque de la cara frontal (la cabeza conserva mas detalle en la cara).
+static void st_tex_box(const StCtx *C, const StPart *p, int ski, int kind, int mirror,
+                       float X0, float X1, float Y0, float Y1, float Z0, float Z1, int bs, int bsf, float emit)
 {
     static const float shade[6] = { 0.90f, 0.68f, 0.78f, 0.78f, 1.00f, 0.50f };
     for (int f = 0; f < 6; f++) {
-        int tf = f, flipc = 0;
-        if (mirror) { if (f == 2) tf = 3; else if (f == 3) tf = 2; else flipc = 1; }
-        const TexRect *R = &T[tf];
-        int fw = R->w, fh = R->h;
         int axis = (f < 2) ? 0 : (f < 4 ? 2 : 1), sgn = (f & 1) ? -1 : 1;
         float v = (f == 0) ? X1 : (f == 1) ? X0 : (f == 2) ? Z1 : (f == 3) ? Z0 : (f == 4) ? Y1 : Y0;
         {   // prueba de la cara entera (con sus extremos)
@@ -9175,37 +9252,23 @@ static void st_tex_box(const StCtx *C, const StPart *p, const unsigned char *tex
             else                { a0 = X0; a1 = X1; b0 = Z0; b1 = Z1; }
             if (!st_facing(C, p, axis, sgn, v, a0, a1, b0, b1)) continue;
         }
+        int b = (f == 0) ? bsf : bs;
+        const TxqRef *rf;
+        const TexQuad *Q = txq_get(ski, kind, mirror, f, b == 1 ? 0 : (b == 2 ? 1 : 2), &rf);
+        float igw = 1.0f / (float)rf->gw, igh = 1.0f / (float)rf->gh;
         float col[3];
-        for (int gr = 0; gr < fh; gr += bs) {
-            int rc[8], nb = 0;                                    // colores de la fila de bloques
-            for (int gc = 0; gc < fw; gc += bs) {
-                int sr = 0, sg = 0, sb = 0, cnt = 0;
-                for (int kr = 0; kr < bs; kr++)
-                    for (int kc = 0; kc < bs; kc++) {
-                        int tc = flipc ? (fw - 1 - (gc + kc)) : (gc + kc);
-                        const unsigned char *q = &tex[((R->v + gr + kr) * 64 + R->u + tc) * 3];
-                        sr += q[0]; sg += q[1]; sb += q[2]; cnt++;
-                    }
-                rc[nb++] = ((sr / cnt) << 16) | ((sg / cnt) << 8) | (sb / cnt);
-            }
-            for (int bi = 0; bi < nb; ) {                         // une bloques seguidos del mismo color (menos cuadros)
-                int bj = bi + 1;
-                while (bj < nb && rc[bj] == rc[bi]) bj++;
-                float t0 = (float)(bi * bs) / (float)fw, t1 = (float)(bj * bs) / (float)fw;
-                float s0 = (float)gr / (float)fh, s1 = (float)(gr + bs) / (float)fh;
-                float a0, a1, b0, b1;
-                if (f == 0)      { b1 = Z1 - t0 * (Z1 - Z0); b0 = Z1 - t1 * (Z1 - Z0); a1 = Y1 - s0 * (Y1 - Y0); a0 = Y1 - s1 * (Y1 - Y0); }
-                else if (f == 1) { b0 = Z0 + t0 * (Z1 - Z0); b1 = Z0 + t1 * (Z1 - Z0); a1 = Y1 - s0 * (Y1 - Y0); a0 = Y1 - s1 * (Y1 - Y0); }
-                else if (f == 2) { a0 = X0 + t0 * (X1 - X0); a1 = X0 + t1 * (X1 - X0); b1 = Y1 - s0 * (Y1 - Y0); b0 = Y1 - s1 * (Y1 - Y0); }
-                else if (f == 3) { a1 = X1 - t0 * (X1 - X0); a0 = X1 - t1 * (X1 - X0); b1 = Y1 - s0 * (Y1 - Y0); b0 = Y1 - s1 * (Y1 - Y0); }
-                else if (f == 4) { a0 = X0 + s0 * (X1 - X0); a1 = X0 + s1 * (X1 - X0); b1 = Z1 - t0 * (Z1 - Z0); b0 = Z1 - t1 * (Z1 - Z0); }
-                else             { a1 = X1 - s0 * (X1 - X0); a0 = X1 - s1 * (X1 - X0); b1 = Z1 - t0 * (Z1 - Z0); b0 = Z1 - t1 * (Z1 - Z0); }
-                col[0] = (float)((rc[bi] >> 16) & 255) * shade[f];
-                col[1] = (float)((rc[bi] >> 8) & 255) * shade[f];
-                col[2] = (float)(rc[bi] & 255) * shade[f];
-                st_plane(C, p, axis, sgn, v, a0, a1, b0, b1, col, emit);
-                bi = bj;
-            }
+        for (int k = 0; k < (int)rf->cnt; k++) {
+            float t0 = (float)Q[k].c0 * igw, t1 = (float)Q[k].c1 * igw;
+            float s0 = (float)Q[k].r0 * igh, s1 = (float)Q[k].r1 * igh;
+            float a0, a1, b0, b1;
+            if (f == 0)      { b1 = Z1 - t0 * (Z1 - Z0); b0 = Z1 - t1 * (Z1 - Z0); a1 = Y1 - s0 * (Y1 - Y0); a0 = Y1 - s1 * (Y1 - Y0); }
+            else if (f == 1) { b0 = Z0 + t0 * (Z1 - Z0); b1 = Z0 + t1 * (Z1 - Z0); a1 = Y1 - s0 * (Y1 - Y0); a0 = Y1 - s1 * (Y1 - Y0); }
+            else if (f == 2) { a0 = X0 + t0 * (X1 - X0); a1 = X0 + t1 * (X1 - X0); b1 = Y1 - s0 * (Y1 - Y0); b0 = Y1 - s1 * (Y1 - Y0); }
+            else if (f == 3) { a1 = X1 - t0 * (X1 - X0); a0 = X1 - t1 * (X1 - X0); b1 = Y1 - s0 * (Y1 - Y0); b0 = Y1 - s1 * (Y1 - Y0); }
+            else if (f == 4) { a0 = X0 + s0 * (X1 - X0); a1 = X0 + s1 * (X1 - X0); b1 = Z1 - t0 * (Z1 - Z0); b0 = Z1 - t1 * (Z1 - Z0); }
+            else             { a1 = X1 - s0 * (X1 - X0); a0 = X1 - s1 * (X1 - X0); b1 = Z1 - t0 * (Z1 - Z0); b0 = Z1 - t1 * (Z1 - Z0); }
+            col[0] = (float)Q[k].rgb[0] * shade[f]; col[1] = (float)Q[k].rgb[1] * shade[f]; col[2] = (float)Q[k].rgb[2] * shade[f];
+            st_quad(C, p, axis, v, a0, a1, b0, b1, col, emit);
         }
     }
 }
@@ -9263,16 +9326,19 @@ static void draw_other_player(float t)
     const float em = 0.07f;
     if (K->tex) {                                              // skin con textura (STEVE ORIGINAL, SANTA...)
         float ddx = Q->px - px, ddz = Q->pz - pz, dd = ddx * ddx + ddz * ddz;
-        int bs = dd < 36.0f ? 1 : (dd < 196.0f ? 2 : 4);       // de lejos, bloques mas grandes
-        const unsigned char *T = K->tex;
-        st_tex_box(C, &S.legA, T, tx_leg,  1, -0.52f, 0.52f, 0.50f, 3.50f, -1.14f, -0.01f, bs, em);
-        st_tex_box(C, &S.legB, T, tx_leg,  0, -0.52f, 0.52f, 0.50f, 3.50f,  0.01f,  1.14f, bs, em);
-        st_tex_box(C, &S.body, T, tx_body, 0, -0.52f, 0.52f, 3.49f, 6.49f, -1.13f,  1.16f, bs, em);
-        st_tex_box(C, &S.armL, T, tx_arm,  1, -0.52f, 0.52f, 3.49f, 6.49f, -2.29f, -1.15f, bs, em);
-        st_tex_box(C, &S.armR, T, tx_arm,  0, -0.52f, 0.52f, 3.49f, 6.49f,  1.17f,  2.32f, bs, em);
+        // Detalle segun la distancia (bloques de 1/2/4 texeles). Cerca: cuerpo en bloques de 2 y la cara de la cabeza completa.
+        int ski = skin_of(1 - pl_cur);
+        int bs  = dd < 25.0f ? 2 : 4;                          // torso, brazos y piernas
+        int bsh = dd < 144.0f ? 2 : 4;                         // cabeza
+        int bsf = dd < 25.0f ? 1 : bsh;                        // cara frontal de la cabeza (ojos y boca)
+        st_tex_box(C, &S.legA, ski, 3, 1, -0.52f, 0.52f, 0.50f, 3.50f, -1.14f, -0.01f, bs, bs, em);
+        st_tex_box(C, &S.legB, ski, 3, 0, -0.52f, 0.52f, 0.50f, 3.50f,  0.01f,  1.14f, bs, bs, em);
+        st_tex_box(C, &S.body, ski, 1, 0, -0.52f, 0.52f, 3.49f, 6.49f, -1.13f,  1.16f, bs, bs, em);
+        st_tex_box(C, &S.armL, ski, 2, 1, -0.52f, 0.52f, 3.49f, 6.49f, -2.29f, -1.15f, bs, bs, em);
+        st_tex_box(C, &S.armR, ski, 2, 0, -0.52f, 0.52f, 3.49f, 6.49f,  1.17f,  2.32f, bs, bs, em);
         st_box(C, &S.armR, -0.25f, 0.25f, 2.55f, 3.50f, 1.47f, 2.02f, dark, em);          // linterna
         st_box(C, &S.armR, -0.29f, 0.29f, 2.38f, 2.55f, 1.43f, 2.06f, lens, (Q->flash_on ? 0.85f : 0.05f));
-        st_tex_box(C, &S.head, T, tx_head, 0, -1.00f, 1.00f, 6.47f, 8.49f, -1.01f, 1.01f, bs, em);
+        st_tex_box(C, &S.head, ski, 0, 0, -1.00f, 1.00f, 6.47f, 8.49f, -1.01f, 1.01f, bsh, bsf, em);
         return;
     }
     // piernas (pantalon + zapatos) y torso
