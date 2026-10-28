@@ -1,5 +1,5 @@
 // ============================================================
-//  HORROR BETA 0.4 - BOSQUE  [version CIRCULO + ONLINE]  (PS2 homebrew, PS2SDK + gsKit)
+//  HORROR BETA 0.4 - BOSQUE  [version CIRCULO + ONLINE + LOD]  (PS2 homebrew, PS2SDK + gsKit)
 //
 //  Controles (DualShock 2):
 //    Stick izq  : moverse (empujalo al tope para CORRER, gasta estamina)
@@ -5450,8 +5450,8 @@ static float draw_lim;     // distancia maxima de dibujo este cuadro (ver lights
 static const int   gfx_R[3]     = { 5, 5, 6 };            // celdas dibujadas alrededor (mas alla la luz ya no se ve)
 static const float gfx_maxd[3]  = { 24.0f, 33.0f, 30.0f }; // distancia de dibujo
 static const float gfx_pd[3]    = { 15.0f, 18.0f, 21.0f }; // arboles y objetos (con menos luz que esto ya se ven negros)
-static const int   gfx_nn[3]    = { 1, 2, 3 };             // detalle de suelo/paredes cerca
-static const int   gfx_nf[3]    = { 1, 1, 2 };             // ... y a media distancia
+static const int   gfx_nn[3]    = { 1, 2, 2 };             // detalle de suelo/paredes cerca
+static const int   gfx_nf[3]    = { 1, 1, 1 };             // ... y a media distancia
 static const int   gfx_c1[3]    = { 1, 2, 1 };             // "cerca" = celdas con dx^2+dz^2 <= c1 (ALTO: solo la celda de al lado)
 static const int   gfx_c2[3]    = { 1, 2, 2 };           // "media distancia" = hasta c2 (ALTO: 2 celdas; antes 6)
 static const int   gfx_seg[3]   = { 16, 20, 24 };          // suavidad del circulo de luz (ALTO: 32 lados bastan, el borde es difuso)
@@ -6432,8 +6432,14 @@ static void box_rot(float cx, float cz, float a, float lx, float lz, float hx, f
         Z[i] = cz - lxs[i] * s + lzs[i] * c;
     }
     float q[4][3];
+    float bx = (X[0] + X[2]) * 0.5f, bz = (Z[0] + Z[2]) * 0.5f;
+    int far_box = ((bx - px) * (bx - px) + (bz - pz) * (bz - pz)) > 36.0f;     // LOD: a mas de 6 m no se dibujan las caras que dan la espalda
     for (int i = 0; i < 4; i++) {
         int j = (i + 1) & 3;
+        if (far_box) {
+            float mx = (X[i] + X[j]) * 0.5f, mz = (Z[i] + Z[j]) * 0.5f;
+            if ((mx - bx) * (px - mx) + (mz - bz) * (pz - mz) <= 0.0f) continue;
+        }
         q[0][0] = X[i]; q[0][1] = y0; q[0][2] = Z[i];
         q[1][0] = X[j]; q[1][1] = y0; q[1][2] = Z[j];
         q[2][0] = X[j]; q[2][1] = y1; q[2][2] = Z[j];
@@ -6575,6 +6581,19 @@ static void draw_props(float t)
         float rad = fmaxf(p->hx, p->hz) * 1.45f + 0.6f;
         if (!in_view(p->x, p->z, rad, fminf(draw_lim, gfx_pd[gfx]))) continue;
         float col[3] = { (float)p->r, (float)p->g, (float)p->b };
+        {   // ---- menos resolucion (LOD) ----
+            float ddx = p->x - px, ddz = p->z - pz, dd = ddx * ddx + ddz * ddz;
+            float th = p->y1 - p->y0;
+            if (p->type == 0 && p->emit == 0.0f) {
+                if (p->x > 192.0f && p->x < 196.2f && p->z > 176.0f && p->z < 180.0f && p->y0 < 34.0f) {   // torre de la antena
+                    if (th < 2.0f && p->y0 < 30.5f && p->r != 150) { if (dd > 144.0f) continue; }              // platos: solo de cerca
+                    else if (th < 0.2f) {                                                                      // travesanos: 3 niveles a media distancia, ninguno lejos
+                        if (dd > 100.0f) continue;
+                        if (dd > 36.0f && !(fabsf(p->y0 - 5.0f) < 0.1f || fabsf(p->y0 - 15.0f) < 0.1f || fabsf(p->y0 - 25.0f) < 0.1f)) continue;
+                    }
+                } else if (th < 0.3f && dd > 144.0f) continue;                                                 // listones finos de las demas estructuras: lejos no se ven
+            }
+        }
         switch (p->type) {
         case 0: box_rot(p->x, p->z, p->a, 0, 0, p->hx, p->hz, p->y0, p->y1, col, p->emit); break;
         case 2: box_rot(p->x, p->z, p->a, 0, 0, p->hx, p->hz, p->y0, p->y1, col,
