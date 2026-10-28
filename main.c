@@ -3,7 +3,8 @@
 //
 //  Controles (DualShock 2):
 //    Stick izq  : moverse (empujalo al tope para CORRER, gasta estamina)
-//    Stick der / D-pad : mirar (izq-der y arriba 80 / abajo 70 grados)
+//    Stick der  : mirar (izq-der y arriba 80 / abajo 70 grados)
+//    FLECHA DER.: menu de EMOJIS (flechas mueven, X envia, O cierra). Las demas flechas quedan libres.
 //    X (cruz)   : saltar  (junto a un pozo: subir/bajar la escalera)
 //    O (circulo): agacharse / levantarse
 //    L1         : linterna ON/OFF       START : pausa
@@ -5488,6 +5489,9 @@ static float cam_rc = 1.0f, cam_rs = 0.0f;  // balanceo (roll) de la camara: cos
 static int   crouched, blend_flip;
 static int   p_moving, p_near;              // datos de HUD de cada jugador
 #define DET_TIME 5.0f                       // segundos que hay que mantener R2 para sacar el detector
+// EMOJIS: flecha DERECHA abre el menu (izq/der/arriba/abajo mueven, X envia, O cierra). El emoji se ve sobre la cabeza del otro jugador.
+static float emoji_t;                       // segundos que le quedan al emoji que mostraste
+static int   emoji_open, emoji_sel, emoji_id;   // menu abierto / casilla elegida / emoji que muestras (-1 = ninguno)
 static float det_t, det_up;                 // carga de R2 (0..DET_TIME) / cuanto sube el aparato al centro (0..1)
 static float vel_x, vel_z;                  // velocidad al caminar (con inercia)
 static float step_kick, walk_spd;           // golpe de pisada (sin suavizar) / rapidez real suavizada
@@ -6085,9 +6089,9 @@ static short bqx[MW * MH], bqz[MW * MH];
 #define PL_FLOATS(F) F(px) F(pz) F(yaw) F(foot_y) F(cam_y) F(pitch) F(cpitch) F(spitch) \
     F(stamina) F(stam_delay) F(jump_h) F(jump_vy) F(crouch_f) F(walk_ph) F(walk_amp) \
     F(step_imp) F(mon_thud) F(cam_rc) F(cam_rs) F(fx) F(fz) F(rx) F(rz) F(amb_r) F(light_flick) \
-    F(vel_x) F(vel_z) F(step_kick) F(walk_spd) F(det_t) F(det_up) F(uv_hold)
+    F(vel_x) F(vel_z) F(step_kick) F(walk_spd) F(det_t) F(det_up) F(uv_hold) F(emoji_t)
 #define PL_INTS(F) F(exhausted) F(walk_step) F(crouched) F(cur_layer) F(climbing) F(climb_dir) \
-    F(last_ladder) F(flash_on) F(p_moving) F(p_near) F(has_map) F(map_open) F(map_msg) F(door_msg) F(door_msg_id) F(code_door) F(code_val) F(code_pos) F(inv_open) F(uv_on)
+    F(last_ladder) F(flash_on) F(p_moving) F(p_near) F(has_map) F(map_open) F(map_msg) F(door_msg) F(door_msg_id) F(code_door) F(code_val) F(code_pos) F(inv_open) F(uv_on) F(emoji_open) F(emoji_sel) F(emoji_id)
 typedef struct {
 #define F(n) float n;
     PL_FLOATS(F)
@@ -7795,7 +7799,7 @@ static void reset_game(void)
         crouched = 0; crouch_f = 0.0f;
         walk_ph = 0.0f; walk_amp = 0.0f; step_imp = 0.0f; walk_step = 0; mon_thud = 0.0f;
         cam_rc = 1.0f; cam_rs = 0.0f; p_moving = 0; p_near = -1;
-        vel_x = 0.0f; vel_z = 0.0f; step_kick = 0.0f; walk_spd = 0.0f; det_t = 0.0f; det_up = 0.0f;
+        vel_x = 0.0f; vel_z = 0.0f; step_kick = 0.0f; walk_spd = 0.0f; det_t = 0.0f; det_up = 0.0f; emoji_open = 0; emoji_sel = 0; emoji_id = -1; emoji_t = 0.0f;
         fx = sinf(yaw); fz = cosf(yaw); rx = cosf(yaw); rz = -sinf(yaw);
         cam_y = EYE; amb_r = 22.0f; light_flick = 1.0f;
         has_map = 0; map_open = 0; map_msg = 0; uv_on = 0; uv_hold = 0.0f;
@@ -7995,7 +7999,7 @@ static void js_begin(void)
     state = 1; state_timer = 150; js_t = 0;
     climbing = 0; crouched = 0; crouch_f = 0.0f; jump_h = 0.0f; jump_vy = 0.0f;
     js_victim = pl_cur; map_open = 0; code_door = -1;
-    yaw = js_yaw; flash_on = 1; uv_on = 0;
+    yaw = js_yaw; flash_on = 1; uv_on = 0; emoji_open = 0;
     sfx_play(SFX_SCREAM, 1.0f);
 }
 
@@ -8387,6 +8391,133 @@ static void msg_text(int id, char *buf, int n)
     else if (id == 30 || id == 31) snprintf(buf, n, "CODIGO %s: %04d", code_name[id - 30], code_num[id - 30]);
 }
 
+// ---------------- EMOJIS (caras amarillas dibujadas con triangulos) ----------------
+enum { EY_DOT, EY_WIDE, EY_SQUINT, EY_ARC, EY_LINE, EY_WINK };
+enum { MO_SMILE, MO_OPEN, MO_FROWN, MO_FLAT, MO_WAVY, MO_O, MO_TONGUE, MO_BIG, MO_ZIG, MO_SMIRK, MO_YAWN };
+static const unsigned char emoji_tab[30][2] = {
+    {EY_DOT, MO_OPEN},    {EY_DOT, MO_SMILE},   {EY_DOT, MO_FROWN},   {EY_DOT, MO_WAVY},    {EY_DOT, MO_ZIG},
+    {EY_WIDE, MO_TONGUE}, {EY_LINE, MO_TONGUE}, {EY_SQUINT, MO_BIG},  {EY_SQUINT, MO_O},    {EY_SQUINT, MO_WAVY},
+    {EY_DOT, MO_FLAT},    {EY_SQUINT, MO_SMILE},{EY_ARC, MO_OPEN},    {EY_SQUINT, MO_SMIRK},{EY_ARC, MO_TONGUE},
+    {EY_SQUINT, MO_TONGUE},{EY_WINK, MO_SMIRK}, {EY_SQUINT, MO_OPEN}, {EY_WINK, MO_SMILE},  {EY_SQUINT, MO_FROWN},
+    {EY_DOT, MO_O},       {EY_ARC, MO_FROWN},   {EY_LINE, MO_O},      {EY_WIDE, MO_ZIG},    {EY_LINE, MO_SMIRK},
+    {EY_WIDE, MO_YAWN},   {EY_WIDE, MO_FROWN},  {EY_SQUINT, MO_ZIG},  {EY_DOT, MO_WAVY},    {EY_LINE, MO_YAWN} };
+
+static void em_ell(float cx, float cy, float rx, float ry, float a0, float a1, int seg, u64 c, int z)   // sector de elipse relleno
+{
+    for (int j = 0; j < seg; j++) {
+        float t0 = a0 + (a1 - a0) * j / seg, t1 = a0 + (a1 - a0) * (j + 1) / seg;
+        gsKit_prim_triangle_gouraud_3d(gsGlobal, cx, cy, z, cx + cosf(t0) * rx, cy + sinf(t0) * ry, z,
+                                       cx + cosf(t1) * rx, cy + sinf(t1) * ry, z, c, c, c);
+    }
+}
+static void em_line(float x0, float y0, float x1, float y1, float th, u64 c, int z)
+{
+    float dx = x1 - x0, dy = y1 - y0, l = sqrtf(dx * dx + dy * dy);
+    if (l < 0.01f) return;
+    float nx = -dy / l * th * 0.5f, ny = dx / l * th * 0.5f;
+    gsKit_prim_triangle_gouraud_3d(gsGlobal, x0 + nx, y0 + ny, z, x1 + nx, y1 + ny, z, x1 - nx, y1 - ny, z, c, c, c);
+    gsKit_prim_triangle_gouraud_3d(gsGlobal, x0 + nx, y0 + ny, z, x1 - nx, y1 - ny, z, x0 - nx, y0 - ny, z, c, c, c);
+}
+static void em_arc(float cx, float cy, float rx, float ry, float a0, float a1, int n, float th, u64 c, int z)   // arco con grosor
+{
+    float px_ = cx + cosf(a0) * rx, py_ = cy + sinf(a0) * ry;
+    for (int j = 1; j <= n; j++) {
+        float t = a0 + (a1 - a0) * j / n, x = cx + cosf(t) * rx, y = cy + sinf(t) * ry;
+        em_line(px_, py_, x, y, th, c, z);
+        px_ = x; py_ = y;
+    }
+}
+static void em_zig(float cx, float cy, float w, float amp, int n, float th, u64 c, int z)                     // linea en zigzag
+{
+    float x0 = cx - w, y0 = cy;
+    for (int j = 1; j <= n; j++) {
+        float x = cx - w + 2.0f * w * j / n, y = cy + ((j & 1) ? -amp : amp);
+        em_line(x0, y0, x, y, th, c, z);
+        x0 = x; y0 = y;
+    }
+}
+
+static void draw_emoji(float cx, float cy, float r, int id, int z)
+{
+    if (id < 0 || id >= 30 || r < 2.0f) return;
+    const u64 yel = GS_SETREG_RGBAQ(255, 206, 66, 0x80, 0), rim = GS_SETREG_RGBAQ(205, 140, 18, 0x80, 0);
+    const u64 blk = GS_SETREG_RGBAQ(26, 16, 6, 0x80, 0), red = GS_SETREG_RGBAQ(226, 62, 62, 0x80, 0);
+    const float PI2 = 6.2831853f;
+    int seg = r < 14.0f ? 12 : 20;
+    em_ell(cx, cy, r, r, 0.0f, PI2, seg, rim, z);
+    em_ell(cx, cy, r * 0.93f, r * 0.93f, 0.0f, PI2, seg, yel, z);
+    float th = r * 0.085f; if (th < 1.2f) th = 1.2f;
+    int ey = emoji_tab[id][0], mo = emoji_tab[id][1];
+    float ex = r * 0.34f, eyy = cy - r * 0.18f;
+    for (int k = -1; k <= 1; k += 2) {                                   // ojos (k = -1 izquierdo, +1 derecho)
+        float x = cx + k * ex;
+        int kind = ey;
+        if (ey == EY_WINK) kind = (k < 0) ? EY_DOT : EY_ARC;
+        if (kind == EY_DOT)  em_ell(x, eyy, r * 0.085f, r * 0.11f, 0.0f, PI2, 8, blk, z);
+        else if (kind == EY_WIDE) em_ell(x, eyy, r * 0.13f, r * 0.16f, 0.0f, PI2, 8, blk, z);
+        else if (kind == EY_SQUINT) {                                    // > <
+            float d = r * 0.13f;
+            em_line(x - k * d, eyy - d, x + k * d, eyy, th, blk, z);
+            em_line(x + k * d, eyy, x - k * d, eyy + d, th, blk, z);
+        } else if (kind == EY_ARC) em_arc(x, eyy + r * 0.06f, r * 0.13f, r * 0.12f, 3.14159f, PI2, 6, th, blk, z);
+        else if (kind == EY_LINE) em_line(x - r * 0.12f, eyy, x + r * 0.12f, eyy, th, blk, z);
+    }
+    float my = cy + r * 0.30f;
+    switch (mo) {
+    case MO_SMILE: em_arc(cx, my - r * 0.14f, r * 0.38f, r * 0.30f, 0.18f * 3.14159f, 0.82f * 3.14159f, 8, th, blk, z); break;
+    case MO_FROWN: em_arc(cx, my + r * 0.30f, r * 0.30f, r * 0.24f, 1.17f * 3.14159f, 1.83f * 3.14159f, 8, th, blk, z); break;
+    case MO_OPEN:  em_ell(cx, my - r * 0.16f, r * 0.46f, r * 0.46f, 0.0f, 3.14159f, 10, blk, z);
+                   em_ell(cx, my + r * 0.12f, r * 0.24f, r * 0.14f, 3.14159f, PI2, 8, red, z); break;
+    case MO_BIG:   em_ell(cx, my + r * 0.08f, r * 0.34f, r * 0.38f, 0.0f, PI2, 12, blk, z); break;
+    case MO_YAWN:  em_ell(cx, my + r * 0.05f, r * 0.24f, r * 0.30f, 0.0f, PI2, 12, blk, z); break;
+    case MO_O:     em_ell(cx, my + r * 0.06f, r * 0.12f, r * 0.17f, 0.0f, PI2, 8, blk, z); break;
+    case MO_FLAT:  em_line(cx - r * 0.28f, my + r * 0.05f, cx + r * 0.28f, my + r * 0.05f, th, blk, z); break;
+    case MO_WAVY:  em_zig(cx, my + r * 0.05f, r * 0.34f, r * 0.05f, 6, th, blk, z); break;
+    case MO_ZIG:   em_zig(cx, my + r * 0.10f, r * 0.34f, r * 0.10f, 6, th, blk, z); break;
+    case MO_TONGUE:
+        em_ell(cx + r * 0.10f, my + r * 0.12f, r * 0.13f, r * 0.17f, 0.0f, 3.14159f, 8, red, z);
+        em_line(cx - r * 0.34f, my, cx + r * 0.34f, my, th, blk, z); break;
+    case MO_SMIRK:
+        em_line(cx - r * 0.28f, my + r * 0.07f, cx + r * 0.05f, my + r * 0.07f, th, blk, z);
+        em_line(cx + r * 0.05f, my + r * 0.07f, cx + r * 0.30f, my - r * 0.02f, th, blk, z); break;
+    }
+}
+
+static void draw_emoji_menu(void)                                       // menu de emojis (flecha derecha)
+{
+    float cs = fminf(52.0f, (H - 70.0f) / 6.0f), gw = cs * 5.0f, gh = cs * 6.0f;
+    float x0 = (W - gw) * 0.5f, y0 = (H - gh) * 0.5f - 6.0f;
+    const u64 sel_c = GS_SETREG_RGBAQ(255, 230, 80, 0x80, 0);
+    gsKit_prim_sprite(gsGlobal, x0 - 6.0f, y0 - 6.0f, x0 + gw + 6.0f, y0 + gh + 6.0f, 16777100, sel_c);
+    gsKit_prim_sprite(gsGlobal, x0 - 4.0f, y0 - 4.0f, x0 + gw + 4.0f, y0 + gh + 4.0f, 16777110, GS_SETREG_RGBAQ(14, 12, 18, 0x80, 0));
+    for (int i = 0; i < 30; i++) {
+        float cx = x0 + (i % 5) * cs + cs * 0.5f, cy = y0 + (i / 5) * cs + cs * 0.5f;
+        if (i == emoji_sel) gsKit_prim_sprite(gsGlobal, cx - cs * 0.5f, cy - cs * 0.5f, cx + cs * 0.5f, cy + cs * 0.5f, 16777120, GS_SETREG_RGBAQ(70, 66, 30, 0x80, 0));
+        draw_emoji(cx, cy, cs * (i == emoji_sel ? 0.44f : 0.36f), i, 16777130);
+    }
+    draw_text_c(y0 - 22.0f > 2.0f ? y0 - 22.0f : 2.0f, "EMOJIS", 2, sel_c);
+    draw_text_c(y0 + gh + 10.0f, "X: ENVIAR   O: CERRAR", 1, GS_SETREG_RGBAQ(190, 190, 195, 0x80, 0));
+}
+
+// El emoji del otro jugador flota sobre su cabeza; el tuyo se ve arriba al centro de tu pantalla
+static void draw_emoji_world(void)
+{
+    if (emoji_id >= 0 && (emoji_t > 0.8f || ((int)(emoji_t * 10.0f) & 1)))
+        draw_emoji(W * 0.5f, 34.0f, 15.0f, emoji_id, 16777100);
+    if (num_players < 2) return;
+    const Player *Q = &P[1 - pl_cur];
+    if (Q->emoji_id < 0 || Q->cur_layer != cur_layer || Q->climbing || climbing) return;
+    if (!(Q->emoji_t > 0.8f || ((int)(Q->emoji_t * 10.0f) & 1))) return;
+    float wx = Q->px, wz = Q->pz, wy = Q->foot_y + Q->jump_h + 2.25f - 0.6f * Q->crouch_f + (cur_layer ? SEWER_Y : 0.0f);
+    float dx = wx - px, dz = wz - pz, vx = dx * rx + dz * rz, vz = dx * fx + dz * fz, vy = wy - cam_y;
+    float yy = vy * cpitch - vz * spitch, zz = vy * spitch + vz * cpitch;
+    if (zz < 0.5f || !los_to(wx, wz, 0.0f)) return;
+    float sx = W * 0.5f + vx / zz * FOCAL, sy = H * 0.5f - yy / zz * FOCAL;
+    float r = clampf(0.30f / zz * FOCAL, 7.0f, 44.0f);
+    if (sx < -r || sx > W + r || sy < -r || sy > H + r) return;
+    draw_emoji(sx, sy, r, Q->emoji_id, 16777090);
+}
+
 static void draw_code_ui(void)                                  // ventana del candado (4 digitos)
 {
     float bw = 280.0f, bh = 108.0f;
@@ -8467,6 +8598,7 @@ static void draw_door_hud(void)
     }
     if (inv_open) draw_inventory();
     if (code_door >= 0) draw_code_ui();
+    if (emoji_open) draw_emoji_menu();
 }
 
 static void render_game(float t, int moving, int near_ladder, int notes)
@@ -8507,6 +8639,7 @@ static void render_game(float t, int moving, int near_ladder, int notes)
                     draw_key(notes_pos[i][0], notes_pos[i][1], notes_pos[i][2], key_ang[i]);
             }
             draw_other_player(t);                       // el otro jugador (pantalla dividida)
+            draw_emoji_world();                         // emojis (el tuyo arriba al centro, el del otro sobre su cabeza)
             if (mlayer == cur_layer && !climbing && in_view(sx_, sz_, 2.2f, 26.0f)) draw_monster(t);   // si no lo miras, ni se calcula
 
             gsKit_set_primalpha(gsGlobal, BLEND_STD, 0);
@@ -9137,7 +9270,7 @@ static unsigned int sim_hash(void)
     for (int i = 0; i < 2; i++) {
         HM(fbits(P[i].px)); HM(fbits(P[i].pz)); HM(fbits(P[i].yaw)); HM(fbits(P[i].pitch));
         HM(fbits(P[i].stamina)); HM(fbits(P[i].jump_h)); HM(P[i].cur_layer); HM(P[i].climbing);
-        HM(P[i].flash_on); HM(P[i].uv_on); HM(P[i].has_map); HM(P[i].crouched); HM(P[i].code_door);
+        HM(P[i].flash_on); HM(P[i].uv_on); HM(P[i].emoji_id); HM(P[i].emoji_open); HM(P[i].has_map); HM(P[i].crouched); HM(P[i].code_door);
     }
     HM(fbits(sx_)); HM(fbits(sz_)); HM(mlayer); HM(state); HM(mon_target); HM(fbits(mon_face)); HM(mon_has); HM(mon_wp_n); HM((int)(mon_blind_t * 60.0f)); HM((int)(mon_uv_t * 60.0f));
     for (int i = 0; i < 3; i++) HM(notes_got[i]);
@@ -9605,10 +9738,7 @@ static void pad_sticks(PadIn *p, int lhb, int lvb, int rhb, int rvb)      // sti
     if (mag > 1.0f) mag = 1.0f;
     if (fabsf(rh) > 0.2f) p->turn = rh;
     if (fabsf(rv) > 0.2f) p->look = -rv;                               // arriba en el stick = mirar arriba
-    if (p->pd & PAD_RIGHT) p->turn = 0.7f;
-    if (p->pd & PAD_LEFT)  p->turn = -0.7f;
-    if (p->pd & PAD_UP)    p->look = 0.7f;
-    if (p->pd & PAD_DOWN)  p->look = -0.7f;
+    // (las flechas ya no giran la camara: se usan para los EMOJIS; mira con el stick derecho)
     p->mag = mag; p->lv = lv;
 }
 
@@ -9618,6 +9748,18 @@ static int ui_input(u32 newp)
 {
     if (map_msg > 0) map_msg--;
     if (door_msg > 0) door_msg--;
+    if (emoji_t > 0.0f) { emoji_t -= 1.0f / 60.0f; if (emoji_t <= 0.0f) { emoji_t = 0.0f; emoji_id = -1; } }
+    if (emoji_open) {                                           // menu de emojis (5 columnas x 6 filas)
+        int c = emoji_sel % 5, r = emoji_sel / 5;
+        if (newp & PAD_LEFT)  { if (c > 0) c--; else emoji_open = 0; }      // izquierda en la primera columna: cierra
+        if (newp & PAD_RIGHT) { if (c < 4) c++; }
+        if (newp & PAD_UP)    { if (r > 0) r--; }
+        if (newp & PAD_DOWN)  { if (r < 5) r++; }
+        emoji_sel = r * 5 + c;
+        if (newp & PAD_CROSS) { emoji_id = emoji_sel; emoji_t = 4.0f; emoji_open = 0; sfx_play(SFX_CLICK, 0.8f); }
+        else if (newp & (PAD_CIRCLE | PAD_TRIANGLE | PAD_SQUARE)) emoji_open = 0;
+        return 1;
+    }
     if (code_door >= 0) {                                       // ventana del candado
         const Door *d = &doors[code_door];
         int pw = 1;
@@ -9653,7 +9795,8 @@ static int ui_input(u32 newp)
         }
     }
     if ((newp & PAD_TRIANGLE) && has_map && !climbing) { map_open = !map_open; sfx_play(SFX_CLICK, 0.8f); }   // TRIANGULO: mapa
-    return map_open || code_door >= 0;
+    if ((newp & PAD_RIGHT) && !map_open && code_door < 0 && !climbing) { emoji_open = 1; emoji_sel = emoji_id >= 0 ? emoji_id : 0; return 1; }   // FLECHA DERECHA: emojis
+    return map_open || code_door >= 0 || emoji_open;
 }
 
 static void player_move(float dt, float t, const PadIn *in)
