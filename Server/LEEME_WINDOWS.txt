@@ -1,0 +1,25 @@
+HORROR BETA - SERVIDOR DEDICADO PARA WINDOWS (horror_server.exe)
+================================================================
+
+COMO USARLO
+  1. Haz doble clic en horror_server.exe. Se abre una ventana negra que muestra tus IP.
+  2. Si Windows pregunta por el Firewall, pulsa "Permitir acceso" (redes privadas, y publicas si quieres internet).
+  3. En el juego, los dos jugadores: ONLINE > IP SERVIDOR y escriben la IP que mostro la ventana
+     (la que empieza con 192.168... si juegan en la misma WiFi).
+  4. Jugador 1: ONLINE > CREAR PARTIDA.  Jugador 2: ONLINE > PARTIDAS PUBLICAS y elige la sala.
+  Para apagarlo, cierra la ventana.
+
+"Windows protegio su PC" (SmartScreen)
+  El .exe no esta firmado digitalmente, asi que Windows puede avisar. Pulsa "Mas informacion" > "Ejecutar de todos modos".
+  Si quieres, el codigo esta en main.go y lo puedes revisar o compilar tu mismo (go build).
+
+JUGAR POR INTERNET (no solo en tu WiFi)
+  - En tu router abre (port forward) el puerto UDP 7778 hacia la IP local de tu PC.
+  - Los demas escriben tu IP PUBLICA (buscala como "cual es mi ip").
+  - En el Firewall de Windows permite horror_server.exe (o el puerto UDP 7778).
+
+OPCIONES (opcional): abre cmd en la carpeta y escribe
+  horror_server.exe -port 7779          cambiar el puerto (en el juego el puerto es fijo 7778, usa este solo si el 7778 esta ocupado)
+  horror_server.exe -max-rooms 50 -quiet
+
+Es el mismo servidor que horror_server.py (mismo protocolo), solo que no necesita Python.
