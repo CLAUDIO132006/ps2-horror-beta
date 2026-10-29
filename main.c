@@ -7811,7 +7811,7 @@ static void reset_game(void)
 
 // ---------------- Sonido (todo sintetizado en codigo) ----------------
 static int audio_state;      // 0 no incluido en esta version, 1 fallo al iniciar, 2 activo
-enum { SFX_DIRT, SFX_HARD, SFX_WATER, SFX_CLICK, SFX_SCREAM, SFX_N };
+enum { SFX_DIRT, SFX_HARD, SFX_WATER, SFX_CLICK, SFX_SCREAM, SFX_DOOR, SFX_KEY, SFX_ROAR, SFX_MSTEP, SFX_UV, SFX_BLIND, SFX_BEEP, SFX_POP, SFX_WIND, SFX_N };
 #ifdef USE_AUDIO
 #define SR 22050
 #define N_DIRT   3600
@@ -7819,7 +7819,17 @@ enum { SFX_DIRT, SFX_HARD, SFX_WATER, SFX_CLICK, SFX_SCREAM, SFX_N };
 #define N_WATER  5500
 #define N_CLICK  1000
 #define N_SCREAM 35280
+#define N_DOOR   15400
+#define N_KEY     7700
+#define N_ROAR   26460
+#define N_MSTEP   6600
+#define N_UV     11000
+#define N_BLIND  22050
+#define N_BEEP    2646
+#define N_POP     3300
+#define N_WIND   66150
 static short b_dirt[N_DIRT], b_hard[N_HARD], b_water[N_WATER], b_click[N_CLICK], b_scream[N_SCREAM];
+static short b_door[N_DOOR], b_key[N_KEY], b_roar[N_ROAR], b_mstep[N_MSTEP], b_uv[N_UV], b_blind[N_BLIND], b_beep[N_BEEP], b_pop[N_POP], b_wind[N_WIND];
 static short *sfx_data[SFX_N];
 static int    sfx_len[SFX_N];
 typedef struct { int id, pos; float vol; } Voice;
@@ -7886,11 +7896,98 @@ static void synth_all(void)
         float x = (0.55f * saw1 + 0.35f * saw2 + 0.25f * sq + 0.5f * ln) * env * trem * 2.2f + boom;
         b_scream[i] = fsat(x / (1.0f + fabsf(x)) * 30000.0f);
     }
+
+    // ---- sonidos nuevos ----
+    {
+        float ph = 0.0f, ph2 = 0.0f;
+        ln = 0.0f;
+        for (int i = 0; i < N_DOOR; i++) {                   // puerta que rechina al abrirse
+            float t = i / (float)SR;
+            float f = 150.0f - 70.0f * (t / 0.7f) + sinf(TP * 9.0f * t) * 12.0f;
+            ph += TP * f / SR; if (ph > TP) ph -= TP;
+            ln = ln * 0.7f + snd_rand() * 0.3f;
+            float saw = ph / 3.14159265f - 1.0f;
+            float env = (t < 0.04f ? t / 0.04f : 1.0f) * (t > 0.5f ? fmaxf(0.0f, (0.7f - t) / 0.2f) : 1.0f);
+            float v = (saw * 0.5f + ln * 0.35f) * env * (0.65f + 0.35f * sinf(TP * 13.0f * t));
+            v += sinf(TP * 70.0f * t) * expf(-t * 18.0f) * 0.5f;                       // golpe de la hoja al soltarse
+            b_door[i] = fsat(v * 9000.0f);
+        }
+        for (int i = 0; i < N_KEY; i++) {                    // llave / objeto recogido: dos notas brillantes
+            float t = i / (float)SR, t2 = t - 0.08f;
+            float v = sinf(TP * 1320.0f * t) * expf(-t * 9.0f) + 0.35f * sinf(TP * 2640.0f * t) * expf(-t * 14.0f);
+            if (t2 > 0.0f) v += 0.8f * sinf(TP * 1760.0f * t2) * expf(-t2 * 8.0f);
+            b_key[i] = fsat(v * 9000.0f);
+        }
+        ph = ph2 = 0.0f; ln = 0.0f;
+        for (int i = 0; i < N_ROAR; i++) {                   // rugido del monstruo al verte
+            float t = i / (float)SR;
+            float f = 80.0f - 22.0f * (t / 1.2f) + sinf(TP * 6.0f * t) * 5.0f;
+            ph += TP * f / SR; if (ph > TP) ph -= TP;
+            ph2 += TP * f * 1.5f / SR; if (ph2 > TP) ph2 -= TP;
+            ln = ln * 0.55f + snd_rand() * 0.45f;
+            float env = (t < 0.08f ? t / 0.08f : 1.0f) * (t > 0.8f ? fmaxf(0.0f, (1.2f - t) / 0.4f) : 1.0f);
+            float x = ((ph / 3.14159265f - 1.0f) * 0.7f + (ph2 / 3.14159265f - 1.0f) * 0.35f + ln * 0.55f)
+                      * env * (0.7f + 0.3f * sinf(TP * 24.0f * t)) * 2.4f;
+            b_roar[i] = fsat(x / (1.0f + fabsf(x)) * 26000.0f);
+        }
+        ln = 0.0f;
+        for (int i = 0; i < N_MSTEP; i++) {                  // pisada pesada del monstruo
+            float t = i / (float)SR;
+            ln = ln * 0.9f + snd_rand() * 0.1f;
+            float v = sinf(TP * (52.0f - 30.0f * t) * t) * expf(-t * 13.0f) * 1.3f + ln * expf(-t * 30.0f) * 1.6f;
+            b_mstep[i] = fsat(v * 15000.0f);
+        }
+        for (int i = 0; i < N_UV; i++) {                     // luz UV: zumbido electrico que sube
+            float t = i / (float)SR;
+            float f = 220.0f + 1500.0f * t;
+            float v = sinf(TP * f * t) * (t < 0.25f ? 1.0f : expf(-(t - 0.25f) * 12.0f)) * 0.7f
+                    + ((sinf(TP * 120.0f * t) > 0.0f) ? 0.25f : -0.25f) * expf(-t * 7.0f);
+            b_uv[i] = fsat(v * 9000.0f);
+        }
+        ph = 0.0f; ln = 0.0f;
+        for (int i = 0; i < N_BLIND; i++) {                  // monstruo cegado: chillido de dolor
+            float t = i / (float)SR;
+            float f = 1500.0f - 900.0f * (t / 1.0f) + sinf(TP * 22.0f * t) * 90.0f;
+            ph += TP * f / SR; if (ph > TP) ph -= TP;
+            ln = ln * 0.5f + snd_rand() * 0.5f;
+            float env = (t < 0.02f ? t / 0.02f : 1.0f) * (t > 0.6f ? fmaxf(0.0f, (1.0f - t) / 0.4f) : 1.0f);
+            float x = ((ph / 3.14159265f - 1.0f) * 0.6f + ln * 0.45f) * env * 2.0f;
+            b_blind[i] = fsat(x / (1.0f + fabsf(x)) * 24000.0f);
+        }
+        for (int i = 0; i < N_BEEP; i++) {                   // pitido del detector
+            float t = i / (float)SR;
+            float env = (t < 0.004f ? t / 0.004f : 1.0f) * (t > 0.09f ? fmaxf(0.0f, (0.12f - t) / 0.03f) : 1.0f);
+            b_beep[i] = fsat(sinf(TP * 1800.0f * t) * env * 8000.0f);
+        }
+        for (int i = 0; i < N_POP; i++) {                    // emoji enviado: "pop"
+            float t = i / (float)SR;
+            b_pop[i] = fsat(sinf(TP * (350.0f + 1800.0f * t) * t) * expf(-t * 28.0f) * 11000.0f);
+        }
+        ln = 0.0f;
+        float ln2 = 0.0f;
+        for (int i = 0; i < N_WIND; i++) {                   // viento lejano entre los arboles
+            float t = i / (float)SR;
+            ln = ln * 0.985f + snd_rand() * 0.015f;
+            ln2 = ln2 * 0.90f + ln * 0.10f;
+            float sw = sinf(3.14159265f * t / 3.0f);
+            float env = sw * sw * (0.6f + 0.4f * sinf(TP * 0.9f * t + 1.0f));
+            b_wind[i] = fsat(ln2 * env * 90000.0f);
+        }
+    }
     sfx_data[SFX_DIRT] = b_dirt;     sfx_len[SFX_DIRT] = N_DIRT;
     sfx_data[SFX_HARD] = b_hard;     sfx_len[SFX_HARD] = N_HARD;
     sfx_data[SFX_WATER] = b_water;   sfx_len[SFX_WATER] = N_WATER;
     sfx_data[SFX_CLICK] = b_click;   sfx_len[SFX_CLICK] = N_CLICK;
     sfx_data[SFX_SCREAM] = b_scream; sfx_len[SFX_SCREAM] = N_SCREAM;
+    sfx_data[SFX_DOOR] = b_door;     sfx_len[SFX_DOOR] = N_DOOR;
+    sfx_data[SFX_KEY] = b_key;       sfx_len[SFX_KEY] = N_KEY;
+    sfx_data[SFX_ROAR] = b_roar;     sfx_len[SFX_ROAR] = N_ROAR;
+    sfx_data[SFX_MSTEP] = b_mstep;   sfx_len[SFX_MSTEP] = N_MSTEP;
+    sfx_data[SFX_UV] = b_uv;         sfx_len[SFX_UV] = N_UV;
+    sfx_data[SFX_BLIND] = b_blind;   sfx_len[SFX_BLIND] = N_BLIND;
+    sfx_data[SFX_BEEP] = b_beep;     sfx_len[SFX_BEEP] = N_BEEP;
+    sfx_data[SFX_POP] = b_pop;       sfx_len[SFX_POP] = N_POP;
+    sfx_data[SFX_WIND] = b_wind;     sfx_len[SFX_WIND] = N_WIND;
     for (int i = 0; i < 8; i++) voices[i].id = -1;
 }
 
@@ -9756,7 +9853,7 @@ static int ui_input(u32 newp)
         if (newp & PAD_UP)    { if (r > 0) r--; }
         if (newp & PAD_DOWN)  { if (r < 5) r++; }
         emoji_sel = r * 5 + c;
-        if (newp & PAD_CROSS) { emoji_id = emoji_sel; emoji_t = 4.0f; emoji_open = 0; sfx_play(SFX_CLICK, 0.8f); }
+        if (newp & PAD_CROSS) { emoji_id = emoji_sel; emoji_t = 4.0f; emoji_open = 0; sfx_play(SFX_POP, 0.9f); }
         else if (newp & (PAD_CIRCLE | PAD_TRIANGLE | PAD_SQUARE)) emoji_open = 0;
         return 1;
     }
@@ -9775,7 +9872,7 @@ static int ui_input(u32 newp)
         if (newp & PAD_CROSS) {                                 // X: probar el codigo
             if (code_val == code_num[d->id]) {
                 door_open[code_door] = 1; code_door = -1; door_msg = 150; door_msg_id = 12;
-                sfx_play(SFX_CLICK, 1.0f);
+                sfx_play(SFX_DOOR, 1.0f);
             } else { door_msg = 120; door_msg_id = 10; code_val = 0; code_pos = 0; }
         } else if (newp & (PAD_CIRCLE | PAD_TRIANGLE)) code_door = -1;      // O / TRIANGULO: salir
         return 1;
@@ -9786,10 +9883,10 @@ static int ui_input(u32 newp)
         else if (di >= 0 && !map_open) {
             const Door *d = &doors[di];
             if (d->type == 2) {                                 // PUERTA FINAL: necesita las 3 llaves finales
-                if (notes_got[0] + notes_got[1] + notes_got[2] >= 3) { door_open[di] = 1; door_msg = 150; door_msg_id = 14; sfx_play(SFX_CLICK, 1.0f); }
+                if (notes_got[0] + notes_got[1] + notes_got[2] >= 3) { door_open[di] = 1; door_msg = 150; door_msg_id = 14; sfx_play(SFX_DOOR, 1.0f); }
                 else { door_msg = 150; door_msg_id = 13; }
             } else if (d->type == 0) {
-                if (have_key[d->id]) { door_open[di] = 1; door_msg = 120; door_msg_id = 11; sfx_play(SFX_CLICK, 1.0f); }
+                if (have_key[d->id]) { door_open[di] = 1; door_msg = 120; door_msg_id = 11; sfx_play(SFX_DOOR, 1.0f); }
                 else { door_msg = 150; door_msg_id = 1 + d->id; }
             } else { code_door = di; code_val = 0; code_pos = 0; }
         }
@@ -9814,7 +9911,7 @@ static void player_move(float dt, float t, const PadIn *in)
             uv_hold += dt;
             if (uv_hold >= 1.0f) {
                 uv_on = !uv_on; uv_hold = 100.0f;                               // 100 = ya cambio: suelta L2 para volver a empezar
-                door_msg = 90; door_msg_id = uv_on ? 40 : 41; sfx_play(SFX_CLICK, 1.0f);
+                door_msg = 90; door_msg_id = uv_on ? 40 : 41; sfx_play(SFX_UV, 1.0f);
             }
         }
     }
@@ -9931,19 +10028,21 @@ static void player_post(int notes)
         float td = sqrtf(tdx * tdx + tdz * tdz);
         if (mlayer == cur_layer && mon_spd > 1.0f && td < 16.0f)
             mon_thud = fmaxf(mon_thud, (1.0f - td / 16.0f) * (0.45f + 0.55f * mon_runf));
+        if (pl_cur == (net_online ? net_local : 0) && mlayer == cur_layer && mon_spd > 0.5f && td < 24.0f)
+            sfx_play(SFX_MSTEP, (1.0f - td / 24.0f) * (0.55f + 0.45f * mon_runf) * 1.3f);      // se oyen sus pisadas
     }
     float ddx = sx_ - px, ddz = sz_ - pz;
     if (mon_blind_t <= 0.0f && mlayer == cur_layer && !climbing && ddx * ddx + ddz * ddz < 3.6f) { js_begin(); return; }   // alcance de sus garras (1.9 m)
     for (int i = 0; i < 3; i++) {
         if (notes_got[i] || (int)notes_pos[i][3] != cur_layer || climbing) continue;
         float ax = notes_pos[i][0] - px, az = notes_pos[i][1] - pz;
-        if (ax * ax + az * az < 1.7f) { notes_got[i] = 1; door_msg = 200; door_msg_id = 15; sfx_play(SFX_CLICK, 1.0f); }   // llave final recogida
+        if (ax * ax + az * az < 1.7f) { notes_got[i] = 1; door_msg = 200; door_msg_id = 15; sfx_play(SFX_KEY, 1.0f); }   // llave final recogida
     }
     for (int i = 0; i < NIT; i++) {                         // llaves y papeles con codigo (se recogen al pasar)
         if (item_got[i] || cur_layer != 0 || climbing) continue;
         float ax = items[i].x - px, az = items[i].z - pz;
         if (ax * ax + az * az < 1.5f) {
-            item_got[i] = 1; door_msg = 200; sfx_play(SFX_CLICK, 1.0f);
+            item_got[i] = 1; door_msg = 200; sfx_play(SFX_KEY, 1.0f);
             if (items[i].kind == 0) { have_key[items[i].id] = 1; door_msg_id = 20 + items[i].id; }
             else { have_code[items[i].id] = 1; door_msg_id = 30 + items[i].id; }
         }
@@ -10134,6 +10233,21 @@ int main(void)
             mon_uv_update(dt);                               // luz UV contra el monstruo
             int sg = mon_vision();                           // a quien ve (cono de 75 grados, 30 m)
             mon_seen = (sg >= 0);
+            {   // sonidos del monstruo y del ambiente (los oye el jugador de esta consola)
+                static int ps = 0, pb = 0;
+                int lp = net_online ? net_local : 0;
+                float edx = sx_ - P[lp].px, edz = sz_ - P[lp].pz, ed = sqrtf(edx * edx + edz * edz);
+                if (mon_seen && !ps) sfx_play(SFX_ROAR, clampf(1.15f - ed / 35.0f, 0.3f, 1.0f));          // te vio: ruge
+                ps = mon_seen;
+                int bl = mon_blind_t > 0.0f;
+                if (bl && !pb) sfx_play(SFX_BLIND, 1.0f);                                                  // lo cegaste: chilla
+                pb = bl;
+                if (P[lp].det_up > 0.5f && mlayer == P[lp].cur_layer) {                                    // detector: pitidos mas rapidos cuanto mas cerca
+                    int per = ed < 8.0f ? 7 : (ed < 16.0f ? 14 : (ed < 30.0f ? 30 : 0));
+                    if (per && frame_no % per == 0) sfx_play(SFX_BEEP, 0.5f);
+                }
+                if (state == 0 && frame_no % 1800 == 600) sfx_play(SFX_WIND, 0.35f);                       // viento de fondo
+            }
             int tg = pick_target();                          // el monstruo va a por uno
             if (sg >= 0) { tg = sg; mon_target = sg; }       // ... y si ve a alguien, va a por ese
             player_load(tg);
