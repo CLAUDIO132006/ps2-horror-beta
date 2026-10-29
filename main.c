@@ -8011,25 +8011,39 @@ static int audsrv_present(void)
 
 static void audio_wait(int n) { for (volatile int k = 0; k < n; k++) ; }
 
+static int audio_dbg[4];                              // ids/retornos de carga para mostrar en Opciones
+
+static int audio_try_modules(int use_freesd)
+{
+    int ret = 0, r2 = 0;
+    int a;
+#ifdef USE_FREESD
+    if (use_freesd) a = SifExecModuleBuffer(freesd_irx, size_freesd_irx, 0, NULL, &ret);
+    else
+#endif
+    a = SifLoadModule("rom0:LIBSD", 0, NULL);
+    int id = SifExecModuleBuffer(audsrv_irx, size_audsrv_irx, 0, NULL, &r2);
+    audio_dbg[0] = a; audio_dbg[1] = id; audio_dbg[2] = r2;
+    if (id < 0) return 0;
+    return audsrv_present();
+}
+
 static void audio_init(void)
 {
-    int ret = 0;
     audio_state = 1; audio_err = 0;
     synth_all();
+    // 1) LIBSD de la BIOS (lo normal en PS2 real); 2) si no responde, freesd incrustado
+    int ok = audio_try_modules(0);
 #ifdef USE_FREESD
-    SifExecModuleBuffer(freesd_irx, size_freesd_irx, 0, NULL, &ret);
-#else
-    SifLoadModule("rom0:LIBSD", 0, NULL);
+    if (!ok) ok = audio_try_modules(1);
 #endif
-    int id = SifExecModuleBuffer(audsrv_irx, size_audsrv_irx, 0, NULL, &ret);
-    if (id < 0) audio_err = 4;                         // no cupo en la memoria del IOP (o el cargador fallo)
-    if (!audsrv_present()) { if (!audio_err) audio_err = 1; return; }     // el modulo no arranco: seguimos sin sonido
-    int ok = -1;
-    for (int tries = 0; tries < 4 && ok != 0; tries++) {                    // en una PS2 real a veces tarda: reintenta
+    if (!ok) { audio_err = (audio_dbg[1] < 0) ? 4 : 1; return; }
+    int r = -1;
+    for (int tries = 0; tries < 4 && r != 0; tries++) {
         if (tries) audio_wait(20000000);
-        ok = audsrv_init();
+        r = audsrv_init();
     }
-    if (ok != 0) { audio_err = 2; return; }
+    if (r != 0) { audio_err = 2; return; }
     audsrv_fmt_t fmt;
     fmt.freq = SR; fmt.bits = 16; fmt.channels = 1;
     if (audsrv_set_format(&fmt) != 0) { audio_err = 3; return; }
@@ -9809,9 +9823,14 @@ static void menu_frame(u32 newp, float lv, int frame)
     if (screen == SC_MAIN || screen == SC_OPT) draw_text_c(H - 58.0f, "LUZ AL REVES? PULSA SELECT", 2, hint_c);
     if (screen == SC_OPT)
         draw_text_c(H - 106.0f, "RENDER: 3 = NORMAL. MAS ALTO = VES MAS LEJOS (BAJA SOLO SI LOS FPS CAEN DE 50)", 1, hint_c);
-    if (screen == SC_OPT)
-        draw_text_c(H - 82.0f, audio_state == 2 ? "AUDIO: ACTIVO" : (audio_state == 1 ? (audio_err == 1 ? "AUDIO: NO ARRANCO (CODIGO 1)" : audio_err == 2 ? "AUDIO: NO ARRANCO (CODIGO 2)" : audio_err == 3 ? "AUDIO: NO ARRANCO (CODIGO 3)" : "AUDIO: NO ARRANCO (CODIGO 4)") : "AUDIO: NO INCLUIDO"),
+    if (screen == SC_OPT) {
+        static char abuf[64];
+        if (audio_state == 2) snprintf(abuf, sizeof abuf, "AUDIO: ACTIVO");
+        else if (audio_state == 1) snprintf(abuf, sizeof abuf, "AUDIO: NO ARRANCO C%d A%d B%d R%d", audio_err, audio_dbg[0], audio_dbg[1], audio_dbg[2]);
+        else snprintf(abuf, sizeof abuf, "AUDIO: NO INCLUIDO");
+        draw_text_c(H - 82.0f, abuf,
                     2, audio_state == 2 ? GS_SETREG_RGBAQ(90, 210, 110, 0x80, 0) : GS_SETREG_RGBAQ(220, 90, 60, 0x80, 0));
+    }
     fps_draw();
     draw_text(W - 40.0f, 26.0f, "V8", 2, hint_c);
 }
