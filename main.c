@@ -31,6 +31,10 @@
 #include <kernel.h>
 #include <sifrpc.h>
 #include <loadfile.h>
+#include <iopheap.h>
+#ifndef NET_PC_TEST
+#include <sbv_patches.h>
+#endif
 #include <libpad.h>
 #include <gsKit.h>
 #include <dmaKit.h>
@@ -7811,6 +7815,7 @@ static void reset_game(void)
 
 // ---------------- Sonido (todo sintetizado en codigo) ----------------
 static int audio_state;      // 0 no incluido en esta version, 1 fallo al iniciar, 2 activo
+static int audio_err;        // por que no arranco: 1 modulo audsrv no responde, 2 audsrv_init fallo, 3 formato rechazado, 4 sin memoria del IOP
 enum { SFX_DIRT, SFX_HARD, SFX_WATER, SFX_CLICK, SFX_SCREAM, SFX_DOOR, SFX_KEY, SFX_ROAR, SFX_MSTEP, SFX_UV, SFX_BLIND, SFX_BEEP, SFX_POP, SFX_WIND, SFX_N };
 #ifdef USE_AUDIO
 #define SR 22050
@@ -8004,25 +8009,34 @@ static int audsrv_present(void)
     return 0;
 }
 
+static void audio_wait(int n) { for (volatile int k = 0; k < n; k++) ; }
+
 static void audio_init(void)
 {
     int ret = 0;
-    audio_state = 1;
+    audio_state = 1; audio_err = 0;
     synth_all();
 #ifdef USE_FREESD
     SifExecModuleBuffer(freesd_irx, size_freesd_irx, 0, NULL, &ret);
 #else
     SifLoadModule("rom0:LIBSD", 0, NULL);
 #endif
-    SifExecModuleBuffer(audsrv_irx, size_audsrv_irx, 0, NULL, &ret);
-    if (!audsrv_present()) return;                    // el modulo no arranco: seguimos sin sonido
-    if (audsrv_init() != 0) return;
+    int id = SifExecModuleBuffer(audsrv_irx, size_audsrv_irx, 0, NULL, &ret);
+    if (id < 0) audio_err = 4;                         // no cupo en la memoria del IOP (o el cargador fallo)
+    if (!audsrv_present()) { if (!audio_err) audio_err = 1; return; }     // el modulo no arranco: seguimos sin sonido
+    int ok = -1;
+    for (int tries = 0; tries < 4 && ok != 0; tries++) {                    // en una PS2 real a veces tarda: reintenta
+        if (tries) audio_wait(20000000);
+        ok = audsrv_init();
+    }
+    if (ok != 0) { audio_err = 2; return; }
     audsrv_fmt_t fmt;
     fmt.freq = SR; fmt.bits = 16; fmt.channels = 1;
-    if (audsrv_set_format(&fmt) != 0) return;
+    if (audsrv_set_format(&fmt) != 0) { audio_err = 3; return; }
     audsrv_set_volume(100);
     audio_ok = 1;
     audio_state = 2;
+    audio_err = 0;
 }
 
 static void sfx_play(int id, float vol)
@@ -9796,7 +9810,7 @@ static void menu_frame(u32 newp, float lv, int frame)
     if (screen == SC_OPT)
         draw_text_c(H - 106.0f, "RENDER: 3 = NORMAL. MAS ALTO = VES MAS LEJOS (BAJA SOLO SI LOS FPS CAEN DE 50)", 1, hint_c);
     if (screen == SC_OPT)
-        draw_text_c(H - 82.0f, audio_state == 2 ? "AUDIO: ACTIVO" : (audio_state == 1 ? "AUDIO: NO ARRANCO" : "AUDIO: NO INCLUIDO"),
+        draw_text_c(H - 82.0f, audio_state == 2 ? "AUDIO: ACTIVO" : (audio_state == 1 ? (audio_err == 1 ? "AUDIO: NO ARRANCO (CODIGO 1)" : audio_err == 2 ? "AUDIO: NO ARRANCO (CODIGO 2)" : audio_err == 3 ? "AUDIO: NO ARRANCO (CODIGO 3)" : "AUDIO: NO ARRANCO (CODIGO 4)") : "AUDIO: NO INCLUIDO"),
                     2, audio_state == 2 ? GS_SETREG_RGBAQ(90, 210, 110, 0x80, 0) : GS_SETREG_RGBAQ(220, 90, 60, 0x80, 0));
     fps_draw();
     draw_text(W - 40.0f, 26.0f, "V8", 2, hint_c);
@@ -10127,6 +10141,12 @@ static int net_lockstep(void)
 int main(void)
 {
     SifInitRpc(0);
+#ifndef NET_PC_TEST
+    SifInitIopHeap();
+    SifLoadFileInit();
+    sbv_patch_enable_lmb();              // PS2 reales: permite cargar modulos .irx desde memoria (audsrv/freesd/red)
+    sbv_patch_disable_prefix_check();
+#endif
     SifLoadModule("rom0:SIO2MAN", 0, NULL);
     SifLoadModule("rom0:PADMAN", 0, NULL);
 
