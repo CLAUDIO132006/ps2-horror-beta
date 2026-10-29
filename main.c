@@ -7362,39 +7362,49 @@ static void st_pose(const Player *Q, StPose *S)
     StPart *ps[6] = { &S->legA, &S->legB, &S->body, &S->head, &S->armL, &S->armR };
     if (Q->dance_id >= 0 && state == 0 && !Q->climbing) {            // BAILES: sobreescribe la pose
         float t = Q->dance_t, k = clampf(t * 5.0f, 0.0f, 1.0f);      // entra suave en 0.2 s
-        float lat = 0.0f, hop = 0.0f;
+        float lat = 0.0f, hop = 0.0f, bamp = 0.0f, bw = 0.0f;
         switch (Q->dance_id) {
         case 0: {                                                     // KING NASIR: brazos alternos arriba/abajo, cadera de lado a lado
             float w = 7.0f * t;
             S->armL.ang = 1.5f + 1.5f * sinf(w);        S->armR.ang = 1.5f + 1.5f * sinf(w + 3.1416f);
             S->legA.ang = 0.45f * sinf(w);              S->legB.ang = -0.45f * sinf(w);
             S->body.ang = 0.10f * sinf(w * 0.5f);       S->head.ang = 0.18f * sinf(w);
-            lat = 0.22f * sinf(w * 0.5f); hop = 0.05f * fabsf(sinf(w)); break; }
+            lat = 0.22f * sinf(w * 0.5f); hop = 0.05f * fabsf(sinf(w)); bamp = 0.30f; bw = w; break; }
         case 1: {                                                     // FLOSS: brazos cruzando rapido, cadera al lado contrario
             float w = 11.0f * t;
             S->armL.ang = 1.1f * sinf(w);               S->armR.ang = -1.1f * sinf(w);
             S->legA.ang = 0.12f * sinf(w);              S->legB.ang = 0.12f * sinf(w);
             S->body.ang = 0.04f;                         S->head.ang = 0.08f * sinf(w);
-            lat = -0.30f * sinf(w); break; }
+            lat = -0.30f * sinf(w); bamp = 0.20f; bw = w; break; }
         case 2: {                                                     // GRIDDY: brazos doblados al frente y pasos largos
             float w = 6.0f * t;
             S->armL.ang = 2.0f + 0.6f * sinf(w);        S->armR.ang = 2.0f + 0.6f * sinf(w + 3.1416f);
             S->legA.ang = 0.9f * sinf(w);               S->legB.ang = -0.9f * sinf(w);
             S->body.ang = -0.12f;                        S->head.ang = 0.12f * sinf(w * 2.0f);
-            lat = 0.28f * sinf(w); hop = 0.07f * fabsf(sinf(w)); break; }
+            lat = 0.28f * sinf(w); hop = 0.07f * fabsf(sinf(w)); bamp = 0.25f; bw = w; break; }
         case 3: {                                                     // DAB: cabeza al codo, un brazo arriba y el otro cruzado
             float w = 9.0f * t, nod = 0.04f * sinf(w);
             S->armR.ang = 2.95f + nod;                   S->armL.ang = 2.25f - nod;
             S->head.ang = 0.95f;                         S->body.ang = 0.10f;
             S->legA.ang = 0.10f;                         S->legB.ang = -0.10f;
-            hop = 0.03f * fabsf(sinf(w)); lat = 0.05f; break; }
+            hop = 0.03f * fabsf(sinf(w)); lat = 0.05f; bamp = 0.10f; bw = w; break; }
+        case 5: {                                                     // GATITO: de pie, patitas arriba que se agitan, balanceo y saltitos
+            float w = 6.5f * t;
+            S->armL.ang = 2.35f + 0.55f * sinf(w);      S->armR.ang = 2.35f + 0.55f * sinf(w + 2.2f);
+            S->legA.ang = 0.22f * sinf(w);              S->legB.ang = -0.22f * sinf(w);
+            S->body.ang = -0.05f;                        S->head.ang = 0.14f * sinf(w * 0.5f) + 0.12f;
+            lat = 0.14f * sinf(w * 0.5f); hop = 0.08f * fabsf(sinf(w)); bamp = 0.35f; bw = w; break; }
         default: {                                                    // GANGNAM STYLE: galope de caballo
             float w = 10.0f * t;
             S->armL.ang = 1.45f + 0.35f * sinf(w);      S->armR.ang = 1.45f + 0.35f * sinf(w + 3.1416f);
             S->legA.ang = 0.8f * sinf(w);               S->legB.ang = -0.8f * sinf(w);
             S->body.ang = 0.10f; S->head.ang = 0.0f;
-            hop = 0.14f * fabsf(sinf(w)); break; }
+            hop = 0.14f * fabsf(sinf(w)); bamp = 0.45f; bw = w; break; }
         }
+        {   float bc = bamp * k * fabsf(sinf(bw));                   // flexion de rodillas al ritmo (cuerpo baja, piernas se acortan)
+            S->legA.ys *= 1.0f - 0.4f * bc; S->legB.ys *= 1.0f - 0.4f * bc;
+            S->legA.drop += 1.2f * bc; S->legB.drop += 1.2f * bc; S->body.drop += 1.2f * bc; S->head.drop += 1.2f * bc;
+            S->armL.drop += 1.2f * bc; S->armR.drop += 1.2f * bc; }
         S->legA.ang *= k; S->legB.ang *= k; S->body.ang *= k; S->head.ang *= k;
         S->armL.ang = S->armL.ang * k; S->armR.ang = S->armR.ang * k;
         S->C.fy += hop * k;
@@ -11020,8 +11030,8 @@ static void draw_emoji_menu(void)                                       // menu 
 }
 
 // ---- Bailes (flecha izquierda): 30 casillas, por ahora 5 con nombre; las demas quedan libres ----
-#define N_DANCES 5
-static const char *dance_names[30] = { "KING NASIR", "FLOSS", "GRIDDY", "DAB", "GANGNAM", 0 };
+#define N_DANCES 6
+static const char *dance_names[30] = { "KING NASIR", "FLOSS", "GRIDDY", "DAB", "GANGNAM", "GATITO", 0 };
 
 static void draw_dance_menu(void)
 {
