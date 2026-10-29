@@ -8000,7 +8000,7 @@ static void synth_all(void)
 // quedarse esperando para siempre y la pantalla se queda negra.
 static int audsrv_present(void)
 {
-    SifRpcClientData_t cd;
+    static SifRpcClientData_t cd __attribute__((aligned(64)));
     memset(&cd, 0, sizeof(cd));
     for (int i = 0; i < 300; i++) {
         if (SifBindRpc(&cd, 0x870884, 0) >= 0 && cd.server != 0) return 1;
@@ -8011,11 +8011,11 @@ static int audsrv_present(void)
 
 static void audio_wait(int n) { for (volatile int k = 0; k < n; k++) ; }
 
-static int audio_dbg[4];                              // ids/retornos de carga para mostrar en Opciones
+static int audio_dbg[8];                              // ids/retornos de carga para mostrar en Opciones
 
 static int audio_try_modules(int use_freesd)
 {
-    int ret = 0, r2 = 0;
+    int ret = 0, r2 = 0, k = use_freesd ? 4 : 0;
     int a;
 #ifdef USE_FREESD
     if (use_freesd) a = SifExecModuleBuffer(freesd_irx, size_freesd_irx, 0, NULL, &ret);
@@ -8023,9 +8023,11 @@ static int audio_try_modules(int use_freesd)
 #endif
     a = SifLoadModule("rom0:LIBSD", 0, NULL);
     int id = SifExecModuleBuffer(audsrv_irx, size_audsrv_irx, 0, NULL, &r2);
-    audio_dbg[0] = a; audio_dbg[1] = id; audio_dbg[2] = r2;
+    audio_dbg[k] = a; audio_dbg[k + 1] = id; audio_dbg[k + 2] = r2;
     if (id < 0) return 0;
-    return audsrv_present();
+    if (r2 != 0) return 0;                            // audsrv se descargo solo (no pudo iniciar)
+    audsrv_present();                                  // espera un poco; si el modulo esta residente seguimos igual
+    return 1;
 }
 
 static void audio_init(void)
@@ -9826,7 +9828,7 @@ static void menu_frame(u32 newp, float lv, int frame)
     if (screen == SC_OPT) {
         static char abuf[64];
         if (audio_state == 2) snprintf(abuf, sizeof abuf, "AUDIO: ACTIVO");
-        else if (audio_state == 1) snprintf(abuf, sizeof abuf, "AUDIO: NO ARRANCO C%d A%d B%d R%d", audio_err, audio_dbg[0], audio_dbg[1], audio_dbg[2]);
+        else if (audio_state == 1) snprintf(abuf, sizeof abuf, "AUDIO: NO ARRANCO C%d L%d/%d/%d F%d/%d/%d", audio_err, audio_dbg[0], audio_dbg[1], audio_dbg[2], audio_dbg[4], audio_dbg[5], audio_dbg[6]);
         else snprintf(abuf, sizeof abuf, "AUDIO: NO INCLUIDO");
         draw_text_c(H - 82.0f, abuf,
                     2, audio_state == 2 ? GS_SETREG_RGBAQ(90, 210, 110, 0x80, 0) : GS_SETREG_RGBAQ(220, 90, 60, 0x80, 0));
