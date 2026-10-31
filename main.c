@@ -4352,7 +4352,7 @@ static const char *map1[MH] = {"################################################
 "################################################################################################",
 "################################################################################################"};
 typedef struct { float x,z,a,hx,hz,y0,y1; unsigned char r,g,b,type,layer; float emit; } Prop;
-#define NPROP 552
+#define NPROP 556
 static const Prop props[NPROP] = {
   {192.400f,176.400f,0.000f,0.120f,0.120f,0.000f,10.000f,150,150,155,0,0,0.000f},
   {192.400f,179.600f,0.000f,0.120f,0.120f,0.000f,10.000f,150,150,155,0,0,0.000f},
@@ -4906,6 +4906,10 @@ static const Prop props[NPROP] = {
   {234.000f,26.000f,2.654f,1.785f,0.200f,0.000f,0.450f,70,52,36,0,0,0.000f},
   {126.000f,270.000f,1.970f,1.717f,0.200f,0.000f,0.450f,70,52,36,0,0,0.000f},
   {230.000f,110.000f,0.732f,1.532f,0.200f,0.000f,0.450f,70,52,36,0,0,0.000f},
+  {234.000f,307.120f,0.000f,7.700f,0.060f,4.370f,4.500f,150,225,255,0,0,1.000f},
+  {234.000f,316.880f,0.000f,7.700f,0.060f,4.370f,4.500f,150,225,255,0,0,1.000f},
+  {226.370f,312.000f,0.000f,0.060f,4.940f,4.370f,4.500f,150,225,255,0,0,1.000f},
+  {241.630f,312.000f,0.000f,0.060f,4.940f,4.370f,4.500f,150,225,255,0,0,1.000f}
 };
 typedef struct { float x,z,a,hx,hz; unsigned char layer; } Col;
 #define NCOL 425
@@ -5337,7 +5341,7 @@ static const Col colliders[NCOL] = {
   {230.000f,110.000f,0.732f,1.532f,0.200f,0},
 };
 typedef struct { float x,y,z,rad; unsigned char r,g,b,ac; float period,range; unsigned char layer,los; } Beacon;
-#define NBC 37
+#define NBC 41
 static const Beacon beacons[NBC] = {
   {194.000f,35.000f,178.000f,1.400f,255,40,40,125,1.500f,220.000f,0,0},
   {178.000f,1.600f,163.700f,0.600f,255,200,120,90,0.000f,50.000f,0,1},
@@ -5376,6 +5380,10 @@ static const Beacon beacons[NBC] = {
   {69.400f,0.800f,254.200f,0.400f,255,200,120,90,0.000f,30.000f,0,1},
   {56.200f,1.300f,54.300f,0.350f,255,210,120,95,0.000f,36.000f,0,1},
   {59.800f,1.300f,54.300f,0.350f,255,210,120,95,0.000f,36.000f,0,1},
+  {230.000f,4.450f,307.100f,0.550f,170,225,255,100,0.000f,45.000f,0,1},
+  {238.000f,4.450f,316.900f,0.550f,170,225,255,100,0.000f,45.000f,0,1},
+  {226.400f,4.450f,312.000f,0.550f,170,225,255,100,0.000f,45.000f,0,1},
+  {241.600f,4.450f,312.000f,0.550f,170,225,255,100,0.000f,45.000f,0,1}
 };
 // Llaves en el piso: x, z, altura del piso, capa. (La de la cabana y la de la cueva estaban sobre un mueble: ahora
 // quedan en el suelo junto a el.)
@@ -6206,6 +6214,8 @@ static int tree_at(int cx, int cz, float *tx, float *tz, float *sc, int *dead)
     if (map0[cz][cx] != '.') return 0;
     unsigned int h = hash2(cx, cz);
     if ((h % 100) >= 46) return 0;
+    if (cx == 57 && cz == 77) { *tx = 225.0f; *tz = 313.2f; *sc = 1.15f; *dead = 0; return 1; }     // estaban bajo el techo de la gasolinera: se replantan al lado
+    if (cx == 58 && cz == 78) { *tx = 233.9f; *tz = 319.5f; *sc = 1.2f; *dead = 0; return 1; }
     *tx = cx * CS + 0.8f + ((h >> 8) & 255) / 255.0f * 2.4f;
     *tz = cz * CS + 0.8f + ((h >> 16) & 255) / 255.0f * 2.4f;
     *sc = 0.8f + ((h >> 24) & 63) / 63.0f * 0.6f;
