@@ -18545,7 +18545,7 @@ static void menu_frame(u32 newp, float lv, int frame)
     int was_skin = (screen == SC_SKIN);
     int ok = (newp & PAD_CROSS) != 0, back = (newp & PAD_CIRCLE) != 0;
     int lt = (newp & PAD_LEFT) != 0, rt = (newp & PAD_RIGHT) != 0;
-    int n = (screen == SC_SOLO) ? 5 : (screen == SC_OPT) ? 8 : (screen == SC_SKIN ? 3 : screen == SC_CTRL ? 4 : (screen == SC_MAIN ? 5 : (screen == SC_NET ? 3 : (screen == SC_NETIP || screen == SC_NETWAIT ? 1 : 4))));
+    int n = (screen == SC_SOLO) ? 4 : (screen == SC_OPT) ? 8 : (screen == SC_SKIN ? 3 : screen == SC_CTRL ? 4 : (screen == SC_MAIN ? 5 : (screen == SC_NET ? 3 : (screen == SC_NETIP || screen == SC_NETWAIT ? 1 : 4))));
     if (pad2_warn > 0) pad2_warn--;
     const int scr0 = screen;                                   // pantalla con la que empieza este cuadro
 #ifdef HAVE_NET
@@ -18578,12 +18578,12 @@ static void menu_frame(u32 newp, float lv, int frame)
             else if (*sel == 3) { opt_from = SC_MAIN; screen = SC_OPT; opt_sel = 0; rd_max = 8; }
             else Exit(0);
         }
-    } else if (screen == SC_SOLO) {                           // 1 JUGADOR: dificultad / mapa / indicador / empezar
+    } else if (screen == SC_SOLO) {                           // 1 JUGADOR: dificultad / marcador / mapa / empezar
         int d = rt ? 1 : (lt ? -1 : (ok ? 1 : 0));
-        if (back || (ok && *sel == 4)) screen = SC_MAIN;
+        if (back) screen = SC_MAIN;
         else if (*sel == 0 && d) solo_diff = (solo_diff + 3 + d) % 3;
-        else if (*sel == 1 && d) solo_map = 0;                // por ahora solo hay un mapa
-        else if (*sel == 2 && d) map_ind = !map_ind;
+        else if (*sel == 1 && d) map_ind = !map_ind;
+        else if (*sel == 2 && d) solo_map = 0;                // por ahora solo hay un mapa
         else if (ok && *sel == 3) { diff_mul = solo_diff == 0 ? 0.8f : (solo_diff == 2 ? 1.2f : 1.0f); start_game(1); }
     } else if (screen == SC_PAUSE) {
         if ((newp & PAD_START) || back) screen = SC_PLAY;
@@ -18721,7 +18721,8 @@ static void menu_frame(u32 newp, float lv, int frame)
 
     if (screen == SC_PLAY) return;                            // la partida online acaba de empezar
     // ---- dibujo ----
-    if (screen == SC_MAIN || screen == SC_SOLO || screen == SC_NET || screen == SC_NETIP || screen == SC_NETWAIT || screen == SC_LOBBY || screen == SC_NETLIST || screen == SC_NAME || ((screen == SC_OPT || screen == SC_CTRL || screen == SC_SKIN) && opt_from == SC_MAIN)) menu_bg_main();
+    if (screen == SC_SOLO) gsKit_clear(gsGlobal, GS_SETREG_RGBAQ(10, 10, 14, 0x80, 0));
+    else if (screen == SC_MAIN || screen == SC_NET || screen == SC_NETIP || screen == SC_NETWAIT || screen == SC_LOBBY || screen == SC_NETLIST || screen == SC_NAME || ((screen == SC_OPT || screen == SC_CTRL || screen == SC_SKIN) && opt_from == SC_MAIN)) menu_bg_main();
     else { render_frame(last_t, 1); menu_dim(); }
 
     u64 sel_c = GS_SETREG_RGBAQ(255, 230, 90, 0x80, 0), norm_c = GS_SETREG_RGBAQ(170, 170, 175, 0x80, 0);
@@ -18766,21 +18767,40 @@ static void menu_frame(u32 newp, float lv, int frame)
         }
     }
     if (screen == SC_SOLO) {
-        draw_text_c(40.0f, "1 JUGADOR", 5, sel_c);
-        static const char *dn_[3] = { "FACIL", "NORMAL", "DIFICIL" };
-        for (int i = 0; i < 5; i++) {
-            const char *nm = "";
-            char val[20]; val[0] = '\0';
-            if (i == 0) { nm = "DIFICULTAD"; snprintf(val, sizeof(val), "%s", dn_[solo_diff]); }
-            else if (i == 1) { nm = "MAPA"; snprintf(val, sizeof(val), "%s", "PUEBLO"); }
-            else if (i == 2) { nm = "INDICADOR DE JUGADOR"; snprintf(val, sizeof(val), "%s", map_ind ? "SI" : "NO"); }
-            else if (i == 3) nm = "EMPEZAR PARTIDA";
-            else nm = "VOLVER";
-            if (val[0]) snprintf(line, sizeof(line), i == solo_sel ? "> %s: %s <" : "%s: %s", nm, val);
-            else snprintf(line, sizeof(line), i == solo_sel ? "> %s <" : "%s", nm);
-            draw_text_c(120.0f + i * 40.0f, line, 2, i == solo_sel ? sel_c : norm_c);
+        static const char *dn_[3] = { "NORMAL", "NORMAL", "NORMAL" };
+        dn_[0] = "FACIL"; dn_[2] = "DIFICIL";
+        u64 pbg = GS_SETREG_RGBAQ(16, 16, 18, 0x80, 0), pbd = GS_SETREG_RGBAQ(70, 70, 76, 0x80, 0);
+        u64 white = GS_SETREG_RGBAQ(235, 235, 238, 0x80, 0), red = GS_SETREG_RGBAQ(225, 20, 20, 0x80, 0), arr = GS_SETREG_RGBAQ(150, 150, 155, 0x80, 0);
+        draw_text(24.0f, 20.0f, "1 JUGADOR", 3, title_c);
+        for (int i = 0; i < 2; i++) {                         // paneles de opciones (arriba a la derecha)
+            float x0 = W * 0.50f, x1 = W - 20.0f, y0 = 20.0f + i * 50.0f, y1 = y0 + 42.0f;
+            u64 bd = (i == solo_sel) ? sel_c : pbd;
+            gsKit_prim_sprite(gsGlobal, x0 - 2.0f, y0 - 2.0f, x1 + 2.0f, y1 + 2.0f, 16776990, bd);
+            gsKit_prim_sprite(gsGlobal, x0, y0, x1, y1, 16777000, pbg);
+            const char *nm = i == 0 ? "DIFICULTAD" : "INDICADOR JUGADOR";
+            const char *vl = i == 0 ? dn_[solo_diff] : (map_ind ? "SI" : "NO");
+            draw_text(x0 + 12.0f, y0 + 14.0f, nm, 2, white);
+            float cx = x1 - 82.0f;
+            draw_text(cx - 70.0f, y0 + 12.0f, "<", 3, arr);
+            draw_text(x1 - 28.0f, y0 + 12.0f, ">", 3, arr);
+            draw_text(cx - (float)text_w(vl, 2) * 0.5f, y0 + 14.0f, vl, 2, red);
         }
-        draw_text_c(H - 84.0f, solo_diff == 0 ? "EL MONSTRUO ES MAS LENTO" : (solo_diff == 2 ? "EL MONSTRUO ES MAS RAPIDO" : "VELOCIDAD NORMAL"), 1, hint_c);
+        {   // imagen del mapa (el bosque) en un marco
+            float mx = 34.0f, my = H - 262.0f, ms = 176.0f;
+            map_prepare();
+            MapPan P = { mx, my, ms / (float)MH, 0, 0, MW - 1, MH - 1 };
+            gsKit_prim_sprite(gsGlobal, mx - 3.0f, my - 3.0f, mx + ms + 3.0f, my + ms + 3.0f, 16776990, solo_sel == 2 ? sel_c : GS_SETREG_RGBAQ(205, 205, 210, 0x80, 0));
+            gsKit_prim_sprite(gsGlobal, mx, my, mx + ms, my + ms, 16777000, GS_SETREG_RGBAQ(8, 10, 14, 0x80, 0));
+            map_panel(0, &P);
+            draw_text(mx + ms + 12.0f, my + ms - 14.0f, "MAPA: PUEBLO", 1, arr);
+        }
+        {   // boton verde
+            float bx = 28.0f, by = H - 70.0f, bw = 250.0f, bh = 46.0f;
+            u64 bd = solo_sel == 3 ? sel_c : GS_SETREG_RGBAQ(230, 230, 232, 0x80, 0);
+            gsKit_prim_sprite(gsGlobal, bx - 3.0f, by - 3.0f, bx + bw + 3.0f, by + bh + 3.0f, 16776990, bd);
+            gsKit_prim_sprite(gsGlobal, bx, by, bx + bw, by + bh, 16777000, GS_SETREG_RGBAQ(40, 150, 40, 0x80, 0));
+            draw_text(bx + (bw - (float)text_w("EMPEZAR PARTIDA", 2)) * 0.5f, by + 16.0f, "EMPEZAR PARTIDA", 2, white);
+        }
     }
     if (screen == SC_SKIN) {
         draw_text_c(40.0f, "SKINS", 5, sel_c);
@@ -18938,7 +18958,7 @@ static void menu_frame(u32 newp, float lv, int frame)
     }
 #endif
     if (screen != SC_NETIP && screen != SC_NETWAIT && screen != SC_LOBBY && screen != SC_NETLIST && screen != SC_NAME)
-    draw_text_c(H - 34.0f, (screen == SC_OPT || screen == SC_CTRL || screen == SC_SKIN || screen == SC_SOLO) ? "IZQ/DER: CAMBIAR   O: ATRAS" : "ARRIBA/ABAJO: MOVER   X: ELEGIR", 2, hint_c);
+    if (screen != SC_SOLO) draw_text_c(H - 34.0f, (screen == SC_OPT || screen == SC_CTRL || screen == SC_SKIN || screen == SC_SOLO) ? "IZQ/DER: CAMBIAR   O: ATRAS" : "ARRIBA/ABAJO: MOVER   X: ELEGIR", 2, hint_c);
     if (screen == SC_MAIN || screen == SC_OPT) draw_text_c(H - 58.0f, "LUZ AL REVES? PULSA SELECT", 2, hint_c);
     if (screen == SC_OPT)
         draw_text_c(H - 106.0f, "RENDER: 3 = NORMAL. MAS ALTO = VES MAS LEJOS (BAJA SOLO SI LOS FPS CAEN DE 50)", 1, hint_c);
