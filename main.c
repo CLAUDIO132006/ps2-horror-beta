@@ -4663,14 +4663,14 @@ static const Prop props[NPROP] = {
   {57.000f,150.500f,0.000f,0.070f,0.070f,0.000f,0.500f,200,230,255,0,0,1.000f},
   {63.000f,150.500f,0.000f,0.070f,0.070f,0.000f,0.500f,200,230,255,0,0,1.000f},
   {60.000f,148.000f,0.000f,8.600f,8.600f,4.500f,7.500f,90,90,96,3,0,0.000f},
-  {54.000f,132.000f,0.000f,26.000f,0.100f,0.000f,1.600f,40,40,44,0,0,0.000f},
-  {54.000f,188.000f,0.000f,26.000f,0.100f,0.000f,1.600f,40,40,44,0,0,0.000f},
-  {28.000f,160.000f,0.000f,0.100f,28.000f,0.000f,1.600f,40,40,44,0,0,0.000f},
-  {80.000f,142.000f,0.000f,0.100f,10.000f,0.000f,1.600f,40,40,44,0,0,0.000f},
-  {80.000f,178.000f,0.000f,0.100f,10.000f,0.000f,1.600f,40,40,44,0,0,0.000f},
-  {80.000f,168.000f,0.000f,0.250f,0.250f,0.000f,3.000f,60,60,64,0,0,0.000f},
-  {80.000f,152.000f,0.000f,0.250f,0.250f,0.000f,3.000f,60,60,64,0,0,0.000f},
-  {80.000f,160.000f,0.000f,0.200f,8.250f,3.000f,3.300f,60,60,64,0,0,0.000f},
+  {56.000f,132.000f,0.000f,28.000f,0.100f,0.000f,1.600f,40,40,44,0,0,0.000f},
+  {56.000f,184.000f,0.000f,28.000f,0.100f,0.000f,1.600f,40,40,44,0,0,0.000f},
+  {28.000f,158.000f,0.000f,0.100f,26.000f,0.000f,1.600f,40,40,44,0,0,0.000f},
+  {84.000f,142.000f,0.000f,0.100f,10.000f,0.000f,1.600f,40,40,44,0,0,0.000f},
+  {84.000f,176.000f,0.000f,0.100f,8.000f,0.000f,1.600f,40,40,44,0,0,0.000f},
+  {84.000f,168.000f,0.000f,0.250f,0.250f,0.000f,3.000f,60,60,64,0,0,0.000f},
+  {84.000f,152.000f,0.000f,0.250f,0.250f,0.000f,3.000f,60,60,64,0,0,0.000f},
+  {84.000f,160.000f,0.000f,0.200f,8.250f,3.000f,3.300f,60,60,64,0,0,0.000f},
   {70.135f,183.422f,0.010f,0.400f,0.090f,0.000f,0.986f,116,123,132,0,0,0.000f},
   {70.135f,183.422f,0.010f,0.100f,0.090f,0.900f,1.600f,120,120,125,0,0,0.000f},
   {70.135f,183.422f,0.010f,0.350f,0.090f,1.150f,1.350f,120,120,125,0,0,0.000f},
@@ -5124,11 +5124,11 @@ static const Col colliders[NCOL] = {
   {60.000f,146.000f,0.000f,0.700f,0.250f,0},
   {57.000f,150.500f,0.000f,0.070f,0.070f,0},
   {63.000f,150.500f,0.000f,0.070f,0.070f,0},
-  {54.000f,132.000f,0.000f,26.000f,0.100f,0},
-  {54.000f,188.000f,0.000f,26.000f,0.100f,0},
-  {28.000f,160.000f,0.000f,0.100f,28.000f,0},
-  {80.000f,142.000f,0.000f,0.100f,10.000f,0},
-  {80.000f,178.000f,0.000f,0.100f,10.000f,0},
+  {56.000f,132.000f,0.000f,28.000f,0.100f,0},
+  {56.000f,184.000f,0.000f,28.000f,0.100f,0},
+  {28.000f,158.000f,0.000f,0.100f,26.000f,0},
+  {84.000f,142.000f,0.000f,0.100f,10.000f,0},
+  {84.000f,176.000f,0.000f,0.100f,8.000f,0},
   {80.000f,168.000f,0.000f,0.250f,0.250f,0},
   {80.000f,152.000f,0.000f,0.250f,0.250f,0},
   {70.135f,183.422f,0.010f,0.400f,0.090f,0},
@@ -6788,7 +6788,22 @@ static void draw_props(float t)
             if (ddx * ddx + ddz * ddz > 64.0f && !(fabsf(p->y0 - 5.0f) < 0.1f || fabsf(p->y0 - 15.0f) < 0.1f || fabsf(p->y0 - 25.0f) < 0.1f)) continue;
         }
         switch (p->type) {
-        case 0: box_rot(p->x, p->z, p->a, 0, 0, p->hx, p->hz, p->y0, p->y1, col, p->emit); break;
+        case 0:
+            if (p->hx > 4.0f || p->hz > 4.0f) {                 // muro/valla muy largo: se dibuja en tramos de ~4 m (uno solo se deformaba al acercarte)
+                int alongx = p->hx >= p->hz;
+                float half = alongx ? p->hx : p->hz;
+                int ns = (int)ceilf(half / 2.0f);
+                float sh = half / (float)ns, ca = cosf(p->a), sa = sinf(p->a);
+                float lim = fminf(draw_lim, (gfx_pd[gfx] * rd_k));
+                for (int k = 0; k < ns; k++) {
+                    float off = -half + sh * (2.0f * (float)k + 1.0f);
+                    float lx = alongx ? off : 0.0f, lz = alongx ? 0.0f : off;
+                    float wx = p->x + lx * ca + lz * sa, wz = p->z - lx * sa + lz * ca;
+                    if (!in_view(wx, wz, sh * 1.5f + 0.6f, lim)) continue;
+                    box_rot(p->x, p->z, p->a, lx, lz, alongx ? sh : p->hx, alongx ? p->hz : sh, p->y0, p->y1, col, p->emit);
+                }
+            } else box_rot(p->x, p->z, p->a, 0, 0, p->hx, p->hz, p->y0, p->y1, col, p->emit);
+            break;
         case 2: box_rot(p->x, p->z, p->a, 0, 0, p->hx, p->hz, p->y0, p->y1, col,
                         p->emit * (0.75f + 0.25f * sinf(t * 17.0f + p->x))); break;
         case 1: roof_rot(p->x, p->z, p->a, p->hx, p->hz, p->y0, p->y1, col); break;
@@ -17337,8 +17352,8 @@ static void draw_locker_hud(void)
         return;
     }
     if (carry && !map_open && code_door < 0) {
-        if (pick_near2(1) >= 0 && pick_near() < 0) { draw_text_c(H - 34.0f, "YA LLEVAS UNA LLAVE   O: SOLTAR", 2, yc); return; }
-        draw_text(20.0f, H - 20.0f, "O: SOLTAR LLAVE", 1, GS_SETREG_RGBAQ(160, 160, 166, 0x80, 0));
+        if (pick_near2(1) >= 0 && pick_near() < 0) { draw_text_c(H - 34.0f, "YA LLEVAS UNA LLAVE   R3: SOLTAR", 2, yc); return; }
+        draw_text(20.0f, H - 20.0f, "R3: SOLTAR LLAVE", 1, GS_SETREG_RGBAQ(160, 160, 166, 0x80, 0));
     }
     if (locker_near() >= 0 && door_near() < 0 && !board_near()) {
         if (hide_hold > 0.0f) {                              // barra de carga: 1 segundo
@@ -17588,7 +17603,7 @@ static void msg_text(int id, char *buf, int n)
     if (id >= 1 && id <= 4) snprintf(buf, n, "NECESITAS LLAVE %s", key_name[id - 1]);
     else if (id == 13) snprintf(buf, n, "PUERTA FINAL: FALTAN %d LLAVES FINALES", 3 - (notes_used[0] + notes_used[1] + notes_used[2]));
     else if (id == 16) snprintf(buf, n, "LLAVE FINAL PUESTA %d DE 3", notes_used[0] + notes_used[1] + notes_used[2]);
-    else if (id == 17) snprintf(buf, n, "YA LLEVAS UNA LLAVE (O: SOLTAR)");
+    else if (id == 17) snprintf(buf, n, "YA LLEVAS UNA LLAVE (R3: SOLTAR)");
     else if (id == 14) snprintf(buf, n, "LA PUERTA FINAL SE ABRE...");
     else if (id == 15) snprintf(buf, n, "LLAVE FINAL AGARRADA");
     else if (id == 10) snprintf(buf, n, "CODIGO INCORRECTO");
@@ -19174,7 +19189,7 @@ static int ui_input(u32 newp)
         } else if (newp & (PAD_CIRCLE | PAD_TRIANGLE)) code_door = -1;      // O / TRIANGULO: salir
         return 1;
     }
-    if ((newp & PAD_CIRCLE) && carry && hide_id < 0 && !map_open && code_door < 0 && !climbing) {   // CIRCULO: soltar la llave
+    if ((newp & PAD_R3) && carry && hide_id < 0 && !map_open && code_door < 0 && !climbing) {   // CIRCULO: soltar la llave
         float dxf = sinf(yaw), dzf = cosf(yaw), nx = px + dxf * 0.9f, nz = pz + dzf * 0.9f;
         if (solid(nx, nz)) { nx = px; nz = pz; }
         if (carry >= 5) { int k = carry - 5; notes_off[k] = 0; notes_pos[k][0] = nx; notes_pos[k][1] = nz; notes_pos[k][3] = (float)cur_layer; }
@@ -19202,7 +19217,7 @@ static int ui_input(u32 newp)
                     else { door_msg = 150; door_msg_id = 16; }
                 } else { door_msg = 150; door_msg_id = 13; }
             } else if (d->type == 0) {
-                if (carry == d->id + 1) { carry = 0; door_open[di] = 1; door_msg = 120; door_msg_id = 11; sfx_play(SFX_DOOR, 1.0f); }
+                if (carry == d->id + 1) { door_open[di] = 1; door_msg = 120; door_msg_id = 11; sfx_play(SFX_DOOR, 1.0f); }
                 else { door_msg = 150; door_msg_id = 1 + d->id; }
             } else { code_door = di; code_val = 0; code_pos = 0; }
         }
