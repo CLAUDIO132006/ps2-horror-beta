@@ -5318,6 +5318,8 @@ static int   walk_step;                     // numero de paso (para sincronizar 
 static float mon_thud;                      // sacudida de camara por las pisadas del monstruo
 static float cam_rc = 1.0f, cam_rs = 0.0f;  // balanceo (roll) de la camara: cos / sin
 static int   crouched, blend_flip;
+static int   spec_mode, spec_pending;     // MODO SECRETO (espectador: vuelas y traspasas paredes)
+static int   sec_d[6], sec_pos, sec_err;  // contrasena del modo secreto
 static int   p_moving, p_near;              // datos de HUD de cada jugador
 #define DET_TIME 5.0f                       // segundos que hay que mantener R2 para sacar el detector
 // EMOJIS: flecha DERECHA abre el menu (izq/der/arriba/abajo mueven, X envia, O cierra). El emoji se ve sobre la cabeza del otro jugador.
@@ -5350,7 +5352,7 @@ static const int   gfx_c2[3]    = { 1, 2, 2 };           // "media distancia" = 
 static const int   gfx_seg[3]   = { 16, 20, 24 };          // suavidad del circulo de luz (ALTO: 32 lados bastan, el borde es difuso)
 static const int   gfx_steps[3] = { 3, 4, 4 };
 static const float gfx_reach[3] = { 0.85f, 1.0f, 1.2f };   // alcance de la luz
-enum { SC_MAIN, SC_OPT, SC_PLAY, SC_PAUSE, SC_CTRL, SC_NET, SC_NETIP, SC_NETWAIT, SC_LOBBY, SC_NETLIST, SC_NAME, SC_SKIN, SC_SOLO };
+enum { SC_MAIN, SC_OPT, SC_PLAY, SC_PAUSE, SC_CTRL, SC_NET, SC_NETIP, SC_NETWAIT, SC_LOBBY, SC_NETLIST, SC_NAME, SC_SKIN, SC_SOLO, SC_SECRET };
 static int net_online;                  // 1 = partida online en curso (los dos juegos simulan lo mismo)
 static unsigned int game_seed;          // semilla de la partida (los codigos de los candados salen de ella)
 static int net_sel;                     // menu ONLINE
@@ -9035,6 +9037,7 @@ static void update_monster(float dt, int notes)
 // ---------------- Reinicio ----------------
 static void reset_game(void)
 {
+    spec_mode = 0;
     if (net_online) game_seed = game_seed * 1664525u + 1013904223u;   // online: los dos juegos avanzan igual
     else game_seed = (unsigned int)frame_no;
     need_flow = 1; last_layer = -1; last_foot = 0;
@@ -18039,6 +18042,7 @@ static void draw_door_hud(void)
     }
     if (inv_open) draw_inventory();
     if (code_door >= 0) draw_code_ui();
+    if (spec_mode) draw_text_c(8.0f, "MODO ESPECTADOR   X: SUBIR   CUADRADO: BAJAR   R2: RAPIDO", 1, GS_SETREG_RGBAQ(150, 220, 255, 0x80, 0));
     if (emoji_open) draw_emoji_menu();
     if (dance_open) draw_dance_menu();
 }
@@ -18275,6 +18279,7 @@ static void start_game(int players)
     num_players = players;
     if (players == 2) padSetMainMode(1, 0, PAD_MMODE_DUALSHOCK, PAD_MMODE_LOCK);
     reset_game();
+    spec_mode = spec_pending; spec_pending = 0;
     screen = SC_PLAY;
 }
 
@@ -18862,7 +18867,7 @@ static void menu_frame(u32 newp, float lv, int frame)
     int was_skin = (screen == SC_SKIN);
     int ok = (newp & PAD_CROSS) != 0, back = (newp & PAD_CIRCLE) != 0;
     int lt = (newp & PAD_LEFT) != 0, rt = (newp & PAD_RIGHT) != 0;
-    int n = (screen == SC_SOLO) ? 4 : (screen == SC_OPT) ? 8 : (screen == SC_SKIN ? 3 : screen == SC_CTRL ? 4 : (screen == SC_MAIN ? 5 : (screen == SC_NET ? 3 : (screen == SC_NETIP || screen == SC_NETWAIT ? 1 : 4))));
+    int n = (screen == SC_SOLO) ? 4 : (screen == SC_OPT) ? 8 : (screen == SC_SKIN ? 3 : screen == SC_CTRL ? 4 : (screen == SC_MAIN ? 6 : (screen == SC_NET ? 3 : (screen == SC_NETIP || screen == SC_NETWAIT ? 1 : 4))));
     if (pad2_warn > 0) pad2_warn--;
     const int scr0 = screen;                                   // pantalla con la que empieza este cuadro
 #ifdef HAVE_NET
@@ -18878,6 +18883,8 @@ static void menu_frame(u32 newp, float lv, int frame)
     static int name_dummy;
     if (screen == SC_NAME) sel = &name_dummy;                // el editor usa arriba/abajo para las letras
 #endif
+    static int sec_dummy;
+    if (screen == SC_SECRET) { n = 1; sel = &sec_dummy; }
     if (up) { *sel = (*sel + n - 1) % n; sfx_play(SFX_CLICK, 0.5f); }
     if (dn) { *sel = (*sel + 1) % n; sfx_play(SFX_CLICK, 0.5f); }
     if (ok || back || lt || rt) sfx_play(SFX_CLICK, 0.7f);
@@ -18894,6 +18901,7 @@ static void menu_frame(u32 newp, float lv, int frame)
 #endif
             }
             else if (*sel == 3) { opt_from = SC_MAIN; screen = SC_OPT; opt_sel = 0; rd_max = 8; }
+            else if (*sel == 4) { screen = SC_SECRET; sec_pos = 0; sec_err = 0; for (int q = 0; q < 6; q++) sec_d[q] = 0; }
             else Exit(0);
         }
     } else if (screen == SC_SOLO) {                           // 1 JUGADOR: dificultad / marcador / mapa / empezar
@@ -18910,11 +18918,27 @@ static void menu_frame(u32 newp, float lv, int frame)
             else { screen = SC_NET; net_sel = 0; }
 #endif
         }
+    } else if (screen == SC_SECRET) {                         // MODO SECRETO: pide la contrasena
+        static const int pw[6] = { 1, 3, 2, 0, 0, 6 };
+        if (sec_err > 0) sec_err--;
+        if (back) screen = SC_MAIN;
+        else {
+            if (lt) sec_pos = (sec_pos + 5) % 6;
+            if (rt) sec_pos = (sec_pos + 1) % 6;
+            if (up) sec_d[sec_pos] = (sec_d[sec_pos] + 1) % 10;
+            if (dn) sec_d[sec_pos] = (sec_d[sec_pos] + 9) % 10;
+            if (ok) {
+                int good = 1;
+                for (int q = 0; q < 6; q++) if (sec_d[q] != pw[q]) good = 0;
+                if (good) { diff_mul = 1.0f; spec_pending = 1; start_game(1); }
+                else sec_err = 120;
+            }
+        }
     } else if (screen == SC_PAUSE) {
         if ((newp & PAD_START) || back) screen = SC_PLAY;
         else if (ok) {
             if (*sel == 0) screen = SC_PLAY;
-            else if (*sel == 1) { reset_game(); screen = SC_PLAY; }             // REINICIAR
+            else if (*sel == 1) { int sm_ = spec_mode; reset_game(); spec_mode = sm_; screen = SC_PLAY; }             // REINICIAR
             else if (*sel == 2) { opt_from = SC_PAUSE; screen = SC_OPT; opt_sel = 0; rd_max = 8; }
             else { screen = SC_MAIN; menu_sel = 0; }
         }
@@ -19050,7 +19074,7 @@ static void menu_frame(u32 newp, float lv, int frame)
     if (screen == SC_PLAY) return;                            // la partida online acaba de empezar
     // ---- dibujo ----
     if (screen == SC_SOLO || screen == SC_LOBBY) gsKit_clear(gsGlobal, GS_SETREG_RGBAQ(10, 10, 14, 0x80, 0));
-    else if (screen == SC_MAIN || screen == SC_NET || screen == SC_NETIP || screen == SC_NETWAIT || screen == SC_NETLIST || screen == SC_NAME || ((screen == SC_OPT || screen == SC_CTRL || screen == SC_SKIN) && opt_from == SC_MAIN)) menu_bg_main();
+    else if (screen == SC_MAIN || screen == SC_SECRET || screen == SC_NET || screen == SC_NETIP || screen == SC_NETWAIT || screen == SC_NETLIST || screen == SC_NAME || ((screen == SC_OPT || screen == SC_CTRL || screen == SC_SKIN) && opt_from == SC_MAIN)) menu_bg_main();
     else { render_frame(last_t, 1); menu_dim(); }
 
     u64 sel_c = GS_SETREG_RGBAQ(255, 230, 90, 0x80, 0), norm_c = GS_SETREG_RGBAQ(170, 170, 175, 0x80, 0);
@@ -19060,10 +19084,10 @@ static void menu_frame(u32 newp, float lv, int frame)
     static char line[48];
     if (screen == SC_MAIN) {
         draw_text_c(50.0f, "HORROR BETA", 6, title_c);
-        static const char *it[5] = { "1 JUGADOR", "2 JUGADORES", "ONLINE", "OPCIONES", "SALIR" };
-        for (int i = 0; i < 5; i++) {
+        static const char *it[6] = { "1 JUGADOR", "2 JUGADORES", "ONLINE", "OPCIONES", "MODO SECRETO", "SALIR" };
+        for (int i = 0; i < 6; i++) {
             snprintf(line, sizeof(line), i == menu_sel ? "> %s <" : "%s", it[i]);
-            draw_text_c(160.0f + i * 38.0f, line, 3, i == menu_sel ? sel_c : norm_c);
+            draw_text_c(150.0f + i * 36.0f, line, 3, i == menu_sel ? sel_c : norm_c);
         }
         if (pad2_warn > 0) draw_text_c(H - 110.0f, "CONECTA EL CONTROL 2", 2, GS_SETREG_RGBAQ(220, 90, 60, 0x80, 0));
         if (net_notice_t > 0) draw_text_c(H - 110.0f, net_notice, 2, GS_SETREG_RGBAQ(235, 130, 60, 0x80, 0));
@@ -19093,6 +19117,17 @@ static void menu_frame(u32 newp, float lv, int frame)
             else snprintf(line, sizeof(line), i == opt_sel ? "> %s <" : "%s", name);
             draw_text_c(92.0f + i * 32.0f, line, 3, i == opt_sel ? sel_c : norm_c);
         }
+    }
+    if (screen == SC_SECRET) {
+        draw_text_c(60.0f, "MODO SECRETO", 5, sel_c);
+        draw_text_c(150.0f, "CONTRASENA", 3, norm_c);
+        static char pwl[48];
+        int o = 0;
+        for (int q = 0; q < 6; q++) o += snprintf(pwl + o, sizeof(pwl) - (size_t)o, q == sec_pos ? "[%d] " : " %d  ", sec_d[q]);
+        draw_text_c(200.0f, pwl, 4, sel_c);
+        draw_text_c(270.0f, "ARRIBA/ABAJO: NUMERO   IZQ/DER: POSICION", 2, hint_c);
+        draw_text_c(296.0f, "X: ENTRAR   O: ATRAS", 2, hint_c);
+        if (sec_err > 0) draw_text_c(340.0f, "CONTRASENA INCORRECTA", 3, GS_SETREG_RGBAQ(230, 70, 60, 0x80, 0));
     }
     if (screen == SC_SOLO)
         setup_ui(solo_mode == 1 ? "1 JUGADOR" : "2 JUGADORES", solo_sel, solo_diff, 0, solo_mode == 3 ? "CONTINUAR" : "EMPEZAR PARTIDA", 1, title_c);
@@ -19249,7 +19284,7 @@ static void menu_frame(u32 newp, float lv, int frame)
         draw_text_c(H - 34.0f, "O: CANCELAR", 2, hint_c);
     }
 #endif
-    if (screen != SC_NETIP && screen != SC_NETWAIT && screen != SC_LOBBY && screen != SC_NETLIST && screen != SC_NAME)
+    if (screen != SC_NETIP && screen != SC_NETWAIT && screen != SC_LOBBY && screen != SC_NETLIST && screen != SC_NAME && screen != SC_SECRET)
     if (screen != SC_SOLO) draw_text_c(H - 34.0f, (screen == SC_OPT || screen == SC_CTRL || screen == SC_SKIN || screen == SC_SOLO) ? "IZQ/DER: CAMBIAR   O: ATRAS" : "ARRIBA/ABAJO: MOVER   X: ELEGIR", 2, hint_c);
     if (screen == SC_MAIN || screen == SC_OPT) draw_text_c(H - 58.0f, "LUZ AL REVES? PULSA SELECT", 2, hint_c);
     if (screen == SC_OPT)
@@ -19431,7 +19466,7 @@ static void player_move(float dt, float t, const PadIn *in)
         }
     }
     {   // CUADRADO (mantener 1 s) frente a un casillero: te escondes dentro
-        int ln = (hide_id < 0 && (in->pd & PAD_SQUARE) && !map_open && code_door < 0 && !emoji_open && !dance_open && jump_h <= 0.0f) ? locker_near() : -1;
+        int ln = (!spec_mode && hide_id < 0 && (in->pd & PAD_SQUARE) && !map_open && code_door < 0 && !emoji_open && !dance_open && jump_h <= 0.0f) ? locker_near() : -1;
         if (ln >= 0 && door_near() < 0 && !board_near()) {
             hide_hold += dt;
             if (hide_hold >= 1.0f) {
@@ -19481,6 +19516,22 @@ static void player_move(float dt, float t, const PadIn *in)
     mon_thud -= mon_thud * clampf(dt * 7.0f, 0.0f, 1.0f);
     if (newp & PAD_CIRCLE) crouched = !crouched;                   // agacharse (alternar)
     crouch_f += ((crouched ? 1.0f : 0.0f) - crouch_f) * clampf(dt * 8.0f, 0.0f, 1.0f);
+    if (spec_mode) {                                           // MODO ESPECTADOR: vuelas siguiendo la mirada y traspasas todo
+        static float spec_vy;
+        crouched = 0; crouch_f = 0.0f; jump_h = 0.0f; jump_vy = 0.0f; walk_amp = 0.0f; walk_spd = 0.0f; dance_id = -1;
+        float sp = (in->pd & PAD_R2) ? 24.0f : 7.0f;           // R2: turbo
+        float vert = ((in->pd & PAD_CROSS) ? 1.0f : 0.0f) - ((in->pd & PAD_SQUARE) ? 1.0f : 0.0f);
+        float tvx = (fx * cpitch * fwd + rx * str) * sp, tvz = (fz * cpitch * fwd + rz * str) * sp;
+        float tvy = spitch * fwd * sp + vert * sp * 0.7f;
+        float kk = clampf(dt * 8.0f, 0.0f, 1.0f);
+        vel_x += (tvx - vel_x) * kk; vel_z += (tvz - vel_z) * kk; spec_vy += (tvy - spec_vy) * kk;
+        px = clampf(px + vel_x * dt, 1.0f, (float)MW * CS - 1.0f);
+        pz = clampf(pz + vel_z * dt, 1.0f, (float)MH * CS - 1.0f);
+        foot_y = clampf(foot_y + spec_vy * dt, SEWER_Y - 3.0f, 80.0f);
+        if (foot_y > -0.2f) { cur_layer = 0; climbing = 0; }
+        else if (foot_y < SEWER_Y - 0.01f) { cur_layer = 1; climbing = 0; }
+        else { climbing = 1; cur_layer = foot_y < SEWER_Y * 0.5f ? 1 : 0; }
+    } else
     if (!climbing) {
         // velocidad segun cuanto empujes el stick; al tope = correr (gasta estamina)
         float speed = 0.0f;
@@ -19572,6 +19623,7 @@ static void player_move(float dt, float t, const PadIn *in)
 // Despues de mover al monstruo: pisadas, garras, notas y salida (por jugador)
 static void player_post(int notes)
 {
+    if (spec_mode) return;                                  // espectador: el monstruo no te toca
     if (mon_foot_event) {                                   // cada apoyo del monstruo sacude la camara si esta cerca
         float tdx = sx_ - px, tdz = sz_ - pz;
         float td = sqrtf(tdx * tdx + tdz * tdz);
@@ -19606,7 +19658,7 @@ static void player_camera(float t)
     {   // vadeando el canal de agua: la camara se hunde (el fondo esta mas abajo)
         static float wdip[2];
         int wcx = (int)floorf(px / CS), wcz = (int)floorf(pz / CS);
-        int wet = (cur_layer == 1 && !climbing && wcx >= 0 && wcz >= 0 && wcx < MW && wcz < MH && map1[wcz][wcx] == 'v');
+        int wet = (!spec_mode && cur_layer == 1 && !climbing && wcx >= 0 && wcz >= 0 && wcx < MW && wcz < MH && map1[wcz][wcx] == 'v');
         float *wd = &wdip[pl_cur & 1];
         *wd += ((wet ? 0.60f : 0.0f) - *wd) * 0.15f;
         cam_y -= *wd;
