@@ -6253,6 +6253,23 @@ static void view_set(float x, float y, float w, float h)
     scissor_dirty = 1;
 }
 
+// ---------------- Iluminacion por vertices (solo las linternas) ----------------
+// La luz del cono de cada linterna se calcula en el vertice y la GPU solo interpola: no se oscurece la pantalla despues.
+// Los cuadrados del nivel se subdividen unicamente donde cae un cono (ver quad_sub): el resto no gasta poligonos extra.
+#define LC_IN   0.974f          // cos 13 grados: dentro de este angulo, luz completa
+#define LC_OUT  0.875f          // cos 29 grados: fuera de este angulo, nada de cono
+typedef struct { int on; float ox, oy, oz, dx, dy, dz, reach, blen, tr, tg, tb; } Beam;
+static Beam bm_other;                                  // linterna del otro jugador (la propia se calcula en el espacio de camara)
+static const int gfx_nl[3] = { 3, 4, 6 };              // subdivision de lo que esta dentro de un cono (bajo/medio/alto)
+
+static inline float cone_f(float cs)
+{
+    float t = (cs - LC_OUT) * (1.0f / (LC_IN - LC_OUT));
+    if (t <= 0.0f) return 0.0f;
+    if (t >= 1.0f) return 1.0f;
+    return t * t * (3.0f - 2.0f * t);
+}
+
 static V mk(float wx, float wy, float wz, const float *c, float emit)
 {
     V v;
@@ -6262,21 +6279,50 @@ static V mk(float wx, float wy, float wz, const float *c, float emit)
     v.y = vy * cpitch - vz * spitch;          // inclinacion de la camara
     v.z = vy * spitch + vz * cpitch;
     float d = sqrtf(vx * vx + vy * vy + vz * vz);
-    // Caida suave con la distancia. El circulo de la linterna lo dibuja
-    // despues draw_spot_overlay() (oscurecimiento en pantalla).
-    float reach = flash_on ? amb_r : amb_r * 0.28f;
-    float att = 1.0f - d / reach;
-    if (att < 0) att = 0;
-    att *= att;
-    float A = att * (flash_on ? 1.0f : 0.7f), E = 0.015f + emit;
-    if (uv_on && flash_on) {                  // luz UV: solo la luz de la linterna es morada (lo que brilla solo no cambia)
-        float Lr = E + A * 0.62f, Lg = E + A * 0.20f, Lb = E + A * 1.0f;
-        v.r = c[0] * (Lr > 1.0f ? 1.0f : Lr); v.g = c[1] * (Lg > 1.0f ? 1.0f : Lg); v.b = c[2] * (Lb > 1.0f ? 1.0f : Lb);
-    } else {
-        float L = E + A;
+    if (state == 1) {                         // jumpscare: el monstruo se ve completo
+        float att = 1.0f - d / (flash_on ? amb_r : amb_r * 0.28f);
+        if (att < 0) att = 0;
+        float L = 0.015f + att * att * (flash_on ? 1.0f : 0.7f) + emit;
         if (L > 1.0f) L = 1.0f;
         v.r = c[0] * L; v.g = c[1] * L; v.b = c[2] * L;
+        return v;
     }
+    float amb = 0.015f + emit;                // luz de ambiente (cielo nocturno)
+    float lit = 0.0f;                         // luz de mi cono
+    if (flash_on) {
+        float att = 1.0f - d / amb_r;
+        if (att > 0.0f) {
+            att *= att;
+            amb += att * 0.07f;
+            if (d > 0.01f) lit = att * 0.93f * cone_f((v.z - 0.04f * v.y) / d);   // sale de la camara, un poco hacia abajo
+        }
+    } else {
+        float att = 1.0f - d / (amb_r * 0.28f);
+        if (att > 0.0f) amb += att * att * 0.7f;
+    }
+    float lt = 0.0f;                          // luz del cono del otro jugador
+    if (bm_other.on) {
+        float ox = wx - bm_other.ox, oy = wy - bm_other.oy, oz = wz - bm_other.oz;
+        float q = ox * ox + oy * oy + oz * oz;
+        if (q < bm_other.reach * bm_other.reach && q > 1e-4f) {
+            float d2 = sqrtf(q);
+            float along = ox * bm_other.dx + oy * bm_other.dy + oz * bm_other.dz;
+            float cf = cone_f(along / d2);
+            if (cf > 0.0f) {
+                float a2 = 1.0f - d2 / bm_other.reach;
+                float oc = (bm_other.blen + 0.8f - along) * 1.25f;    // no ilumina lo que queda detras de la pared que toca
+                oc = oc < 0.0f ? 0.0f : (oc > 1.0f ? 1.0f : oc);
+                lt = a2 * a2 * cf * oc * 0.93f;
+            }
+        }
+    }
+    float mr = 1.0f, mg = 0.95f, mb = 0.78f;  // color de mi luz: calida (o morada con la luz UV)
+    if (uv_on && flash_on) { mr = 0.62f; mg = 0.20f; mb = 1.0f; }
+    float lr = amb * 0.92f + lit * mr + lt * bm_other.tr, lg = amb * 0.97f + lit * mg + lt * bm_other.tg, lb = amb * 1.08f + lit * mb + lt * bm_other.tb;
+    if (lr > 1.0f) lr = 1.0f;
+    if (lg > 1.0f) lg = 1.0f;
+    if (lb > 1.0f) lb = 1.0f;
+    v.r = c[0] * lr; v.g = c[1] * lg; v.b = c[2] * lb;
     return v;
 }
 
@@ -6347,9 +6393,38 @@ static void tri_cam(V a, V b, V c)
     if (n == 4) emit_tri(out[0], out[2], out[3]);
 }
 
+// Este cuadrado cae (aunque sea en parte) dentro de algun cono de luz?
+static int quad_lit(const float p[4][3])
+{
+    float cx = (p[0][0] + p[2][0]) * 0.5f, cy = (p[0][1] + p[2][1]) * 0.5f, cz = (p[0][2] + p[2][2]) * 0.5f;
+    float ex = p[2][0] - p[0][0], ey = p[2][1] - p[0][1], ez = p[2][2] - p[0][2];
+    float r = 0.5f * sqrtf(ex * ex + ey * ey + ez * ez);
+    if (flash_on) {                                           // mi linterna: sale de la camara, mira hacia (fx*cp, sp, fz*cp)
+        float wx = cx - px, wy = cy - cam_y, wz = cz - pz;
+        float d = sqrtf(wx * wx + wy * wy + wz * wz);
+        if (d - r < amb_r) {
+            if (d <= r * 1.3f) return 1;
+            float along = wx * fx * cpitch + wy * spitch + wz * fz * cpitch;
+            if (along / d > LC_OUT - 0.5f * r / d - 0.03f) return 1;
+        }
+    }
+    if (bm_other.on) {                                        // linterna del otro jugador
+        float wx = cx - bm_other.ox, wy = cy - bm_other.oy, wz = cz - bm_other.oz;
+        float d = sqrtf(wx * wx + wy * wy + wz * wz);
+        if (d - r < bm_other.reach) {
+            if (d <= r * 1.3f) return 1;
+            float along = wx * bm_other.dx + wy * bm_other.dy + wz * bm_other.dz;
+            if (along / d > LC_OUT - 0.5f * r / d - 0.03f) return 1;
+        }
+    }
+    return 0;
+}
+
 static void quad_sub(const float p[4][3], const float *col, int n, float emit)
 {
-    V g[4][4];
+    if (state == 0 && n > 1) n = quad_lit(p) ? (n > gfx_nl[gfx] ? n : gfx_nl[gfx]) : 1;   // detalle solo donde hay luz
+    if (n > 6) n = 6;
+    V g[7][7];
     for (int j = 0; j <= n; j++)
         for (int i = 0; i <= n; i++) {
             float u = (float)i / n, v = (float)j / n;
@@ -6504,18 +6579,20 @@ static void draw_layer(int layer)
             int ddx = cx - pcx, ddz = cz - pcz;
             int dd2 = ddx * ddx + ddz * ddz;
             int n = (dd2 <= gfx_c1[gfx]) ? gfx_nn[gfx] : ((dd2 <= gfx_c2[gfx]) ? gfx_nf[gfx] : 1);   // detalle alto solo cerca (lejos casi no se nota)
+            if (n < 2) n = 2;                                    // quad_sub subdivide solo donde cae un cono de luz
+            int nfl = n, nceil = n;
             float k = ((cx + cz) & 1) ? 0.86f : 1.0f;
             float fl[3] = { ci.fr * k, ci.fg * k, ci.fb * k };
             int wet = (layer == 1 && ch == 'v');                 // canal de agua: el fondo esta mas abajo
             float bfy = wet ? fy - WATER_DEPTH : fy;
             if (wet) { fl[0] = 34.0f * k; fl[1] = 44.0f * k; fl[2] = 38.0f * k; }
-            if (layer == 0 && ch == 'O') floor_ring(x0, z0, fy, fl, n);
-            else hquad(x0, z0, x1, z1, bfy, fl, n);
+            if (layer == 0 && ch == 'O') floor_ring(x0, z0, fy, fl, nfl);
+            else hquad(x0, z0, x1, z1, bfy, fl, nfl);
             if (ci.kind == 2) continue;
             if (ci.kind == 1) {
                 float ce[3] = { (float)ci.cr, (float)ci.cg, (float)ci.cb };
-                if (layer == 1 && ch == 'L') floor_ring(x0, z0, fy + ci.ceil, ce, n);
-                else hquad(x0, z0, x1, z1, fy + ci.ceil, ce, n);
+                if (layer == 1 && ch == 'L') floor_ring(x0, z0, fy + ci.ceil, ce, nceil);
+                else hquad(x0, z0, x1, z1, fy + ci.ceil, ce, nceil);
             }
             for (int d = 0; d < 4; d++) {      // 0 N, 1 S, 2 E, 3 W
                 int nx = cx + (d == 2) - (d == 3), nz = cz + (d == 1) - (d == 0);
@@ -7372,6 +7449,7 @@ static void draw_spot_overlay(void)
                                            cx + ct[j + 1] * r2, cy + st[j + 1] * r2, Z, c0, c2, c2);
     }
 
+    if (flash_on) return;                             // el haz ya esta en la luz por vertices (mk): no se dibuja el oscurecimiento
     static float X[SPOT_NR_MAX][SPOT_SEG_MAX + 1], Y[SPOT_NR_MAX][SPOT_SEG_MAX + 1];
     u64 col[SPOT_NR_MAX];
     for (int i = 0; i < nr; i++) {
@@ -8657,6 +8735,29 @@ static void draw_self_model(void)
 // Si el otro jugador tiene la linterna encendida se conserva la distancia completa (su circulo puede estar lejos).
 static void lights_prepare(void)
 {
+    bm_other.on = 0; bm_other.tr = bm_other.tg = bm_other.tb = 1.0f;
+    if (num_players >= 2 && state == 0) {      // linterna del otro jugador: de donde sale, hacia donde apunta y hasta donde llega
+        const Player *Q = &P[1 - pl_cur];
+        if (Q->flash_on && !Q->climbing && !climbing && Q->cur_layer == cur_layer) {
+            float sy = sinf(Q->yaw), cy = cosf(Q->yaw);
+            float pe = clampf(Q->pitch, -1.2f, 1.3f) - 0.04f;                 // la linterna apunta un poco hacia abajo
+            float dx = sy * cosf(pe), dy = sinf(pe), dz = cy * cosf(pe);
+            float ox = Q->px + cy * 0.2f, oz = Q->pz - sy * 0.2f;             // sale de su mano derecha
+            float oy = Q->foot_y + Q->jump_h + EYE - 0.65f * Q->crouch_f - 0.25f;
+            float blen = 20.0f;
+            for (float sd = 0.5f; sd <= 20.0f; sd += 0.5f) {
+                float x = ox + dx * sd, z = oz + dz * sd, y = oy + dy * sd;
+                if (y < (cur_layer ? SEWER_Y : 0.0f) + 0.02f) { blen = sd; break; }          // el suelo
+                if (y < 3.0f + (cur_layer ? SEWER_Y : 0.0f) && (solid(x, z) || tree_hit(x, z) || col_hit(x, z, 0.0f))) { blen = sd; break; }
+            }
+            bm_other.on = 1;
+            bm_other.ox = ox; bm_other.oy = oy; bm_other.oz = oz;
+            bm_other.dx = dx; bm_other.dy = dy; bm_other.dz = dz;
+            bm_other.reach = 19.0f; bm_other.blen = blen;
+            if (Q->uv_on) { bm_other.tr = 0.62f; bm_other.tg = 0.20f; bm_other.tb = 1.0f; }
+            else { bm_other.tr = 1.0f; bm_other.tg = 0.95f; bm_other.tb = 0.78f; }
+        }
+    }
     draw_lim = gfx_maxd[gfx] * rd_k;
     { float lim = (18.0f * gfx_reach[gfx] + 1.0f) * rd_k; if (lim < draw_lim) draw_lim = lim; }   // a mas del 80% del alcance de la luz todo esta negro
 }
@@ -8688,6 +8789,7 @@ static void pool_fan(float cx, float cy, float cz, float ux, float uy, float uz,
 
 static void draw_other_beam(void)
 {
+    return;                                              // la luz del otro jugador ahora va por vertices (mk)
     if (num_players < 2 || state != 0) return;
     const Player *Q = &P[1 - pl_cur];
     if (!Q->flash_on || Q->climbing || climbing || Q->cur_layer != cur_layer) return;
