@@ -19874,6 +19874,23 @@ int main(void)
             else if (low < 0) low++;
         }
         float t = frame_no * dt;
+        int nsteps = 1;                                  // pasos de simulacion de este cuadro (a 30 fps se hacen 2 para que el juego no vaya en camara lenta)
+        {
+            static unsigned int tlast = 0, tacc = 0;
+            static int tstarted = 0;
+            unsigned int tnow = cpu_count();
+            unsigned int el = tstarted ? (tnow - tlast) : 0;
+            tlast = tnow; tstarted = 1;
+            if (screen == SC_PLAY && !net_online && state == 0) {
+                const unsigned int tk = (unsigned int)(FPS_TICKS_PER_SEC / 60.0f);
+                tacc += el;
+                nsteps = (int)(tacc / tk);
+                if (nsteps < 1) nsteps = 1;
+                if (nsteps > 3) nsteps = 3;
+                tacc = (tacc > (unsigned int)nsteps * tk) ? tacc - (unsigned int)nsteps * tk : 0;
+                if (tacc > tk) tacc = tk;
+            } else tacc = 0;
+        }
 #ifdef HEADLESS_FRAMES
         if (frame_no >= HEADLESS_FRAMES) break;
         HEADLESS_HOOK();
@@ -19906,66 +19923,73 @@ int main(void)
             continue;
         }
 
-        int notes = notes_got[0] + notes_got[1] + notes_got[2];
-        if (stalled) {
-            /* online: sin el control del otro no se simula; solo se vuelve a dibujar */
-        } else if (state == 0) {
-            for (int i = 0; i < num_players; i++) {          // mover a cada jugador
-                player_load(i);
-                int sh = sens_h, sv = sens_v;
-#ifdef HAVE_NET
-                if (net_online) { sens_h = net_psens_h[i]; sens_v = net_psens_v[i]; }   // la sensibilidad de CADA jugador, igual en las dos consolas
-#endif
-                player_move(dt, t, &pin[i]);
-                sens_h = sh; sens_v = sv;
-                player_save(i);
+        for (int stp = 0; stp < nsteps; stp++) {
+            if (stp > 0) {                               // paso extra: mismo cuadro dibujado, la simulacion avanza otro 1/60 s
+                frame_no++; t = frame_no * dt;
+                for (int k = 0; k < 2; k++) pin[k].np = 0;   // las pulsaciones puntuales cuentan una sola vez
+                if (state != 0 || screen != SC_PLAY) break;
             }
-            for (int i = 0; i < ND; i++)                     // las puertas abiertas giran
-                if (door_open[i] && door_ang[i] < 1.55f) door_ang[i] = fminf(1.55f, door_ang[i] + 0.05f);
-            mon_uv_update(dt);                               // luz UV contra el monstruo
-            int sg = mon_vision();                           // a quien ve (cono de 75 grados, 30 m)
-            mon_seen = (sg >= 0);
-            {   // sonidos del monstruo y del ambiente (los oye el jugador de esta consola)
-                static int ps = 0, pb = 0;
-                int lp = net_online ? net_local : 0;
-                float edx = sx_ - P[lp].px, edz = sz_ - P[lp].pz, ed = sqrtf(edx * edx + edz * edz);
-                if (frenzy_go) { sfx_play(SFX_ROAR, 1.0f); frenzy_go = 0; }                                 // enloquece: ruge
-                if (mon_seen && !ps) sfx_play(SFX_ROAR, clampf(1.15f - ed / 35.0f, 0.3f, 1.0f));          // te vio: ruge
-                ps = mon_seen;
-                int bl = mon_blind_t > 0.0f;
-                if (bl && !pb) sfx_play(SFX_BLIND, 1.0f);                                                  // lo cegaste: chilla
-                pb = bl;
-                if (P[lp].det_up > 0.5f && mlayer == P[lp].cur_layer) {                                    // detector: pitidos mas rapidos cuanto mas cerca
-                    int per = ed < 8.0f ? 7 : (ed < 16.0f ? 14 : (ed < 30.0f ? 30 : 0));
-                    if (per && frame_no % per == 0) sfx_play(SFX_BEEP, 0.5f);
+            int notes = notes_got[0] + notes_got[1] + notes_got[2];
+            if (stalled) {
+                /* online: sin el control del otro no se simula; solo se vuelve a dibujar */
+            } else if (state == 0) {
+                for (int i = 0; i < num_players; i++) {          // mover a cada jugador
+                    player_load(i);
+                    int sh = sens_h, sv = sens_v;
+    #ifdef HAVE_NET
+                    if (net_online) { sens_h = net_psens_h[i]; sens_v = net_psens_v[i]; }   // la sensibilidad de CADA jugador, igual en las dos consolas
+    #endif
+                    player_move(dt, t, &pin[i]);
+                    sens_h = sh; sens_v = sv;
+                    player_save(i);
                 }
-                {   float g = 0.0f;                                                                      // proximidad: desde 30 m, mas fuerte cuanto mas cerca, sin cortes
-                    if (state == 0 && ed < 30.0f) { g = 1.0f - ed / 30.0f; g = 0.12f + 0.88f * g * g; if (mlayer != P[lp].cur_layer) g *= 0.4f; }
-                    prox_want = g;
+                for (int i = 0; i < ND; i++)                     // las puertas abiertas giran
+                    if (door_open[i] && door_ang[i] < 1.55f) door_ang[i] = fminf(1.55f, door_ang[i] + 0.05f);
+                mon_uv_update(dt);                               // luz UV contra el monstruo
+                int sg = mon_vision();                           // a quien ve (cono de 75 grados, 30 m)
+                mon_seen = (sg >= 0);
+                {   // sonidos del monstruo y del ambiente (los oye el jugador de esta consola)
+                    static int ps = 0, pb = 0;
+                    int lp = net_online ? net_local : 0;
+                    float edx = sx_ - P[lp].px, edz = sz_ - P[lp].pz, ed = sqrtf(edx * edx + edz * edz);
+                    if (frenzy_go) { sfx_play(SFX_ROAR, 1.0f); frenzy_go = 0; }                                 // enloquece: ruge
+                    if (mon_seen && !ps) sfx_play(SFX_ROAR, clampf(1.15f - ed / 35.0f, 0.3f, 1.0f));          // te vio: ruge
+                    ps = mon_seen;
+                    int bl = mon_blind_t > 0.0f;
+                    if (bl && !pb) sfx_play(SFX_BLIND, 1.0f);                                                  // lo cegaste: chilla
+                    pb = bl;
+                    if (P[lp].det_up > 0.5f && mlayer == P[lp].cur_layer) {                                    // detector: pitidos mas rapidos cuanto mas cerca
+                        int per = ed < 8.0f ? 7 : (ed < 16.0f ? 14 : (ed < 30.0f ? 30 : 0));
+                        if (per && frame_no % per == 0) sfx_play(SFX_BEEP, 0.5f);
+                    }
+                    {   float g = 0.0f;                                                                      // proximidad: desde 30 m, mas fuerte cuanto mas cerca, sin cortes
+                        if (state == 0 && ed < 30.0f) { g = 1.0f - ed / 30.0f; g = 0.12f + 0.88f * g * g; if (mlayer != P[lp].cur_layer) g *= 0.4f; }
+                        prox_want = g;
+                    }
+                    if (state == 0 && frame_no % 1800 == 600) sfx_play(SFX_WIND, 0.35f);                       // viento de fondo
                 }
-                if (state == 0 && frame_no % 1800 == 600) sfx_play(SFX_WIND, 0.35f);                       // viento de fondo
-            }
-            if (frenzy_msg > 0) frenzy_msg--;
-            int tg = pick_target();                          // el monstruo va a por uno
-            if (sg >= 0) { tg = sg; mon_target = sg; }       // ... y si ve a alguien, va a por ese
-            player_load(tg);
-            update_monster(dt, notes);
-            player_save(tg);
-            for (int i = 0; i < num_players && state == 0; i++) {
-                player_load(i);
-                player_post(notes);
-                player_save(i);
-            }
-            mon_foot_event = 0;
-        } else if (state == 1) {
-            player_load(js_victim); js_update(); player_save(js_victim);
-            if (--state_timer <= 0) reset_game();
-        } else if (--state_timer <= 0) reset_game();
+                if (frenzy_msg > 0) frenzy_msg--;
+                int tg = pick_target();                          // el monstruo va a por uno
+                if (sg >= 0) { tg = sg; mon_target = sg; }       // ... y si ve a alguien, va a por ese
+                player_load(tg);
+                update_monster(dt, notes);
+                player_save(tg);
+                for (int i = 0; i < num_players && state == 0; i++) {
+                    player_load(i);
+                    player_post(notes);
+                    player_save(i);
+                }
+                mon_foot_event = 0;
+            } else if (state == 1) {
+                player_load(js_victim); js_update(); player_save(js_victim);
+                if (--state_timer <= 0) reset_game();
+            } else if (--state_timer <= 0) reset_game();
 
-        if (!stalled) for (int i = 0; i < num_players; i++) {   // camara de cada jugador
-            player_load(i);
-            player_camera(t);
-            player_save(i);
+            if (!stalled) for (int i = 0; i < num_players; i++) {   // camara de cada jugador
+                player_load(i);
+                player_camera(t);
+                player_save(i);
+            }
         }
 #ifdef HAVE_NET
         if (net_online && !stalled) net_after_step();
