@@ -6287,18 +6287,15 @@ static V mk(float wx, float wy, float wz, const float *c, float emit)
         v.r = c[0] * L; v.g = c[1] * L; v.b = c[2] * L;
         return v;
     }
-    float amb = 0.015f + emit;                // luz de ambiente (cielo nocturno)
-    float lit = 0.0f;                         // luz de mi cono
+    float E = 0.015f + emit, A = 0.0f;       // mi luz: la de siempre (alrededor de mi, el circulo lo dibuja draw_spot_overlay)
+    float mr = 1.0f, mg = 1.0f, mb = 1.0f;
     if (flash_on) {
         float att = 1.0f - d / amb_r;
-        if (att > 0.0f) {
-            att *= att;
-            amb += att * 0.07f;
-            if (d > 0.01f) lit = att * 0.93f * cone_f((v.z - 0.04f * v.y) / d);   // sale de la camara, un poco hacia abajo
-        }
+        if (att > 0.0f) A = att * att;
+        if (uv_on) { mr = 0.62f; mg = 0.20f; mb = 1.0f; }       // luz UV: solo la luz de la linterna es morada
     } else {
         float att = 1.0f - d / (amb_r * 0.28f);
-        if (att > 0.0f) amb += att * att * 0.7f;
+        if (att > 0.0f) A = att * att * (bm_other.on ? 0.03f : 0.7f);   // apagada: si el otro tiene luz no se tapa la pantalla, asi que aqui va casi a oscuras
     }
     float lt = 0.0f;                          // luz del cono del otro jugador
     if (bm_other.on) {
@@ -6316,9 +6313,7 @@ static V mk(float wx, float wy, float wz, const float *c, float emit)
             }
         }
     }
-    float mr = 1.0f, mg = 0.95f, mb = 0.78f;  // color de mi luz: calida (o morada con la luz UV)
-    if (uv_on && flash_on) { mr = 0.62f; mg = 0.20f; mb = 1.0f; }
-    float lr = amb * 0.92f + lit * mr + lt * bm_other.tr, lg = amb * 0.97f + lit * mg + lt * bm_other.tg, lb = amb * 1.08f + lit * mb + lt * bm_other.tb;
+    float lr = E + A * mr + lt * bm_other.tr, lg = E + A * mg + lt * bm_other.tg, lb = E + A * mb + lt * bm_other.tb;
     if (lr > 1.0f) lr = 1.0f;
     if (lg > 1.0f) lg = 1.0f;
     if (lb > 1.0f) lb = 1.0f;
@@ -6399,15 +6394,6 @@ static int quad_lit(const float p[4][3])
     float cx = (p[0][0] + p[2][0]) * 0.5f, cy = (p[0][1] + p[2][1]) * 0.5f, cz = (p[0][2] + p[2][2]) * 0.5f;
     float ex = p[2][0] - p[0][0], ey = p[2][1] - p[0][1], ez = p[2][2] - p[0][2];
     float r = 0.5f * sqrtf(ex * ex + ey * ey + ez * ez);
-    if (flash_on) {                                           // mi linterna: sale de la camara, mira hacia (fx*cp, sp, fz*cp)
-        float wx = cx - px, wy = cy - cam_y, wz = cz - pz;
-        float d = sqrtf(wx * wx + wy * wy + wz * wz);
-        if (d - r < amb_r) {
-            if (d <= r * 1.3f) return 1;
-            float along = wx * fx * cpitch + wy * spitch + wz * fz * cpitch;
-            if (along / d > LC_OUT - 0.5f * r / d - 0.03f) return 1;
-        }
-    }
     if (bm_other.on) {                                        // linterna del otro jugador
         float wx = cx - bm_other.ox, wy = cy - bm_other.oy, wz = cz - bm_other.oz;
         float d = sqrtf(wx * wx + wy * wy + wz * wz);
@@ -7421,7 +7407,8 @@ static void draw_spot_overlay(void)
     float clear_r = flash_on ? 0.16f : 0.03f;     // radio totalmente claro (fraccion del ancho)
     float soft_r  = flash_on ? 0.19f : 0.08f;     // ancho del borde suave
     float dark    = flash_on ? 0.93f : 0.96f;     // oscuridad fuera del haz
-    if (!flash_on) {                                  // linterna apagada: oscuridad pareja, sin circulo de luz
+    if (!flash_on) {                                  // linterna apagada: oscuridad pareja (si el otro tiene luz no se tapa: su luz va por vertices)
+        if (bm_other.on) return;
         gsKit_prim_sprite(gsGlobal, 0.0f, 0.0f, W, H, 16777000, GS_SETREG_RGBAQ(4, 6, 14, ba((int)(dark * 128.0f)), 0x00));
         return;
     }
@@ -7449,7 +7436,6 @@ static void draw_spot_overlay(void)
                                            cx + ct[j + 1] * r2, cy + st[j + 1] * r2, Z, c0, c2, c2);
     }
 
-    if (flash_on) return;                             // el haz ya esta en la luz por vertices (mk): no se dibuja el oscurecimiento
     static float X[SPOT_NR_MAX][SPOT_SEG_MAX + 1], Y[SPOT_NR_MAX][SPOT_SEG_MAX + 1];
     u64 col[SPOT_NR_MAX];
     for (int i = 0; i < nr; i++) {
