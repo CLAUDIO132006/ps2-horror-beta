@@ -4541,15 +4541,15 @@ static const Prop props[NPROP] = {
   {54.500f,71.300f,0.000f,2.000f,0.060f,0.500f,1.150f,95,62,35,0,0,0.000f},
   {61.500f,71.000f,0.000f,2.000f,0.275f,0.000f,0.500f,95,62,35,0,0,0.000f},
   {61.500f,71.300f,0.000f,2.000f,0.060f,0.500f,1.150f,95,62,35,0,0,0.000f},
-  {58.000f,57.100f,0.000f,1.700f,0.600f,0.000f,1.000f,110,80,52,0,0,0.000f},
-  {58.000f,57.100f,0.000f,1.750f,0.650f,1.000f,1.060f,235,235,240,0,0,0.000f},
-  {58.000f,56.600f,0.000f,0.090f,0.090f,1.060f,4.600f,95,62,35,0,0,0.000f},
-  {58.000f,56.600f,0.000f,0.900f,0.090f,3.500f,3.800f,95,62,35,0,0,0.000f},
-  {58.000f,56.780f,0.000f,0.140f,0.120f,3.800f,4.100f,205,170,140,0,0,0.000f},
-  {58.000f,56.780f,0.000f,0.200f,0.090f,2.600f,3.750f,205,170,140,0,0,0.000f},
-  {58.000f,56.780f,0.000f,0.850f,0.060f,3.500f,3.650f,205,170,140,0,0,0.000f},
-  {58.000f,56.780f,0.000f,0.230f,0.110f,2.200f,2.700f,235,235,240,0,0,0.000f},
-  {58.000f,56.780f,0.000f,0.130f,0.080f,1.500f,2.200f,205,170,140,0,0,0.000f},
+  {58.000f,57.100f,0.000f,1.700f,0.600f,0.000f,1.000f,110,80,52,0,0,0.220f},
+  {58.000f,57.100f,0.000f,1.750f,0.650f,1.000f,1.060f,235,235,240,0,0,0.220f},
+  {58.000f,56.600f,0.000f,0.090f,0.090f,1.060f,4.600f,95,62,35,0,0,0.220f},
+  {58.000f,56.600f,0.000f,0.900f,0.090f,3.500f,3.800f,95,62,35,0,0,0.220f},
+  {58.000f,56.780f,0.000f,0.140f,0.120f,3.800f,4.100f,205,170,140,0,0,0.220f},
+  {58.000f,56.780f,0.000f,0.200f,0.090f,2.600f,3.750f,205,170,140,0,0,0.220f},
+  {58.000f,56.780f,0.000f,0.850f,0.060f,3.500f,3.650f,205,170,140,0,0,0.220f},
+  {58.000f,56.780f,0.000f,0.230f,0.110f,2.200f,2.700f,235,235,240,0,0,0.220f},
+  {58.000f,56.780f,0.000f,0.130f,0.080f,1.500f,2.200f,205,170,140,0,0,0.220f},
   {53.600f,57.000f,0.000f,0.450f,0.450f,0.000f,1.300f,90,60,35,0,0,0.000f},
   {52.700f,66.000f,0.000f,0.400f,1.100f,0.000f,0.120f,70,20,20,0,0,0.000f},
   {239.200f,288.000f,0.000f,0.450f,2.000f,0.000f,1.000f,150,150,150,0,0,0.000f},
@@ -5318,6 +5318,7 @@ static int   walk_step;                     // numero de paso (para sincronizar 
 static float mon_thud;                      // sacudida de camara por las pisadas del monstruo
 static float cam_rc = 1.0f, cam_rs = 0.0f;  // balanceo (roll) de la camara: cos / sin
 static int   crouched, blend_flip;
+static int   cable_sel;                    // menu 2 JUGADORES POR CABLE
 static int   spec_mode, spec_pending;     // MODO SECRETO (espectador: vuelas y traspasas paredes)
 static int   sec_d[6], sec_pos, sec_err;  // contrasena del modo secreto
 static int   p_moving, p_near;              // datos de HUD de cada jugador
@@ -5352,7 +5353,7 @@ static const int   gfx_c2[3]    = { 1, 2, 2 };           // "media distancia" = 
 static const int   gfx_seg[3]   = { 16, 20, 24 };          // suavidad del circulo de luz (ALTO: 32 lados bastan, el borde es difuso)
 static const int   gfx_steps[3] = { 3, 4, 4 };
 static const float gfx_reach[3] = { 0.85f, 1.0f, 1.2f };   // alcance de la luz
-enum { SC_MAIN, SC_OPT, SC_PLAY, SC_PAUSE, SC_CTRL, SC_NET, SC_NETIP, SC_NETWAIT, SC_LOBBY, SC_NETLIST, SC_NAME, SC_SKIN, SC_SOLO, SC_SECRET };
+enum { SC_MAIN, SC_OPT, SC_PLAY, SC_PAUSE, SC_CTRL, SC_NET, SC_NETIP, SC_NETWAIT, SC_LOBBY, SC_NETLIST, SC_NAME, SC_SKIN, SC_SOLO, SC_SECRET, SC_CABLE };
 static int net_online;                  // 1 = partida online en curso (los dos juegos simulan lo mismo)
 static unsigned int game_seed;          // semilla de la partida (los codigos de los candados salen de ella)
 static int net_sel;                     // menu ONLINE
@@ -6852,7 +6853,7 @@ static void draw_candles(void)
     static V vv[CD_NV];
     for (int n = 0; n < 4; n++) {
         for (int i = 0; i < CD_NV; i++)
-            vv[i] = mk(cx[n] + (float)CD_v[i][0] * 0.0007f, 1.06f + ((float)CD_v[i][1] - 90.0f) * 0.0007f, 57.1f + (float)CD_v[i][2] * 0.0007f, white, 0.0f);
+            vv[i] = mk(cx[n] + (float)CD_v[i][0] * 0.0007f, 1.06f + ((float)CD_v[i][1] - 90.0f) * 0.0007f, 57.1f + (float)CD_v[i][2] * 0.0007f, white, 0.25f);
         for (int k = 0; k < CD_NT; k++) {
             const unsigned short *t = CD_t[k];
             if (t[3] == 3) continue;                                // la llama ahora es un sprite animado
@@ -18521,7 +18522,7 @@ static void net_th_main(void *arg)
 }
 #endif
 
-static int net_hw_poll(void)
+static int net_hw_poll_base(void)
 {
 #ifdef USE_NET
     if (net_hw_ready) return 1;
@@ -18578,6 +18579,63 @@ static int net_hw_poll(void)
 #else
     return 1;
 #endif
+}
+
+// ---- 2 JUGADORES POR CABLE (LAN directa, sin router ni internet) ----
+// Un cable Ethernet entre los adaptadores de red de las dos PS2. IP fija: J1 (crea) 192.168.50.1 y J2 (se une) 192.168.50.2.
+// Usa la misma sala de espera y el mismo juego en red del online; solo cambia como se configura la IP.
+static int net_cable, cable_ip_set, cable_wait;
+static int cable_hw_poll(void)
+{
+#ifdef USE_NET
+    if (!net_hw_ready && net_hw_stage < 3) {                // cargar DEV9 / NETMAN / SMAP: igual que el online
+        int r = net_hw_poll_base();
+        if (r < 0) return -1;
+        if (net_hw_stage < 3) return 0;
+    }
+    t_ip_info info;
+    if (ps2ip_getconfig("sm0", &info) < 0) {
+        if (++cable_wait > 60 * 10) { cable_wait = 0; snprintf(net_text, sizeof(net_text), "NO HAY ADAPTADOR DE RED EN LA PS2"); return -1; }
+        return 0;
+    }
+    unsigned int mine = 192u | (168u << 8) | (50u << 16) | ((net_host ? 1u : 2u) << 24);
+    if (!cable_ip_set) {
+        info.dhcp_enabled = 0;
+        info.ipaddr.s_addr  = mine;
+        info.netmask.s_addr = 255u | (255u << 8) | (255u << 16) | (0u << 24);
+        info.gw.s_addr      = 192u | (168u << 8) | (50u << 16) | (1u << 24);
+        ps2ip_setconfig(&info);
+        cable_ip_set = 1; cable_wait = 0;
+        return 0;
+    }
+    if (info.ipaddr.s_addr != mine) {
+        if (++cable_wait > 60 * 10) { cable_wait = 0; cable_ip_set = 0; snprintf(net_text, sizeof(net_text), "NO SE PUDO PONER LA IP DEL CABLE"); return -1; }
+        return 0;
+    }
+    if (++cable_wait < 90) return 0;                          // 1.5 s para que el enlace del cable se levante
+    return 1;
+#else
+    return 1;
+#endif
+}
+
+static int net_hw_poll(void) { return net_cable ? cable_hw_poll() : net_hw_poll_base(); }
+
+// Al salir del modo cable (antes de usar el online): se devuelve la red a DHCP para que el online funcione como siempre
+static void cable_release(void)
+{
+#ifdef USE_NET
+    if (net_cable && cable_ip_set) {
+        t_ip_info info;
+        if (ps2ip_getconfig("sm0", &info) >= 0) {
+            info.dhcp_enabled = 1;
+            info.ipaddr.s_addr = 0; info.netmask.s_addr = 0; info.gw.s_addr = 0;
+            ps2ip_setconfig(&info);
+        }
+        if (net_th_state == 2) { net_hw_ready = 0; net_hw_stage = 3; net_hw_tick = 0; net_static_try = 0; }
+    }
+#endif
+    net_cable = 0; cable_ip_set = 0; cable_wait = 0;
 }
 
 static void net_local_ip(char *out, int n)
@@ -18763,7 +18821,7 @@ static void net_leave(const char *msg)
     net_close();
     net_online = 0; num_players = 1; net_leave_prompt = 0;
     if (msg) { snprintf(net_notice, sizeof(net_notice), "%s", msg); net_notice_t = 300; }
-    screen = SC_MAIN; menu_sel = 2;
+    screen = SC_MAIN; menu_sel = net_cable ? 3 : 2;
     reset_game();
 }
 
@@ -18774,7 +18832,10 @@ static int net_connect_poll(void)
     int hw = net_hw_poll();
     if (hw < 0) return -1;
     if (hw == 0) {
-        if (net_hw_stage >= 3) {                              // ya cargo los modulos: espera la IP del router (DHCP)
+        if (net_cable && net_hw_stage >= 3) {                  // modo cable: IP fija, sin DHCP
+            snprintf(net_text, sizeof(net_text), "CONFIGURANDO EL CABLE (192.168.50.%d)...", net_host ? 1 : 2);
+            snprintf(net_text2, sizeof(net_text2), "O: CANCELAR");
+        } else if (net_hw_stage >= 3) {                       // ya cargo los modulos: espera la IP del router (DHCP)
             snprintf(net_text, sizeof(net_text), "BUSCANDO LA RED (DHCP)... %d", 25 - net_hw_tick / 60);
             snprintf(net_text2, sizeof(net_text2), net_static_try ? "PROBANDO IP FIJA 192.168.0.100" : "O: CANCELAR");
         } else if (net_hw_stage == 2) {
@@ -18791,6 +18852,7 @@ static int net_connect_poll(void)
         snprintf(net_names[net_host ? 1 : 0], sizeof(net_names[0]), "%s", net_host ? "JUGADOR 2" : "JUGADOR 1");   // el del otro, hasta que llegue su saludo
         if (net_host) { net_seed = (unsigned int)(frame_no * 2654435761u) ^ 0x9E3779B9u; net_seed = (net_seed & ~3u) | (unsigned int)solo_diff; }      // semilla de esta sala (+ dificultad)
         if (net_srv_act) { net_fill(&net_peer, srv_ip[0], srv_ip[1], srv_ip[2], srv_ip[3], SRV_PORT); net_have_peer = 1; net_srv_ok = 0; net_srv_err = 0; }   // todo pasa por el servidor
+        else if (!net_host && net_cable) { net_fill(&net_peer, 192, 168, 50, 1, NET_PORT); net_have_peer = 1; }      // cable: el anfitrion siempre es .1
         else if (!net_host) { net_fill(&net_peer, net_ip[0], net_ip[1], net_ip[2], net_ip[3], NET_PORT); net_have_peer = 1; }
         net_psens_h[net_host ? 0 : 1] = sens_h; net_psens_v[net_host ? 0 : 1] = sens_v;
     }
@@ -18955,7 +19017,7 @@ static void menu_frame(u32 newp, float lv, int frame)
     int was_skin = (screen == SC_SKIN);
     int ok = (newp & PAD_CROSS) != 0, back = (newp & PAD_CIRCLE) != 0;
     int lt = (newp & PAD_LEFT) != 0, rt = (newp & PAD_RIGHT) != 0;
-    int n = (screen == SC_SOLO) ? 4 : (screen == SC_OPT) ? 8 : (screen == SC_SKIN ? 3 : screen == SC_CTRL ? 4 : (screen == SC_MAIN ? 6 : (screen == SC_NET ? 3 : (screen == SC_NETIP || screen == SC_NETWAIT ? 1 : 4))));
+    int n = (screen == SC_SOLO) ? 4 : (screen == SC_OPT) ? 8 : (screen == SC_SKIN ? 3 : screen == SC_CTRL ? 4 : (screen == SC_MAIN ? 7 : (screen == SC_NET ? 3 : (screen == SC_NETIP || screen == SC_NETWAIT ? 1 : 4))));
     if (pad2_warn > 0) pad2_warn--;
     const int scr0 = screen;                                   // pantalla con la que empieza este cuadro
 #ifdef HAVE_NET
@@ -18973,6 +19035,7 @@ static void menu_frame(u32 newp, float lv, int frame)
 #endif
     static int sec_dummy;
     if (screen == SC_SECRET) { n = 1; sel = &sec_dummy; }
+    if (screen == SC_CABLE) { n = 3; sel = &cable_sel; }
     if (up) { *sel = (*sel + n - 1) % n; sfx_play(SFX_CLICK, 0.5f); }
     if (dn) { *sel = (*sel + 1) % n; sfx_play(SFX_CLICK, 0.5f); }
     if (ok || back || lt || rt) sfx_play(SFX_CLICK, 0.7f);
@@ -18983,13 +19046,21 @@ static void menu_frame(u32 newp, float lv, int frame)
             else if (*sel == 1) { screen = SC_SOLO; solo_mode = 2; solo_sel = 3; }
             else if (*sel == 2) {
 #ifdef HAVE_NET
+                cable_release();                                // si venias del modo cable, la red vuelve a DHCP
                 screen = SC_NET; net_sel = 0;
 #else
                 snprintf(net_notice, sizeof(net_notice), "ONLINE NO INCLUIDO (COMPILA CON -DUSE_NET)"); net_notice_t = 240;
 #endif
             }
-            else if (*sel == 3) { opt_from = SC_MAIN; screen = SC_OPT; opt_sel = 0; rd_max = 8; }
-            else if (*sel == 4) { screen = SC_SECRET; sec_pos = 0; sec_err = 0; for (int q = 0; q < 6; q++) sec_d[q] = 0; }
+            else if (*sel == 3) {                                  // 2 JUGADORES POR CABLE (LAN directa)
+#ifdef HAVE_NET
+                screen = SC_CABLE; cable_sel = 0;
+#else
+                snprintf(net_notice, sizeof(net_notice), "CABLE NO INCLUIDO (COMPILA CON -DUSE_NET)"); net_notice_t = 240;
+#endif
+            }
+            else if (*sel == 4) { opt_from = SC_MAIN; screen = SC_OPT; opt_sel = 0; rd_max = 8; }
+            else if (*sel == 5) { screen = SC_SECRET; sec_pos = 0; sec_err = 0; for (int q = 0; q < 6; q++) sec_d[q] = 0; }
             else Exit(0);
         }
     } else if (screen == SC_SOLO) {                           // 1 JUGADOR: dificultad / marcador / mapa / empezar
@@ -19060,6 +19131,12 @@ static void menu_frame(u32 newp, float lv, int frame)
         else if (ok && *sel == 2) { net_host = 0; net_srv_act = net_srv; screen = SC_NETLIST; net_close(); net_text[0] = 0; list_sel = 0; memset(rooms, 0, sizeof(rooms)); }   // PARTIDAS PUBLICAS
         else if (*sel == 4 && (ok || lt || rt)) net_srv = !net_srv;                                    // SERVIDOR: SI / NO
         else if (ok && *sel == 5) { net_ip_srv = 1; screen = SC_NETIP; net_ip_sel = 0; }               // IP DEL SERVIDOR
+    } else if (screen == SC_CABLE) {                          // 2 JUGADORES POR CABLE: J1 crea, J2 se une
+        if (back || (ok && *sel == 2)) screen = SC_MAIN;
+        else if (ok && *sel < 2) {
+            cable_release(); net_cable = 1; cable_ip_set = 0; cable_wait = 0;
+            net_host = (*sel == 0); net_srv_act = 0; screen = SC_NETWAIT; net_close(); net_text[0] = 0;
+        }
     } else if (screen == SC_NETIP) {                          // escribir la IP del anfitrion
         static int rep_t = 0;
         unsigned char *ipp = net_ip_srv ? srv_ip : net_ip;          // la IP que se esta editando
@@ -19159,10 +19236,13 @@ static void menu_frame(u32 newp, float lv, int frame)
         }
     }
 
+#ifdef HAVE_NET
+    if (net_cable && screen == SC_NET) screen = SC_CABLE;       // los errores / salir de la sala del cable vuelven a su menu, no al del online
+#endif
     if (screen == SC_PLAY) return;                            // la partida online acaba de empezar
     // ---- dibujo ----
     if (screen == SC_SOLO || screen == SC_LOBBY) gsKit_clear(gsGlobal, GS_SETREG_RGBAQ(10, 10, 14, 0x80, 0));
-    else if (screen == SC_MAIN || screen == SC_SECRET || screen == SC_NET || screen == SC_NETIP || screen == SC_NETWAIT || screen == SC_NETLIST || screen == SC_NAME || ((screen == SC_OPT || screen == SC_CTRL || screen == SC_SKIN) && opt_from == SC_MAIN)) menu_bg_main();
+    else if (screen == SC_MAIN || screen == SC_SECRET || screen == SC_CABLE || screen == SC_NET || screen == SC_NETIP || screen == SC_NETWAIT || screen == SC_NETLIST || screen == SC_NAME || ((screen == SC_OPT || screen == SC_CTRL || screen == SC_SKIN) && opt_from == SC_MAIN)) menu_bg_main();
     else { render_frame(last_t, 1); menu_dim(); }
 
     u64 sel_c = GS_SETREG_RGBAQ(255, 230, 90, 0x80, 0), norm_c = GS_SETREG_RGBAQ(170, 170, 175, 0x80, 0);
@@ -19172,10 +19252,10 @@ static void menu_frame(u32 newp, float lv, int frame)
     static char line[48];
     if (screen == SC_MAIN) {
         draw_text_c(50.0f, "HORROR BETA", 6, title_c);
-        static const char *it[6] = { "1 JUGADOR", "2 JUGADORES", "ONLINE", "OPCIONES", "MODO SECRETO", "SALIR" };
-        for (int i = 0; i < 6; i++) {
+        static const char *it[7] = { "1 JUGADOR", "2 JUGADORES", "ONLINE", "2 JUG. POR CABLE", "OPCIONES", "MODO SECRETO", "SALIR" };
+        for (int i = 0; i < 7; i++) {
             snprintf(line, sizeof(line), i == menu_sel ? "> %s <" : "%s", it[i]);
-            draw_text_c(150.0f + i * 36.0f, line, 3, i == menu_sel ? sel_c : norm_c);
+            draw_text_c(146.0f + i * 32.0f, line, 3, i == menu_sel ? sel_c : norm_c);
         }
         if (pad2_warn > 0) draw_text_c(H - 110.0f, "CONECTA EL CONTROL 2", 2, GS_SETREG_RGBAQ(220, 90, 60, 0x80, 0));
         if (net_notice_t > 0) draw_text_c(H - 110.0f, net_notice, 2, GS_SETREG_RGBAQ(235, 130, 60, 0x80, 0));
@@ -19205,6 +19285,18 @@ static void menu_frame(u32 newp, float lv, int frame)
             else snprintf(line, sizeof(line), i == opt_sel ? "> %s <" : "%s", name);
             draw_text_c(92.0f + i * 32.0f, line, 3, i == opt_sel ? sel_c : norm_c);
         }
+    }
+    if (screen == SC_CABLE) {
+        draw_text_c(40.0f, "2 JUGADORES POR CABLE", 4, sel_c);
+        static const char *ci[3] = { "CREAR PARTIDA (J1)", "UNIRSE A LA PARTIDA (J2)", "VOLVER" };
+        for (int i = 0; i < 3; i++) {
+            snprintf(line, sizeof(line), i == cable_sel ? "> %s <" : "%s", ci[i]);
+            draw_text_c(130.0f + i * 40.0f, line, 3, i == cable_sel ? sel_c : norm_c);
+        }
+        draw_text_c(270.0f, "CONECTA UN CABLE ETHERNET ENTRE LAS DOS PS2", 2, hint_c);
+        draw_text_c(294.0f, "UNO ELIGE CREAR Y EL OTRO UNIRSE (SIN ROUTER NI INTERNET)", 2, hint_c);
+        draw_text_c(318.0f, "IP FIJA: J1 192.168.50.1   J2 192.168.50.2", 2, hint_c);
+        if (net_notice_t > 0) draw_text_c(H - 110.0f, net_notice, 2, GS_SETREG_RGBAQ(235, 130, 60, 0x80, 0));
     }
     if (screen == SC_SECRET) {
         draw_text_c(60.0f, "MODO SECRETO", 5, sel_c);
