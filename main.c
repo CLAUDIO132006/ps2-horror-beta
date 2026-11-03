@@ -6771,7 +6771,7 @@ static void neon_letter(char ch, float cx, float yb, const float *col, float emi
     case 'K': m = 32 | 16; break;
     case 'T': m = 1; break;
     }
-    float lx = cx - w * 0.5f + th * 0.5f, rx = cx + w * 0.5f - th * 0.5f;
+    float lx = cx + w * 0.5f - th * 0.5f, rx = cx - w * 0.5f + th * 0.5f;   // la fachada mira al sur: quien la ve tiene su izquierda en +x
     if (m & 1)  box_rot(cx, z, 0, 0, 0, w * 0.5f, hz, yt - th, yt, col, emit);
     if (m & 64) box_rot(cx, z, 0, 0, 0, w * 0.5f, hz, ym - th * 0.5f, ym + th * 0.5f, col, emit);
     if (m & 8)  box_rot(cx, z, 0, 0, 0, w * 0.5f, hz, yb, yb + th, col, emit);
@@ -6783,7 +6783,7 @@ static void neon_letter(char ch, float cx, float yb, const float *col, float emi
     static const float rs[3][2] = { { 0.40f, 0.40f }, { 0.65f, 0.22f }, { 0.90f, 0.05f } };     // patas en escalera (R, K)
     if (ch == 'R' || ch == 'K') {
         for (int i = 0; i < 3; i++) {
-            float px_ = (ch == 'R') ? (cx - w * 0.5f + w * rs[i][0] * 1.0f) : (cx - w * 0.5f + w * (0.35f + 0.3f * (float)i));
+            float px_ = (ch == 'R') ? (cx + w * 0.5f - w * rs[i][0]) : (cx + w * 0.5f - w * (0.35f + 0.3f * (float)i));
             float py_ = yb + h * rs[i][1] + th * 0.5f;
             box_rot(px_, z, 0, 0, 0, th * 0.55f, hz, py_ - th * 0.5f, py_ + th * 0.5f, col, emit);
             if (ch == 'K') {                    // diagonal superior
@@ -6796,7 +6796,7 @@ static void neon_letter(char ch, float cx, float yb, const float *col, float emi
         static const float ms[3][2] = { { 0.28f, 0.78f }, { 0.5f, 0.55f }, { 0.72f, 0.78f } };
         for (int i = 0; i < 3; i++) {
             float py_ = yb + h * ms[i][1];
-            box_rot(cx - w * 0.5f + w * ms[i][0], z, 0, 0, 0, th * 0.55f, hz, py_ - th * 0.5f, py_ + th * 0.5f, col, emit);
+            box_rot(cx + w * 0.5f - w * ms[i][0], z, 0, 0, 0, th * 0.55f, hz, py_ - th * 0.5f, py_ + th * 0.5f, col, emit);
         }
     }
 }
@@ -6822,7 +6822,7 @@ static void draw_supermarket(float t)
         float e = 1.0f;
         if (i == 3 && sinf(t * 23.0f) + sinf(t * 7.3f) > 1.55f) e = 0.12f;
         if (i == 11 && sinf(t * 17.0f + 1.0f) + sinf(t * 5.1f) > 1.6f) e = 0.12f;
-        neon_letter(txt[i], 234.0f + ((float)i - 5.5f) * 1.5f, 3.65f, i < 5 ? pink : cyan, e);
+        neon_letter(txt[i], 234.0f - ((float)i - 5.5f) * 1.5f, 3.65f, i < 5 ? pink : cyan, e);
     }
     // toldo rayado sobre la puerta
     for (int i = 0; i < 10; i++)
@@ -7548,7 +7548,7 @@ static void draw_spot_overlay(void)
     float clear_r = flash_on ? 0.16f : 0.03f;     // radio totalmente claro (fraccion del ancho)
     float soft_r  = flash_on ? 0.19f : 0.08f;     // ancho del borde suave
     float dark    = flash_on ? 0.93f : 0.96f;     // oscuridad fuera del haz
-    dark *= 1.0f - 0.8f * lamp_at_me;              // cerca de una lampara de la alcantarilla la oscuridad de pantalla se aclara (la luz va por vertices)
+    { float lk = lamp_at_me * 2.5f; if (lk > 1.0f) lk = 1.0f; dark *= 1.0f - 0.95f * lk; }              // cerca de una lampara de la alcantarilla la oscuridad de pantalla se aclara (la luz va por vertices)
     if (!flash_on) {                                  // linterna apagada: oscuridad pareja (si el otro tiene luz no se tapa: su luz va por vertices)
         if (bm_other.on) return;
         gsKit_prim_sprite(gsGlobal, 0.0f, 0.0f, W, H, 16777000, GS_SETREG_RGBAQ(4, 6, 14, ba((int)(dark * 128.0f)), 0x00));
