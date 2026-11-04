@@ -6774,12 +6774,31 @@ static void draw_radio_tower(void)
     if (cur_layer != 0 && !climbing) return;
     if (!in_view(194.0f, 178.0f, 20.0f, fminf(draw_lim, (gfx_pd[gfx] * rd_k)))) return;
     static V vv[RT_NV];
+    static float bw[RT_NV][3], bc[RT_NV][3];
+    static unsigned char bdone[RT_NV];
     static const float white[3] = { 1.0f, 1.0f, 1.0f };
     static const float cc[2][3] = { { 205.f, 52.f, 46.f }, { 226.f, 226.f, 230.f } };    // rojo / blanco, de 5 en 5 m
-    for (int i = 0; i < RT_NV; i++)
-        vv[i] = mk(194.0f + (float)RT_v[i][0] * (1.0f / 900.0f), (float)RT_v[i][1] * (1.0f / 900.0f), 178.0f + (float)RT_v[i][2] * (1.0f / 900.0f), white, 0.0f);
+    for (int i = 0; i < RT_NV; i++) {                    // solo posicion (barato); la luz se calcula despues, solo en lo que se ve
+        float *w = bw[i], *c = bc[i];
+        w[0] = 194.0f + (float)RT_v[i][0] * (1.0f / 900.0f); w[1] = (float)RT_v[i][1] * (1.0f / 900.0f); w[2] = 178.0f + (float)RT_v[i][2] * (1.0f / 900.0f);
+        float dx = w[0] - px, dz = w[2] - pz;
+        float vx = dx * rx + dz * rz, vz = dx * fx + dz * fz, vy = w[1] - cam_y;
+        c[0] = vx; c[1] = vy * cpitch - vz * spitch; c[2] = vy * spitch + vz * cpitch;
+        bdone[i] = 0;
+    }
+    const float gx = (W * 0.5f + 60.0f) / FOCAL, gy = (H * 0.5f + 60.0f) / FOCAL;
     for (int k = 0; k < RT_NT; k++) {
         const unsigned short *t = RT_t[k];
+        const float *a = bc[t[0]], *b = bc[t[1]], *c2 = bc[t[2]];
+        if (a[2] < NEAR_Z && b[2] < NEAR_Z && c2[2] < NEAR_Z) continue;                  // detras de la camara
+        if (a[2] >= NEAR_Z && b[2] >= NEAR_Z && c2[2] >= NEAR_Z) {                       // fuera de la pantalla (mismo lado)
+            if ((a[0] > gx * a[2] && b[0] > gx * b[2] && c2[0] > gx * c2[2]) || (a[0] < -gx * a[2] && b[0] < -gx * b[2] && c2[0] < -gx * c2[2]) ||
+                (a[1] > gy * a[2] && b[1] > gy * b[2] && c2[1] > gy * c2[2]) || (a[1] < -gy * a[2] && b[1] < -gy * b[2] && c2[1] < -gy * c2[2])) continue;
+        }
+        for (int m = 0; m < 3; m++) {
+            int id = t[m];
+            if (!bdone[id]) { vv[id] = mk(bw[id][0], bw[id][1], bw[id][2], white, 0.0f); bdone[id] = 1; }
+        }
         const float *c = cc[(t[3] >> 8) & 1];
         float sh = (float)(t[3] & 255) / 255.0f;
         V v[3];
