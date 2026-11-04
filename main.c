@@ -7733,6 +7733,17 @@ static int los_to(float x1, float z1, float margin)
     return 1;
 }
 
+#define GLOW_MAX 70.0f     // las bolitas de luz no se dibujan mas alla de estos metros
+// Profundidad de una bolita en el z-buffer (misma formula que emit_tri); se adelanta un poco para que la lampara
+// no quede tapada por su propio poste/pared.
+static int glow_z(float czv, float rad)
+{
+    float zz = czv - (rad * 1.2f + 0.25f);
+    if (zz < NEAR_Z) zz = NEAR_Z;
+    int z = (int)(16777000.0f * (NEAR_Z / zz));
+    return z < 1 ? 1 : (z > 16777215 ? 16777215 : z);
+}
+
 static void draw_glow(float wx, float wy, float wz, float rad, int r, int g, int b, int ac)
 {
     float dx = wx - px, dz = wz - pz;
@@ -7744,9 +7755,15 @@ static void draw_glow(float wx, float wy, float wz, float rad, int r, int g, int
     float sy = H * 0.5f - cyv / czv * FOCAL;
     float rp = clampf(rad / czv * FOCAL, 2.0f, 60.0f);
     if (sx < -100 || sx > W + 100 || sy < -100 || sy > H + 100) return;
+    {   // distancia maxima: lejos no se dibuja; cerca del limite se desvanece
+        float d3 = sqrtf(dx * dx + dz * dz + cy0 * cy0);
+        if (d3 >= GLOW_MAX) return;
+        if (d3 > GLOW_MAX * 0.7f) ac = (int)((float)ac * (GLOW_MAX - d3) / (GLOW_MAX * 0.3f));
+        if (ac < 2) return;
+    }
     u64 cc = GS_SETREG_RGBAQ(r, g, b, ba(ac), 0x00);
     u64 ce = GS_SETREG_RGBAQ(r, g, b, ba(0), 0x00);
-    const int Z = 16777050;
+    const int Z = glow_z(czv, rad);      // profundidad real: lo tapan paredes, arboles y estructuras
     static const float gc8[9] = { 1.0f, 0.70710678f, 0.0f, -0.70710678f, -1.0f, -0.70710678f, 0.0f, 0.70710678f, 1.0f };
     static const float gs8[9] = { 0.0f, 0.70710678f, 1.0f, 0.70710678f, 0.0f, -0.70710678f, -1.0f, -0.70710678f, 0.0f };
     for (int j = 0; j < 8; j++)
@@ -9128,12 +9145,13 @@ static void draw_candle_flames(float t)
         if (hpx < 1.0f || sx < -40.0f || sx > W + 40.0f) continue;
         float cw = hpx * 0.56f / FL_W, ch = hpx / FL_H;
         int fi = ((int)(t * 14.0f) + n * 7) % FL_N;
+        int fz_ = glow_z(czv, 0.15f);
         for (int j = 0; j < FL_H; j++)
             for (int i = 0; i < FL_W; i++) {
                 const unsigned char *c = fl_px[fi][j * FL_W + i];
                 if (c[3] < 10) continue;
                 float x = sx + ((float)i - FL_W * 0.5f) * cw, y = syt + (float)j * ch;
-                gsKit_prim_sprite(gsGlobal, x, y, x + cw + 0.6f, y + ch + 0.6f, 16777050, GS_SETREG_RGBAQ(c[0], c[1], c[2], ba((int)c[3]), 0x00));
+                gsKit_prim_sprite(gsGlobal, x, y, x + cw + 0.6f, y + ch + 0.6f, fz_, GS_SETREG_RGBAQ(c[0], c[1], c[2], ba((int)c[3]), 0x00));
             }
     }
 }
@@ -9164,7 +9182,7 @@ static void draw_glows(float t)
         if (b->layer != cur_layer) continue;
         if (b->z > 57.0f && b->z < 57.2f && b->x > 56.0f && b->x < 60.0f && !(px > 48.0f && px < 68.0f && pz > 48.0f && pz < 80.0f)) continue;
         float dx = b->x - px, dz = b->z - pz;
-        if (dx * dx + dz * dz > b->range * b->range) continue;
+        { float rg_ = b->range < GLOW_MAX ? b->range : GLOW_MAX; if (dx * dx + dz * dz > rg_ * rg_) continue; }
         if (b->period > 0.0f && fmodf(t + b->x * 0.37f, b->period) > b->period * 0.18f) continue;
         if (b->los && !los_to(b->x, b->z, 0.6f)) continue;
         draw_glow(b->x, b->y, b->z, b->rad, b->r, b->g, b->b, b->ac);
