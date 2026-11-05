@@ -31098,7 +31098,7 @@ static void js_begin(void)
     climbing = 0; crouched = 0; crouch_f = 0.0f; jump_h = 0.0f; jump_vy = 0.0f;
     js_victim = pl_cur; map_open = 0; code_door = -1;
     yaw = js_yaw; flash_on = 1; uv_on = 0; emoji_open = 0; dance_open = 0; hide_id = -1;
-    sfx_play(SFX_SCREAM, 1.0f);
+    if (!net_online || pl_cur == net_local) sfx_play(SFX_SCREAM, 1.0f);      // el grito lo oye solo el atrapado (online)
 }
 
 // El monstruo salta hacia tu cara, la camara tiembla y la pantalla parpadea
@@ -32236,7 +32236,6 @@ static void draw_revive_hud(void)
     if (pl_view_alt >= 0) {                                       // caido viendo por los ojos de su companero
         char b[40];
         snprintf(b, sizeof b, "ESPECTEANDO A J%d", pl_cur + 1);
-        gsKit_prim_sprite(gsGlobal, 0.0f, 0.0f, W, H, 16777005, GS_SETREG_RGBAQ(110, 0, 0, ba(24), 0));
         draw_text_c(H * 0.12f, b, 2, rc);
         draw_text_c(H * 0.12f + 18.0f, "ARRIBA / ABAJO: VOLVER A TU VISTA", 1, rc);
         if (pl_rv[pl_view_alt] > 0.05f) {
@@ -32248,7 +32247,6 @@ static void draw_revive_hud(void)
         return;
     }
     if (pl_dn[pl_cur]) {                                          // yo estoy caido
-        gsKit_prim_sprite(gsGlobal, 0.0f, 0.0f, W, H, 16777005, GS_SETREG_RGBAQ(110, 0, 0, ba(46), 0));
         draw_text_c(H * 0.12f, "ESTAS HERIDO", 2, rc);
         draw_text_c(H * 0.12f + 18.0f, "ARRASTRATE HACIA TU COMPANERO", 1, rc);
         draw_text_c(H * 0.12f + 32.0f, "ARRIBA / ABAJO: VER A TU COMPANERO", 1, rc);
@@ -32533,13 +32531,16 @@ static void render_game(float t, int moving, int near_ladder, int notes)
 static void render_frame(float t, int paused)
 {
     int notes = notes_got[0] + notes_got[1] + notes_got[2];
-    if (num_players < 2 || state != 0 || net_online) {   // 1 jugador, online, jumpscare o final: pantalla completa
-        int pi = (num_players == 2 && state == 1) ? js_victim : (net_online ? net_local : 0);
+    if (num_players < 2 || state > 1 || net_online) {    // 1 jugador, online o final: pantalla completa (con 2 jugadores el jumpscare se ve solo en la mitad del atrapado)
+        int pi = net_online ? net_local : 0;
         view_full();
         int vi = (num_players == 2) ? view_of(pi) : pi;
         pl_view_alt = vi != pi ? pi : -1;
+        int st_sv = state;
+        if (num_players == 2 && state == 1 && pi != js_victim) state = 0;        // online: el otro jugador NO ve el jumpscare, sigue viendo su pantalla
         player_load(vi);
         render_game(t, paused ? 0 : p_moving, paused ? -1 : p_near, notes);
+        state = st_sv;
         pl_view_alt = -1;
         view_full();
         return;
@@ -32551,7 +32552,10 @@ static void render_frame(float t, int paused)
         player_load(vi);
         if (i == 0) view_set(0.0f, 0.0f, SW, (float)(hh - 1));
         else        view_set(0.0f, (float)(hh + 1), SW, SH - (float)(hh + 1));
+        int st_sv = state;
+        if (state == 1 && i != js_victim) state = 0;                              // el jumpscare solo se ve en la mitad del jugador atrapado
         render_game(t, paused ? 0 : p_moving, paused ? -1 : p_near, notes);
+        state = st_sv;
     }
     pl_view_alt = -1;
     view_full();
