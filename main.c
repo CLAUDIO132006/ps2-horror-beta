@@ -5996,6 +5996,13 @@ static int mon_target;          // a que jugador persigue el monstruo
 // ---- Jugador caido: el monstruo lo atrapo y se arrastra por el piso; su companero lo revive manteniendo CUADRADO a 1 m (10 s) ----
 static int   pl_dn[2];          // 1 = caido
 static float pl_rv[2];          // segundos de revivir acumulados (0..REVIVE_T)
+// ---- Botiquines: uno dentro de cada estructura con puerta (las 8 de la superficie). CUADRADO cerca: se abre la tapa ----
+#define NMK 8
+static float mk_x[NMK], mk_z[NMK], mk_a[NMK];   // posicion y hacia donde mira el frente (la puerta)
+static int   mk_open[NMK];
+static int   mk_bd[NMK];                          // vendas que quedan dentro de cada botiquin (empiezan en 2)
+static int   pl_bnd[2];                           // vendas que lleva cada jugador (hace falta 1 para revivir)
+static float mk_t[NMK];                          // animacion de la tapa 0 (cerrado) .. 1 (abierto)
 static int   pl_spw[2];         // caido: 1 = esta viendo la pantalla de su companero (ARRIBA / ABAJO)
 static int   pl_view_alt = -1;  // mientras se dibuja: indice del caido que ve por los ojos del otro (-1 = vista normal)
 // De quien es la camara que ve el jugador i
@@ -6270,6 +6277,32 @@ static int pick_near2(int ign)
     return bi;
 }
 static int pick_near(void) { return pick_near2(0); }
+
+// Botiquin ABIERTO con vendas al alcance (~1.3 m), o -1
+static int mkit_bnd_near(void)
+{
+    if (climbing || hide_id >= 0 || cur_layer != 0) return -1;
+    float best = 1.3f * 1.3f; int bi = -1;
+    for (int i = 0; i < NMK; i++) {
+        if (!mk_open[i] || mk_t[i] < 0.9f || mk_bd[i] <= 0) continue;
+        float ax = mk_x[i] - px, az = mk_z[i] - pz, d = ax * ax + az * az;
+        if (d < best) { best = d; bi = i; }
+    }
+    return bi;
+}
+
+// Botiquin cerrado al alcance (~1.3 m), o -1
+static int mkit_near(void)
+{
+    if (climbing || hide_id >= 0 || cur_layer != 0) return -1;
+    float best = 1.3f * 1.3f; int bi = -1;
+    for (int i = 0; i < NMK; i++) {
+        if (mk_open[i]) continue;
+        float ax = mk_x[i] - px, az = mk_z[i] - pz, d = ax * ax + az * az;
+        if (d < best) { best = d; bi = i; }
+    }
+    return bi;
+}
 
 static int door_near(void)
 {
@@ -9489,6 +9522,33 @@ static void update_monster(float dt, int notes)
 }
 
 // ---------------- Reinicio ----------------
+// Coloca un botiquin dentro de cada estructura con puerta: cerca del lugar de su llave (adentro), a la vista, sin chocar con muebles ni paredes
+static void place_medkits(void)
+{
+    static const unsigned char slot_of_door[NMK] = { 1, 3, 2, 4, 5, 7, 6, 8 };     // puerta i -> lugar (adentro) de esa estructura
+    for (int i = 0; i < NMK; i++) {
+        float cx = slot_xz[slot_of_door[i]][0], cz = slot_xz[slot_of_door[i]][1];
+        float bx = cx, bz = cz; int found = 0;
+        for (int ring = 0; ring < 6 && !found; ring++) {
+            float r = 1.7f + 0.45f * (float)ring;
+            for (int k = 0; k < 16 && !found; k++) {
+                float ang = (float)k * (2.0f * PI_F / 16.0f);
+                float x = cx + sinf(ang) * r, z = cz + cosf(ang) * r;
+                if (blocked(x, z, 0.55f)) continue;
+                int ok = 1;                                                 // se llega caminando desde el centro (no al otro lado de una pared)
+                for (int st = 1; st <= 8 && ok; st++) { float u = (float)st / 8.0f; if (blocked(cx + (x - cx) * u, cz + (z - cz) * u, 0.3f)) ok = 0; }
+                for (int j = 0; j < NSLOT && ok; j++) { float dx = x - slot_xz[j][0], dz = z - slot_xz[j][1]; if (dx * dx + dz * dz < 1.5f * 1.5f) ok = 0; }
+                if (ok) { bx = x; bz = z; found = 1; }
+            }
+        }
+        mk_x[i] = bx; mk_z[i] = bz;
+        float dx = doors[i].x - bx, dz = doors[i].z - bz;
+        mk_a[i] = atan2f(dx, dz);                                           // el frente mira a la puerta
+        mk_open[i] = 0; mk_t[i] = 0.0f; mk_bd[i] = 2;
+    }
+    pl_bnd[0] = pl_bnd[1] = 0;
+}
+
 static void reset_game(void)
 {
     spec_mode = 0;
@@ -9505,9 +9565,10 @@ static void reset_game(void)
     if (key_set == last_key_set) key_set = (key_set + 1 + (int)(hash2((int)game_seed, 99) % (NKSET - 1))) % NKSET;
     last_key_set = key_set;
     place_keys(key_set);
+    place_medkits();
     state = 0; state_timer = 0;
     mon_phase = 0.0f; mon_spd = 0.0f; mon_runf = 0.0f; mon_uv_t = 0.0f; uvc_aim = 0; mon_blind_t = 0.0f; mon_cover = 0.0f;
-    mon_foot_event = 0; js_victim = 0; mon_target = 0; noise_on = 0; pl_dn[0] = pl_dn[1] = 0; pl_rv[0] = pl_rv[1] = 0.0f; pl_spw[0] = pl_spw[1] = 0;
+    mon_foot_event = 0; js_victim = 0; mon_target = 0; noise_on = 0; pl_dn[0] = pl_dn[1] = 0; pl_rv[0] = pl_rv[1] = 0.0f; pl_spw[0] = pl_spw[1] = 0; pl_bnd[0] = pl_bnd[1] = 0;
     mon_face = atan2f(SPAWN_X - MON_X, SPAWN_Z - MON_Z); mon_seen = 0; mon_has = 0; mon_wp_ok = 0; mon_wp_n = 0; mon_look_t = 0.0f; mon_last_chase = 0; frenzy_t = 0.0f; frenzy_w = 0.0f; frenzy_go = 0; frenzy_msg = 0;
     for (int i = 0; i < 2; i++) {
         carry = 0;
@@ -31796,6 +31857,118 @@ static void draw_doors(void)
     }
 }
 
+// ---------------- Botiquin (Firstaid_low.obj, simplificado a cajas: ~75 caras) ----------------
+// Medidas del modelo en cm: cuerpo 6.8 x 6 x 8, asa arriba, tapa articulada abajo. x = fondo (el frente +x), y = arriba, z = ancho.
+typedef struct { float x0, x1, y0, y1, z0, z1; unsigned char r, g, b, lid, open_only; float emit; } MkBox;
+static const MkBox mk_parts[] = {
+    { -3.40f, 2.65f, -3.57f, 2.44f, -4.00f, 4.00f, 228, 231, 228, 0, 0, 0.30f },   // cuerpo
+    {  2.10f, 2.85f, -3.67f, 2.54f, -4.15f, 4.15f, 200, 204, 200, 0, 0, 0.30f },   // reborde
+    {  1.30f, 1.70f,  2.44f, 3.50f, -2.35f, -2.00f,  62,  62,  68, 0, 0, 0.20f },  // asa: poste
+    {  1.30f, 1.70f,  2.44f, 3.50f,  2.00f,  2.35f,  62,  62,  68, 0, 0, 0.20f },  // asa: poste
+    {  1.30f, 1.70f,  3.45f, 3.80f, -2.35f,  2.35f,  62,  62,  68, 0, 0, 0.20f },  // asa: barra
+    {  2.65f, 3.00f, -1.20f,  1.90f, -3.40f, -1.20f, 190,  40,  40, 0, 1, 0.35f },  // caja roja
+    {  2.65f, 3.10f, -1.00f,  1.90f, -0.60f,  3.50f,  70, 110, 170, 0, 1, 0.35f },  // caja azul
+    {  2.70f, 3.40f, -3.57f, 2.44f, -4.00f, 4.00f, 242, 242, 242, 1, 0, 0.30f },   // TAPA
+    {  3.40f, 3.46f, -2.70f, 1.60f, -0.80f, 0.80f, 205,  30,  30, 1, 0, 0.45f },   // cruz roja: vertical
+    {  3.40f, 3.46f, -1.35f, 0.25f, -2.50f, 2.50f, 205,  30,  30, 1, 0, 0.45f },   // cruz roja: horizontal
+    {  3.40f, 3.62f,  1.50f, 2.30f, -0.60f, 0.60f, 150, 150, 156, 1, 0, 0.20f },   // cierre
+};
+#define NMKP ((int)(sizeof(mk_parts) / sizeof(mk_parts[0])))
+
+static void mk_draw_one(int i, float th)
+{
+    const float sc = 0.040f, ca = cosf(th), sa = sinf(th);
+    const float F[2] = { sinf(mk_a[i]), cosf(mk_a[i]) }, R[2] = { cosf(mk_a[i]), -sinf(mk_a[i]) };
+    for (int k = 0; k < NMKP; k++) {
+        const MkBox *b = &mk_parts[k];
+        if (b->open_only && th < 0.9f) continue;
+        float c[8][3];                                                   // 8 esquinas en el mundo
+        for (int j = 0; j < 8; j++) {
+            float lx = (j & 1) ? b->x1 : b->x0, ly = (j & 2) ? b->y1 : b->y0, lz = (j & 4) ? b->z1 : b->z0;
+            if (b->lid) {                                                // la tapa gira sobre su bisagra (borde de abajo, al frente)
+                float dx = lx - 2.7f, dy = ly + 3.57f;
+                float nx = 2.7f + dx * ca + dy * sa, ny = -3.57f - dx * sa + dy * ca;
+                lx = nx; ly = ny;
+            }
+            c[j][0] = mk_x[i] + (lx * F[0] + lz * R[0]) * sc;
+            c[j][1] = (ly + 3.7f) * sc + 0.002f;
+            c[j][2] = mk_z[i] + (lx * F[1] + lz * R[1]) * sc;
+        }
+        float col[3] = { (float)b->r, (float)b->g, (float)b->b };
+        float mx = 0.0f, my = 0.0f, mz = 0.0f;
+        for (int j = 0; j < 8; j++) { mx += c[j][0]; my += c[j][1]; mz += c[j][2]; }
+        mx *= 0.125f; my *= 0.125f; mz *= 0.125f;
+        // 6 caras: indices de esquina (bit0 = x, bit1 = y, bit2 = z)
+        static const unsigned char fq[6][4] = { {0,2,6,4}, {1,3,7,5}, {0,1,5,4}, {2,3,7,6}, {0,1,3,2}, {4,5,7,6} };
+        for (int f = 0; f < 6; f++) {
+            if (f == 2 && !b->lid) continue;                              // la base no se ve desde abajo
+            float q[4][3], fx_ = 0.0f, fy_ = 0.0f, fz_ = 0.0f;
+            for (int j = 0; j < 4; j++) { for (int a = 0; a < 3; a++) q[j][a] = c[fq[f][j]][a]; fx_ += q[j][0]; fy_ += q[j][1]; fz_ += q[j][2]; }
+            fx_ *= 0.25f; fy_ *= 0.25f; fz_ *= 0.25f;
+            if ((fx_ - mx) * (px - fx_) + (fy_ - my) * (cam_y - fy_) + (fz_ - mz) * (pz - fz_) <= 0.0f) continue;   // cara de espaldas
+            quad_sub(q, col, 1, b->emit);
+        }
+    }
+}
+
+// Venda (bandage.obj: un rollo de 7.9 x 6.1 cm; aqui un cilindro de 12 lados, mismo tamano y proporcion) acostada en el botiquin abierto
+static void mk_draw_roll(int i, float lcx, float lcy, float lcz)
+{
+    const float sc = 0.040f, RAD = 1.0f, HL = 1.29f;            // (en unidades del botiquin: la venda mide 2 x 2.6 cm)
+    const float F[2] = { sinf(mk_a[i]), cosf(mk_a[i]) }, R[2] = { cosf(mk_a[i]), -sinf(mk_a[i]) };
+    float ring[2][12][3];
+    for (int e = 0; e < 2; e++)
+        for (int k = 0; k < 12; k++) {
+            float ph = (float)k * (2.0f * PI_F / 12.0f);
+            float lx = lcx + RAD * sinf(ph), ly = lcy + RAD * cosf(ph), lz = lcz + (e ? HL : -HL);
+            ring[e][k][0] = mk_x[i] + (lx * F[0] + lz * R[0]) * sc;
+            ring[e][k][1] = (ly + 3.7f) * sc + 0.002f;
+            ring[e][k][2] = mk_z[i] + (lx * F[1] + lz * R[1]) * sc;
+        }
+    float cc[2][3];
+    for (int e = 0; e < 2; e++) {
+        float lx = lcx, ly = lcy, lz = lcz + (e ? HL : -HL);
+        cc[e][0] = mk_x[i] + (lx * F[0] + lz * R[0]) * sc; cc[e][1] = (ly + 3.7f) * sc + 0.002f; cc[e][2] = mk_z[i] + (lx * F[1] + lz * R[1]) * sc;
+    }
+    float mid[3] = { (cc[0][0] + cc[1][0]) * 0.5f, (cc[0][1] + cc[1][1]) * 0.5f, (cc[0][2] + cc[1][2]) * 0.5f };
+    for (int k = 0; k < 12; k++) {                                   // lados
+        int k2 = (k + 1) % 12;
+        float q[4][3];
+        for (int a = 0; a < 3; a++) { q[0][a] = ring[0][k][a]; q[1][a] = ring[0][k2][a]; q[2][a] = ring[1][k2][a]; q[3][a] = ring[1][k][a]; }
+        float fx_ = (q[0][0] + q[2][0]) * 0.5f, fy_ = (q[0][1] + q[2][1]) * 0.5f, fz_ = (q[0][2] + q[2][2]) * 0.5f;
+        if ((fx_ - mid[0]) * (px - fx_) + (fy_ - mid[1]) * (cam_y - fy_) + (fz_ - mid[2]) * (pz - fz_) <= 0.0f) continue;
+        float sh = 0.80f + 0.20f * (0.5f + 0.5f * cosf((float)k * (2.0f * PI_F / 12.0f)));
+        float col[3] = { 238.0f * sh, 232.0f * sh, 212.0f * sh };
+        quad_sub(q, col, 1, 0.35f);
+    }
+    for (int e = 0; e < 2; e++) {                                    // tapas (6 cuadrilateros cada una)
+        float nz_ = (e ? 1.0f : -1.0f);
+        float cx_ = cc[e][0] - mid[0], cy_ = cc[e][1] - mid[1], cz_ = cc[e][2] - mid[2];
+        if (cx_ * (px - cc[e][0]) + cy_ * (cam_y - cc[e][1]) + cz_ * (pz - cc[e][2]) <= 0.0f) continue;
+        (void)nz_;
+        for (int k = 0; k < 12; k += 2) {
+            float q[4][3];
+            for (int a = 0; a < 3; a++) { q[0][a] = cc[e][a]; q[1][a] = ring[e][k][a]; q[2][a] = ring[e][(k + 1) % 12][a]; q[3][a] = ring[e][(k + 2) % 12][a]; }
+            float col[3] = { 250.0f, 246.0f, 232.0f };
+            quad_sub(q, col, 1, 0.35f);
+        }
+    }
+}
+
+static void draw_medkits(void)
+{
+    if (cur_layer != 0 && !climbing) return;
+    for (int i = 0; i < NMK; i++) {
+        if (!in_view(mk_x[i], mk_z[i], 0.7f, (gfx_pd[gfx] * rd_k))) continue;
+        float u = mk_t[i], e = u * u * (3.0f - 2.0f * u);                 // apertura suave
+        mk_draw_one(i, e * 1.75f);
+        if (e * 1.75f >= 0.9f) {                                         // vendas que quedan dentro
+            if (mk_bd[i] >= 1) mk_draw_roll(i, 3.70f, -2.40f, -2.00f);
+            if (mk_bd[i] >= 2) mk_draw_roll(i, 3.70f, -2.40f, 1.20f);
+        }
+    }
+}
+
 static void draw_items(float t)
 {
     if (cur_layer != 0 && !climbing) return;
@@ -31825,6 +31998,9 @@ static void msg_text(int id, char *buf, int n)
     else if (id == 10) snprintf(buf, n, "CODIGO INCORRECTO");
     else if (id == 11) snprintf(buf, n, "PUERTA ABIERTA");
     else if (id == 12) snprintf(buf, n, "CANDADO ABIERTO");
+    else if (id == 50) snprintf(buf, n, "BOTIQUIN ABIERTO: HAY 2 VENDAS");
+    else if (id == 51) snprintf(buf, n, "VENDA AGARRADA: LLEVAS %d", pl_bnd[pl_cur]);
+    else if (id == 52) snprintf(buf, n, "NECESITAS UNA VENDA PARA REVIVIR");
     else if (id == 40) snprintf(buf, n, "LUZ ULTRAVIOLETA");
     else if (id == 41) snprintf(buf, n, "LUZ NORMAL");
     else if (id >= 20 && id <= 23) snprintf(buf, n, "LLAVE %s", key_name[id - 20]);
@@ -32103,7 +32279,8 @@ static void draw_revive_hud(void)
             hud_ring(sx, sy, 15.0f, 22.0f, 1.0f, dc);
             hud_ring(sx, sy, 16.5f, 20.5f, pl_rv[o] / REVIVE_T, wc);
         }
-        draw_text_c(H - 52.0f, "MANTEN CUADRADO: REVIVIR", 2, wc);
+        if (pl_bnd[pl_cur] > 0) draw_text_c(H - 52.0f, "MANTEN CUADRADO: REVIVIR (USA 1 VENDA)", 2, wc);
+        else draw_text_c(H - 52.0f, "NECESITAS UNA VENDA PARA REVIVIR", 2, rc);
     } else if (d2 < 12.0f * 12.0f) draw_text_c(H - 52.0f, "TU COMPANERO ESTA CAIDO", 1, rc);
 }
 
@@ -32118,6 +32295,10 @@ static void draw_door_hud(void)
     }
     draw_text(20.0f, 94.0f, "R1: NOTAS", 1, gc);
     int dn = (map_open || code_door >= 0) ? -1 : door_near();
+    { int mq = (map_open || code_door >= 0) ? -1 : mkit_near(), bq = (map_open || code_door >= 0) ? -1 : mkit_bnd_near();
+      if (mq >= 0 && dn < 0) draw_text_c(H - 34.0f, "CUADRADO: ABRIR BOTIQUIN", 2, yc);
+      else if (bq >= 0 && dn < 0 && pick_near() < 0) draw_text_c(H - 34.0f, "CUADRADO: AGARRAR VENDA", 2, yc); }
+    if (pl_bnd[pl_cur] > 0) { char bb[24]; snprintf(bb, sizeof bb, "VENDAS: %d", pl_bnd[pl_cur]); draw_text(20.0f, 118.0f, bb, 1, GS_SETREG_RGBAQ(240, 235, 215, 0x80, 0)); }
     if (dn >= 0) draw_text_c(H - 34.0f, doors[dn].type == 1 ? "CUADRADO: PONER CODIGO" : "CUADRADO: ABRIR PUERTA", 2, yc);
     if (door_msg > 0 && door_msg_id) {
         char b[48];
@@ -32188,6 +32369,7 @@ static void render_game_inner(float t, int moving, int near_ladder, int notes)
             draw_lockers();
             draw_doors();
             draw_items(t);
+            draw_medkits();
             draw_shafts();
 
             for (int i = 0; i < 3; i++) {
@@ -32982,6 +33164,8 @@ static unsigned int sim_hash(void)
         HM(fbits(P[i].stamina)); HM(fbits(P[i].jump_h)); HM(P[i].cur_layer); HM(P[i].climbing);
         HM(P[i].flash_on); HM(P[i].uv_on); HM(P[i].emoji_id); HM(P[i].emoji_open); HM(P[i].dance_open); HM(P[i].dance_id); HM(P[i].hide_id); HM(P[i].carry); HM(P[i].has_map); HM(P[i].crouched); HM(P[i].code_door);
     }
+    for (int i = 0; i < NMK; i++) { HM(mk_open[i]); HM(mk_bd[i]); }
+    HM(pl_bnd[0]); HM(pl_bnd[1]);
     HM(pl_dn[0]); HM(pl_dn[1]); HM((int)(pl_rv[0] * 60.0f)); HM((int)(pl_rv[1] * 60.0f));
     HM(fbits(sx_)); HM(fbits(sz_)); HM(mlayer); HM(state); HM(mon_target); HM(fbits(mon_face)); HM(mon_has); HM(mon_wp_n); HM((int)(mon_blind_t * 60.0f)); HM((int)(mon_uv_t * 60.0f)); HM((int)(frenzy_t * 60.0f)); HM((int)(frenzy_w * 60.0f));
     for (int i = 0; i < 3; i++) { HM(notes_got[i]); HM(notes_off[i]); HM(notes_used[i]); }
@@ -33632,9 +33816,11 @@ static int ui_input(u32 newp)
         item_got[pk_] = 1; door_msg = 200; sfx_play(SFX_KEY, 1.0f); noise_emit(cur_layer, px, pz, 12.0f);
         if (items[pk_].kind == 0) { carry = 1 + items[pk_].id; door_msg_id = 20 + items[pk_].id; }
         else { have_code[items[pk_].id] = 1; door_msg_id = 30 + items[pk_].id; }
-    } else if (newp & PAD_SQUARE) {                             // CUADRADO: tomar el mapa / abrir puerta / poner codigo
-        int di = door_near();
-        if (!has_map && board_near()) { has_map = 1; map_msg = 240; sfx_play(SFX_CLICK, 1.0f); }
+    } else if (newp & PAD_SQUARE) {                             // CUADRADO: abrir botiquin / tomar el mapa / abrir puerta / poner codigo
+        int di = door_near(), mi = mkit_near(), bi_ = mkit_bnd_near();
+        if (mi >= 0 && !map_open) { mk_open[mi] = 1; door_msg = 100; door_msg_id = 50; sfx_play(SFX_CLICK, 1.0f); noise_emit(cur_layer, mk_x[mi], mk_z[mi], 12.0f); }
+        else if (bi_ >= 0 && !map_open) { mk_bd[bi_]--; pl_bnd[pl_cur]++; door_msg = 140; door_msg_id = 51; sfx_play(SFX_KEY, 0.9f); noise_emit(cur_layer, px, pz, 6.0f); }
+        else if (!has_map && board_near()) { has_map = 1; map_msg = 240; sfx_play(SFX_CLICK, 1.0f); }
         else if (di >= 0 && !map_open) {
             const Door *d = &doors[di];
             if (d->type == 2) {                                 // PUERTA FINAL: necesita las 3 llaves finales
@@ -33704,10 +33890,11 @@ static int revive_hold(float dt, const PadIn *in)
     float dx = Q->px - px, dz = Q->pz - pz;
     int near = Q->cur_layer == cur_layer && !climbing && hide_id < 0 && dx * dx + dz * dz <= REVIVE_R * REVIVE_R;
     int hold = near && (in->pd & PAD_SQUARE) && !map_open && code_door < 0 && !emoji_open && !dance_open;
+    if (hold && pl_bnd[pl_cur] <= 0) { if ((in->np & PAD_SQUARE) && !(door_msg > 0 && door_msg_id == 52)) { door_msg = 120; door_msg_id = 52; } hold = 0; }   // sin venda no se puede
     if (hold) {
         pl_rv[o] += dt;
         if (pl_rv[o] >= REVIVE_T) {                         // revivido
-            pl_rv[o] = 0.0f; pl_dn[o] = 0; pl_spw[o] = 0;
+            pl_rv[o] = 0.0f; pl_dn[o] = 0; pl_spw[o] = 0; pl_bnd[pl_cur]--;      // se gasta una venda
             P[o].pitch = 0.0f; P[o].flash_on = 1; P[o].stamina = 0.5f; P[o].vel_x = P[o].vel_z = 0.0f;
             sfx_play(SFX_POP, 1.0f);
             return 0;
@@ -34128,6 +34315,8 @@ int main(void)
                 }
                 for (int i = 0; i < ND; i++)                     // las puertas abiertas giran
                     if (door_open[i] && door_ang[i] < 1.55f) door_ang[i] = fminf(1.55f, door_ang[i] + 0.05f);
+                for (int i = 0; i < NMK; i++)                    // la tapa de los botiquines abiertos se levanta
+                    if (mk_open[i] && mk_t[i] < 1.0f) mk_t[i] = fminf(1.0f, mk_t[i] + dt * 1.5f);
                 mon_uv_update(dt);                               // luz UV contra el monstruo
                 int sg = mon_vision();                           // a quien ve (cono de 75 grados, 30 m)
                 mon_seen = (sg >= 0);
