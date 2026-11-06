@@ -4194,10 +4194,10 @@ static const char *map0[MH] = {"FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF
 "FF....ppppppppppppppppp.........................pp............................................FF",
 "FF....pggggggggggggggpp.........................pp............................................FF",
 "FF....pggggggggggggggpp.........................pp............................................FF",
-"FF....pggggggSSSSggggpp.........................pp............................................FF",
-"FF....pggggggS;;Sggggpp.........................pp............................................FF",
-"FF....pggggggS;;Sggggpp................................................pppppppppppp...........FF",
-"FF....pggggggSw;wggggpp.................ppppppppp......................pppppppppppp...........FF",
+"FF....pggggggggggggggpp.........................pp............................................FF",
+"FF....pggggggg;;gggggpp.........................pp............................................FF",
+"FF....pggggggg;;gggggpp................................................pppppppppppp...........FF",
+"FF....pggggggg;;gggggpp.................ppppppppp......................pppppppppppp...........FF",
 "FF....pgggggggpppggggpp.................ppppppppp......................pppppppppppp...........FF",
 "FF....pgggggggpppggggppppppp............ppppppppp......................ppp#W#W##ppp...........FF",
 "FF....pgggggggpppggggppppppp............pppHJHpppppp...................ppp#,,#,Wppp...........FF",
@@ -4721,8 +4721,13 @@ static const Prop props[NPROP] = {
   {241.630f,312.000f,0.000f,0.060f,4.940f,4.370f,4.500f,150,225,255,0,0,1.000f}
 };
 typedef struct { float x,z,a,hx,hz; unsigned char layer; } Col;
-#define NCOL 423
+#define NCOL 428
 static const Col colliders[NCOL] = {
+  {56.000f,148.000f,0.000f,0.220f,4.200f,0},
+  {64.000f,148.000f,0.000f,0.220f,4.200f,0},
+  {60.000f,144.000f,0.000f,4.200f,0.220f,0},
+  {57.000f,152.000f,0.000f,1.000f,0.220f,0},
+  {63.000f,152.000f,0.000f,1.000f,0.220f,0},
   {192.400f,176.400f,0.000f,0.120f,0.120f,0},
   {192.400f,179.600f,0.000f,0.120f,0.120f,0},
   {195.600f,176.400f,0.000f,0.120f,0.120f,0},
@@ -5224,7 +5229,7 @@ static const int manholes[NMH][2] = {{34,48},{72,64}};
 typedef struct { float x, z, hw; unsigned char orient, type, id; int cx, cz; unsigned char layer; } Door;
 static const Door doors[ND] = {
     { 234.0f, 294.0f, 2.0f, 0, 0, 0, 58, 73 },   // casa junto al inicio          : llave ROJA
-    {  62.0f, 154.0f, 2.0f, 0, 0, 0, 15, 38 },   // casita de piedra              : llave ROJA
+    {  60.0f, 152.0f, 2.0f, 0, 0, 0, 14, 37 },   // casita de piedra              : llave ROJA
     { 324.0f, 326.0f, 4.0f, 0, 0, 1, 80, 81 },   // establo de ladrillo (doble)   : llave AZUL
     {  58.0f,  78.0f, 2.35f, 0, 0, 1, 14, 19 },   // edificio de piedra (noroeste) : llave AZUL
     { 318.0f, 170.0f, 2.0f, 1, 0, 2, 79, 42 },   // edificio del noreste          : llave AMARILLA
@@ -6072,7 +6077,7 @@ static CellInfo cell_info(char ch, int layer)
     case '#': WALL(3.0f, 125, 88, 58) break;
     case 'W': WALL(3.0f, 125, 88, 58) c.win = 1; break;
     case 'S': WALL(4.5f, 152, 154, 150) break;                 // refugio / centro de seguridad: concreto
-    case ';': ROOM(4.5f, 118, 122, 120, 176, 178, 172) break;
+    case ';': ROOM(3.4f, 118, 122, 120, 176, 178, 172) break;
     case 'w': WALL(4.5f, 152, 154, 150) c.win = 2; break;
     case 'B': WALL(5.5f, 150, 52, 42) break;
     case 'R': WALL(2.8f, 104, 98, 92) break;
@@ -7265,107 +7270,94 @@ static void draw_hut(float t)
 static void draw_shelter(float t)
 {
     if (cur_layer != 0 && !climbing) return;
-    if (!in_view(60.0f, 150.0f, 17.0f, fminf(draw_lim, (gfx_pd[gfx] * rd_k)))) return;
-    static const float conc[3] = { 152.f, 154.f, 150.f }, conc2[3] = { 124.f, 128.f, 126.f }, trim[3] = { 84.f, 90.f, 92.f }, steel[3] = { 96.f, 104.f, 112.f };
-    static const float yel[3] = { 240.f, 196.f, 40.f }, blk[3] = { 26.f, 28.f, 30.f }, grn[3] = { 70.f, 230.f, 140.f }, wht[3] = { 245.f, 245.f, 240.f };
-    static const float panel[3] = { 28.f, 48.f, 92.f }, boardc[3] = { 24.f, 36.f, 32.f }, lampc[3] = { 255.f, 236.f, 190.f }, redc[3] = { 255.f, 40.f, 40.f };
-    static const float pave[3] = { 112.f, 114.f, 110.f };
-    const float X0 = 52.0f, X1 = 68.0f, Z0 = 140.0f, Z1 = 156.0f, CX = 62.0f;
-    float ddx = px - 60.0f, ddz = pz - 150.0f, d2 = ddx * ddx + ddz * ddz;
-    int near_ = d2 < 45.0f * 45.0f;
-    // techo plano con parapeto y cornisa
-    box_rot(60.0f, 148.0f, 0, 0, 0, 8.25f, 8.25f, 4.5f, 4.8f, conc2, 0.0f);
-    box_rot(60.0f, Z0 - 0.15f, 0, 0, 0, 8.25f, 0.12f, 4.8f, 5.3f, conc, 0.0f);
-    box_rot(60.0f, Z1 + 0.15f, 0, 0, 0, 8.25f, 0.12f, 4.8f, 5.3f, conc, 0.0f);
-    box_rot(X0 - 0.15f, 148.0f, 0, 0, 0, 0.12f, 8.25f, 4.8f, 5.3f, conc, 0.0f);
-    box_rot(X1 + 0.15f, 148.0f, 0, 0, 0, 0.12f, 8.25f, 4.8f, 5.3f, conc, 0.0f);
-    box_rot(60.0f, 148.0f, 0, 0, 0, 8.5f, 8.5f, 5.3f, 5.36f, trim, 0.0f);
-    // paredes: juntas horizontales y pilastras en las esquinas
-    for (int k = 0; k < 2; k++) {
-        float y0 = k ? 3.1f : 1.55f;
-        box_rot(X0 - 0.03f, 148.0f, 0, 0, 0, 0.04f, 8.0f, y0, y0 + 0.1f, trim, 0.0f);
-        box_rot(X1 + 0.03f, 148.0f, 0, 0, 0, 0.04f, 8.0f, y0, y0 + 0.1f, trim, 0.0f);
-        box_rot(60.0f, Z0 - 0.03f, 0, 0, 0, 8.0f, 0.04f, y0, y0 + 0.1f, trim, 0.0f);
-        box_rot(56.0f, Z1 + 0.03f, 0, 0, 0, 3.9f, 0.04f, y0, y0 + 0.1f, trim, 0.0f);
-        box_rot(66.0f, Z1 + 0.03f, 0, 0, 0, 1.9f, 0.04f, y0, y0 + 0.1f, trim, 0.0f);
-    }
+    if (!in_view(60.0f, 150.0f, 12.0f, fminf(draw_lim, (gfx_pd[gfx] * rd_k)))) return;
+    static const float conc[3] = { 168.f, 168.f, 160.f }, conc2[3] = { 120.f, 124.f, 124.f }, trim[3] = { 70.f, 76.f, 80.f }, steel[3] = { 96.f, 104.f, 112.f };
+    static const float slate[3] = { 58.f, 66.f, 78.f }, grn[3] = { 70.f, 230.f, 140.f }, wht[3] = { 245.f, 245.f, 240.f }, blk[3] = { 26.f, 28.f, 30.f };
+    static const float panel[3] = { 28.f, 48.f, 92.f }, glass[3] = { 38.f, 62.f, 84.f }, lampc[3] = { 255.f, 236.f, 190.f }, redc[3] = { 255.f, 40.f, 40.f };
+    static const float pave[3] = { 112.f, 114.f, 110.f }, yel[3] = { 240.f, 196.f, 40.f };
+    const float XL = 56.0f, XR = 64.0f, ZN = 144.0f, ZF = 152.0f, CX = 60.0f, WH = 3.4f;
+    float ddx = px - CX, ddz = pz - 150.0f;
+    int near_ = (ddx * ddx + ddz * ddz) < 40.0f * 40.0f;
+    // paredes delgadas (la puerta ocupa el hueco central de la fachada, x 58..62)
+    box_rot(XL, 148.0f, 0, 0, 0, 0.2f, 4.0f, 0.0f, WH, conc, 0.0f);
+    box_rot(XR, 148.0f, 0, 0, 0, 0.2f, 4.0f, 0.0f, WH, conc, 0.0f);
+    box_rot(CX, ZN, 0, 0, 0, 4.0f, 0.2f, 0.0f, WH, conc, 0.0f);
+    box_rot(57.0f, ZF, 0, 0, 0, 1.0f, 0.2f, 0.0f, WH, conc, 0.0f);
+    box_rot(63.0f, ZF, 0, 0, 0, 1.0f, 0.2f, 0.0f, WH, conc, 0.0f);
+    // zocalo oscuro y esquinas
+    box_rot(XL - 0.22f, 148.0f, 0, 0, 0, 0.04f, 4.2f, 0.0f, 0.5f, conc2, 0.0f);
+    box_rot(XR + 0.22f, 148.0f, 0, 0, 0, 0.04f, 4.2f, 0.0f, 0.5f, conc2, 0.0f);
+    box_rot(CX, ZN - 0.22f, 0, 0, 0, 4.2f, 0.04f, 0.0f, 0.5f, conc2, 0.0f);
     for (int a = 0; a < 2; a++)
-        for (int b = 0; b < 2; b++) box_rot(a ? X1 : X0, b ? Z1 : Z0, 0, 0, 0, 0.26f, 0.26f, 0.0f, 4.8f, conc2, 0.0f);
-    // zocalo de peligro (amarillo y negro) en la fachada, y zocalo de concreto en los demas lados
-    for (int k = 0; k < 16 && near_; k++) {
-        float x = (k < 8) ? (X0 + 0.5f + 0.5f * (float)k) : (64.5f + 0.5f * (float)(k - 8));
-        box_rot(x, Z1 + 0.04f, 0, 0, 0, 0.25f, 0.04f, 0.0f, 0.42f, (k & 1) ? blk : yel, 0.0f);
+        for (int b = 0; b < 2; b++) box_rot(a ? XR : XL, b ? ZF : ZN, 0, 0, 0, 0.3f, 0.3f, 0.0f, WH + 0.1f, conc2, 0.0f);
+    // ventanas (marco claro + cristal)
+    if (near_) {
+        for (int s2 = 0; s2 < 4; s2++) {
+            float z = (s2 & 1) ? 149.7f : 146.3f, xo = (s2 & 2) ? XR + 0.23f : XL - 0.23f;
+            box_rot(xo, z, 0, 0, 0, 0.05f, 0.78f, 1.1f, 2.6f, wht, 0.0f);
+            box_rot(xo + ((s2 & 2) ? 0.03f : -0.03f), z, 0, 0, 0, 0.03f, 0.64f, 1.22f, 2.48f, glass, 0.25f);
+        }
+        box_rot(CX, ZN - 0.23f, 0, 0, 0, 0.78f, 0.05f, 1.1f, 2.6f, wht, 0.0f);
+        box_rot(CX, ZN - 0.26f, 0, 0, 0, 0.64f, 0.03f, 1.22f, 2.48f, glass, 0.25f);
     }
-    box_rot(X0 - 0.05f, 148.0f, 0, 0, 0, 0.06f, 8.0f, 0.0f, 0.45f, conc2, 0.0f);
-    box_rot(X1 + 0.05f, 148.0f, 0, 0, 0, 0.06f, 8.0f, 0.0f, 0.45f, conc2, 0.0f);
-    box_rot(60.0f, Z0 - 0.05f, 0, 0, 0, 8.0f, 0.06f, 0.0f, 0.45f, conc2, 0.0f);
-    // entrada: marco de acero con luz verde, marquesina con postes, letrero REFUGIO, luces y camara
-    box_rot(59.8f, Z1 + 0.15f, 0, 0, 0, 0.18f, 0.3f, 0.0f, 4.2f, steel, 0.0f);
-    box_rot(64.2f, Z1 + 0.15f, 0, 0, 0, 0.18f, 0.3f, 0.0f, 4.2f, steel, 0.0f);
-    box_rot(CX, Z1 + 0.15f, 0, 0, 0, 2.4f, 0.3f, 3.95f, 4.3f, steel, 0.0f);
-    box_rot(CX, Z1 + 0.42f, 0, 0, 0, 2.0f, 0.02f, 3.98f, 4.05f, grn, 0.9f);
-    box_rot(CX, 159.6f, 0, 0, 0, 3.9f, 1.6f, 4.45f, 4.65f, conc2, 0.0f);                       // marquesina
-    box_rot(CX, 159.6f, 0, 0, 0, 3.9f, 1.6f, 4.65f, 4.7f, trim, 0.0f);
-    for (int s2 = 0; s2 < 2; s2++) {
-        float x = s2 ? 65.6f : 58.4f;
-        box_rot(x, 160.9f, 0, 0, 0, 0.12f, 0.12f, 0.0f, 4.45f, steel, 0.0f);
-        box_rot(x, 160.9f, 0, 0, 0, 0.2f, 0.2f, 0.0f, 0.12f, trim, 0.0f);
+    // techo a dos aguas con la cumbrera hacia el frente
+    roof_rot(CX, 149.6f, 0, 4.6f, 6.2f, 3.5f, 5.4f, slate);
+    box_rot(CX, 149.6f, 0, 0, 0, 0.12f, 6.2f, 5.36f, 5.52f, trim, 0.0f);
+    box_rot(CX, 155.78f, 0, 0, 0, 4.6f, 0.02f, 3.5f, 3.62f, trim, 0.0f);
+    {   // frontal de concreto bajo el alero (triangulo)
+        V a0 = mk(XL + 0.2f, 3.62f, 155.76f, conc, 0), b0 = mk(XR - 0.2f, 3.62f, 155.76f, conc, 0), c0 = mk(CX, 5.25f, 155.76f, conc, 0);
+        tri_cam(a0, b0, c0);
     }
-    box_rot(CX, 161.25f, 0, 0, 0, 3.9f, 0.08f, 3.55f, 4.45f, boardc, 0.0f);                      // letrero
-    box_rot(CX, 161.3f, 0, 0, 0, 3.8f, 0.02f, 3.58f, 3.62f, grn, 0.8f);
-    box_rot(CX, 161.3f, 0, 0, 0, 3.8f, 0.02f, 4.38f, 4.42f, grn, 0.8f);
+    // porche: losa, dos postes y viga
+    box_rot(CX, 154.0f, 0, 0, 0, 4.2f, 2.0f, 0.0f, 0.15f, pave, 0.0f);
+    for (int s2 = 0; s2 < 2; s2++) box_rot(s2 ? 63.4f : 56.6f, 155.2f, 0, 0, 0, 0.13f, 0.13f, 0.15f, WH + 0.1f, steel, 0.0f);
+    box_rot(CX, 155.2f, 0, 0, 0, 3.9f, 0.14f, WH, WH + 0.2f, trim, 0.0f);
+    box_rot(58.2f, 154.0f, 0, 0, 0, 0.3f, 0.08f, 3.3f, 3.4f, lampc, 0.8f);
+    box_rot(61.8f, 154.0f, 0, 0, 0, 0.3f, 0.08f, 3.3f, 3.4f, lampc, 0.8f);
+    // puerta: marco de acero, camara, cruz de primeros auxilios y lector
+    box_rot(57.8f, ZF + 0.12f, 0, 0, 0, 0.18f, 0.3f, 0.0f, WH, steel, 0.0f);
+    box_rot(62.2f, ZF + 0.12f, 0, 0, 0, 0.18f, 0.3f, 0.0f, WH, steel, 0.0f);
+    box_rot(CX, ZF + 0.34f, 0, 0, 0, 2.0f, 0.02f, WH + 0.02f, WH + 0.1f, grn, 0.9f);
+    box_rot(63.4f, 154.6f, 0, 0, 0, 0.18f, 0.18f, 2.9f, 3.25f, blk, 0.0f);
+    box_rot(63.4f, 154.4f, 0, 0, 0, 0.05f, 0.05f, 3.1f, 3.17f, redc, (sinf(t * 4.0f) > 0.3f) ? 1.0f : 0.1f);
+    box_rot(56.9f, ZF + 0.25f, 0, 0, 0, 0.45f, 0.03f, 1.5f, 2.7f, grn, 0.45f);
+    box_rot(56.9f, ZF + 0.29f, 0, 0, 0, 0.32f, 0.02f, 1.95f, 2.25f, wht, 0.7f);
+    box_rot(56.9f, ZF + 0.29f, 0, 0, 0, 0.1f, 0.02f, 1.65f, 2.55f, wht, 0.7f);
+    box_rot(63.0f, ZF + 0.24f, 0, 0, 0, 0.18f, 0.03f, 1.2f, 1.8f, blk, 0.0f);
+    box_rot(63.0f, ZF + 0.27f, 0, 0, 0, 0.07f, 0.02f, 1.55f, 1.65f, grn, 0.9f);
+    // letrero REFUGIO en el frontal
     static const char txt[8] = "REFUGIO";
     for (int i = 0; i < 7; i++) {
         float e = 1.0f;
         if (i == 4 && sinf(t * 13.0f) + sinf(t * 4.7f) > 1.8f) e = 0.2f;
-        neon_letter(txt[i], CX - ((float)i - 3.0f) * 0.52f, 3.72f, grn, e, 161.36f, 0.4f, 0.58f, 0.08f);
+        neon_letter(txt[i], CX - ((float)i - 3.0f) * 0.46f, 3.85f, grn, e, 155.8f, 0.34f, 0.5f, 0.08f);
     }
-    box_rot(CX, 158.4f, 0, 0, 0, 3.0f, 0.1f, 4.38f, 4.44f, lampc, 0.7f);                         // luces bajo la marquesina
-    box_rot(61.0f, 156.3f, 0, 0, 0, 0.18f, 0.18f, 3.2f, 3.6f, blk, 0.0f);                       // camara de seguridad
-    box_rot(61.0f, 156.3f, 0, 0, 0, 0.05f, 0.05f, 3.45f, 3.52f, redc, (sinf(t * 4.0f) > 0.3f) ? 1.0f : 0.1f);
-    box_rot(54.7f, Z1 + 0.06f, 0, 0, 0, 0.7f, 0.04f, 1.8f, 3.0f, grn, 0.45f);                    // cruz de primeros auxilios
-    box_rot(54.7f, Z1 + 0.1f, 0, 0, 0, 0.5f, 0.02f, 2.25f, 2.55f, wht, 0.7f);
-    box_rot(54.7f, Z1 + 0.1f, 0, 0, 0, 0.14f, 0.02f, 1.95f, 2.85f, wht, 0.7f);
-    box_rot(65.0f, Z1 + 0.08f, 0, 0, 0, 0.2f, 0.04f, 1.2f, 1.8f, blk, 0.0f);                    // lector de tarjeta
-    box_rot(65.0f, Z1 + 0.11f, 0, 0, 0, 0.08f, 0.02f, 1.55f, 1.65f, grn, 0.9f);
-    // luces de pared en los costados
-    for (int sd = 0; sd < 2; sd++) {
-        float x = sd ? X1 + 0.25f : X0 - 0.25f;
-        box_rot(x, 148.0f, 0, 0, 0, 0.2f, 0.3f, 3.6f, 3.75f, blk, 0.0f);
-        box_rot(x + (sd ? 0.08f : -0.08f), 148.0f, 0, 0, 0, 0.1f, 0.22f, 3.45f, 3.6f, lampc, 0.9f);
-    }
-    // techo: paneles solares inclinados, equipo, mastil con baliza
+    // paneles solares en la vertiente este, mastil con baliza
     if (near_) {
-        for (int k = 0; k < 3; k++) {
-            float xa = 53.6f + 3.2f * (float)k, xb = xa + 2.8f;
-            float q[4][3] = { { xa, 5.55f, 142.0f }, { xb, 5.55f, 142.0f }, { xb, 5.0f, 144.4f }, { xa, 5.0f, 144.4f } };
+        for (int k = 0; k < 2; k++) {
+            float z0 = 145.3f + 3.3f * (float)k, z1 = z0 + 2.9f;
+            float xa = CX + 0.9f, xb = CX + 3.6f;
+            float ya = 5.4f - (xa - CX) * (1.9f / 4.6f) + 0.07f, yb = 5.4f - (xb - CX) * (1.9f / 4.6f) + 0.07f;
+            float q[4][3] = { { xa, ya, z0 }, { xb, yb, z0 }, { xb, yb, z1 }, { xa, ya, z1 } };
             quad_sub(q, panel, 2, 0.0f);
-            box_rot((xa + xb) * 0.5f, 142.0f, 0, 0, 0, 1.42f, 0.04f, 4.8f, 5.56f, steel, 0.0f);
-            box_rot((xa + xb) * 0.5f, 144.45f, 0, 0, 0, 1.42f, 0.04f, 4.8f, 5.02f, steel, 0.0f);
         }
-        box_rot(65.6f, 143.4f, 0, 0, 0, 1.0f, 0.8f, 4.8f, 6.2f, steel, 0.0f);                      // unidad de aire
-        box_rot(65.6f, 143.4f, 0, 0, 0, 0.7f, 0.72f, 6.2f, 6.26f, blk, 0.0f);
     }
-    box_rot(65.6f, 151.0f, 0, 0, 0, 0.07f, 0.07f, 4.8f, 10.2f, steel, 0.0f);                    // mastil de radio
-    box_rot(65.6f, 151.0f, 0, 0, 0, 0.9f, 0.04f, 8.6f, 8.66f, steel, 0.0f);
-    box_rot(65.6f, 151.0f, 0, 0, 0, 0.6f, 0.04f, 9.2f, 9.26f, steel, 0.0f);
-    box_rot(65.6f, 150.4f, 0, 0, 0, 0.6f, 0.07f, 7.0f, 7.9f, wht, 0.0f);                          // antena parabolica
-    box_rot(65.6f, 150.0f, 0, 0, 0, 0.05f, 0.1f, 7.3f, 7.5f, steel, 0.0f);
-    box_rot(65.6f, 151.0f, 0, 0, 0, 0.13f, 0.13f, 10.2f, 10.46f, grn, 0.4f + 0.6f * (0.5f + 0.5f * sinf(t * 2.4f)));
-    // explanada de concreto delante de la entrada y bolardos
-    box_rot(CX, 159.0f, 0, 0, 0, 5.0f, 3.0f, 0.0f, 0.03f, pave, 0.0f);
+    box_rot(CX, 146.0f, 0, 0, 0, 0.07f, 0.07f, 5.4f, 8.8f, steel, 0.0f);
+    box_rot(CX, 146.0f, 0, 0, 0, 0.8f, 0.04f, 7.5f, 7.56f, steel, 0.0f);
+    box_rot(CX, 145.6f, 0, 0, 0, 0.5f, 0.07f, 6.5f, 7.2f, wht, 0.0f);
+    box_rot(CX, 146.0f, 0, 0, 0, 0.13f, 0.13f, 8.8f, 9.06f, grn, 0.4f + 0.6f * (0.5f + 0.5f * sinf(t * 2.4f)));
+    // bolardos al frente
     for (int s2 = 0; s2 < 2; s2++) {
-        float x = s2 ? 66.2f : 57.8f;
-        box_rot(x, 163.0f, 0, 0, 0, 0.14f, 0.14f, 0.0f, 0.9f, yel, 0.0f);
-        box_rot(x, 163.0f, 0, 0, 0, 0.145f, 0.145f, 0.55f, 0.68f, blk, 0.0f);
+        float x = s2 ? 63.2f : 56.8f;
+        box_rot(x, 158.2f, 0, 0, 0, 0.14f, 0.14f, 0.0f, 0.9f, yel, 0.0f);
+        box_rot(x, 158.2f, 0, 0, 0, 0.145f, 0.145f, 0.55f, 0.68f, blk, 0.0f);
     }
-    // interior: tiras de luz de emergencia en el techo y cruz verde en el muro del fondo
-    box_rot(58.2f, 148.0f, 0, 0, 0, 0.1f, 3.4f, 4.4f, 4.48f, lampc, 0.85f);
-    box_rot(61.8f, 150.0f, 0, 0, 0, 0.1f, 5.4f, 4.4f, 4.48f, lampc, 0.85f);
-    box_rot(60.0f, Z0 + 4.04f, 0, 0, 0, 0.6f, 0.03f, 3.0f, 4.1f, grn, 0.5f);
-    box_rot(60.0f, Z0 + 4.07f, 0, 0, 0, 0.4f, 0.02f, 3.35f, 3.75f, wht, 0.7f);
-    box_rot(60.0f, Z0 + 4.07f, 0, 0, 0, 0.12f, 0.02f, 3.2f, 3.9f, wht, 0.7f);
-    (void)near_;
+    // interior: luces de emergencia en el techo y cruz verde en el muro del fondo
+    box_rot(58.0f, 148.0f, 0, 0, 0, 0.1f, 3.6f, 3.3f, 3.38f, lampc, 0.85f);
+    box_rot(62.0f, 148.0f, 0, 0, 0, 0.1f, 3.6f, 3.3f, 3.38f, lampc, 0.85f);
+    box_rot(CX, ZN + 0.24f, 0, 0, 0, 0.6f, 0.03f, 1.8f, 2.9f, grn, 0.5f);
+    box_rot(CX, ZN + 0.27f, 0, 0, 0, 0.4f, 0.02f, 2.15f, 2.55f, wht, 0.7f);
+    box_rot(CX, ZN + 0.27f, 0, 0, 0, 0.12f, 0.02f, 1.95f, 2.75f, wht, 0.7f);
 }
 
 static void draw_church(void)
@@ -64883,6 +64875,7 @@ static void menu_frame(u32 newp, float lv, int frame)
             } else draw_text(24.0f, yy, "ESPERA A QUE EL ANFITRION COMIENCE", 1, hint_c);
         }
         draw_text(W - 190.0f, H - 20.0f, "O: SALIR DE LA SALA", 1, hint_c);
+        draw_text(W - 60.0f, 6.0f, "V143", 1, hint_c);
     } else if (screen == SC_NETLIST) {
         draw_text_c(40.0f, "PARTIDAS PUBLICAS", 4, sel_c);
         int cnt_ = room_count();
