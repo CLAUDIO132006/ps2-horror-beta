@@ -64883,7 +64883,6 @@ static void menu_frame(u32 newp, float lv, int frame)
             } else draw_text(24.0f, yy, "ESPERA A QUE EL ANFITRION COMIENCE", 1, hint_c);
         }
         draw_text(W - 190.0f, H - 20.0f, "O: SALIR DE LA SALA", 1, hint_c);
-        draw_text(W - 60.0f, 6.0f, "V141", 1, hint_c);
     } else if (screen == SC_NETLIST) {
         draw_text_c(40.0f, "PARTIDAS PUBLICAS", 4, sel_c);
         int cnt_ = room_count();
