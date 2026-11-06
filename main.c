@@ -35398,6 +35398,58 @@ static void rd_cyl_x(float cx, float cy, float cz, float hl, float R, const floa
     }
 }
 
+// Brazo de bloque (como Minecraft): prisma cuadrado de p0 (hombro, hacia la camara) a p1 (punto), manga en el primer tramo y piel en el resto con
+// puño cuadrado al final. Solo se dibujan las caras que miran a la camara.
+static void rd_limb(const float p0[3], const float p1[3], float hf, const float *skin, const float *sleeve, float sleeve_frac)
+{
+    float a[3] = { p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2] };
+    float al = sqrtf(a[0] * a[0] + a[1] * a[1] + a[2] * a[2]);
+    if (al < 1e-4f) return;
+    for (int i = 0; i < 3; i++) a[i] /= al;
+    float ref[3] = { 0.0f, 1.0f, 0.0f };
+    if (fabsf(a[1]) > 0.95f) { ref[1] = 0.0f; ref[2] = 1.0f; }
+    float u[3] = { ref[1] * a[2] - ref[2] * a[1], ref[2] * a[0] - ref[0] * a[2], ref[0] * a[1] - ref[1] * a[0] };
+    float ul = sqrtf(u[0] * u[0] + u[1] * u[1] + u[2] * u[2]);
+    for (int i = 0; i < 3; i++) u[i] /= ul;
+    float v[3] = { a[1] * u[2] - a[2] * u[1], a[2] * u[0] - a[0] * u[2], a[0] * u[1] - a[1] * u[0] };
+    static const float sx[4] = { -1.0f, 1.0f, 1.0f, -1.0f }, sy[4] = { -1.0f, -1.0f, 1.0f, 1.0f };
+    for (int seg = 0; seg < 2; seg++) {
+        float t0 = seg ? sleeve_frac : 0.0f, t1 = seg ? 1.0f : sleeve_frac;
+        const float *col = seg ? skin : sleeve;
+        float c[2][4][3];                                            // anillos de esquinas en el espacio de camara
+        for (int e = 0; e < 2; e++) {
+            float tt = e ? t1 : t0;
+            for (int k = 0; k < 4; k++) {
+                float lp[3];
+                for (int i = 0; i < 3; i++) lp[i] = p0[i] + (p1[i] - p0[i]) * tt + u[i] * hf * sx[k] + v[i] * hf * sy[k];
+                rd_pt(lp[0], lp[1], lp[2], c[e][k]);
+            }
+        }
+        float cen[3], ce[3];
+        for (int i = 0; i < 3; i++) { cen[i] = 0.0f; for (int e = 0; e < 2; e++) for (int k = 0; k < 4; k++) cen[i] += c[e][k][i] * 0.125f; }
+        for (int k = 0; k < 4; k++) {                                // 4 lados
+            int k2 = (k + 1) & 3;
+            const float *q[4] = { c[0][k], c[0][k2], c[1][k2], c[1][k] };
+            for (int i = 0; i < 3; i++) ce[i] = (q[0][i] + q[1][i] + q[2][i] + q[3][i]) * 0.25f;
+            float vis = (ce[0] - cen[0]) * (-ce[0]) + (ce[1] - cen[1]) * (-ce[1]) + (ce[2] - cen[2]) * (-ce[2]);
+            if (vis <= 0.0f) continue;
+            float sh = 0.62f + 0.38f * clampf(0.5f + 0.9f * (ce[1] - cen[1]) / hf * 0.5f - 0.35f * (ce[0] - cen[0]) / hf * 0.5f, 0.0f, 1.0f);
+            V w[4];
+            for (int j = 0; j < 4; j++) { w[j].x = q[j][0]; w[j].y = q[j][1]; w[j].z = q[j][2]; w[j].r = col[0] * sh; w[j].g = col[1] * sh; w[j].b = col[2] * sh; }
+            tri_cam(w[0], w[1], w[2]); tri_cam(w[0], w[2], w[3]);
+        }
+        if (seg) {                                                   // puno: tapa del extremo p1
+            const float *q[4] = { c[1][0], c[1][1], c[1][2], c[1][3] };
+            for (int i = 0; i < 3; i++) ce[i] = (q[0][i] + q[1][i] + q[2][i] + q[3][i]) * 0.25f;
+            if ((ce[0] - cen[0]) * (-ce[0]) + (ce[1] - cen[1]) * (-ce[1]) + (ce[2] - cen[2]) * (-ce[2]) > 0.0f) {
+                V w[4];
+                for (int j = 0; j < 4; j++) { w[j].x = q[j][0]; w[j].y = q[j][1]; w[j].z = q[j][2]; w[j].r = col[0] * 0.85f; w[j].g = col[1] * 0.85f; w[j].b = col[2] * 0.85f; }
+                tri_cam(w[0], w[1], w[2]); tri_cam(w[0], w[2], w[3]);
+            }
+        }
+    }
+}
+
 // Animacion de poner la venda al companero caido: dos manos. La izquierda sujeta el brazo, la derecha rodea el brazo con el rollo
 // y la venda va cubriendolo poco a poco segun avanza la carga de revivir.
 static void draw_revive_anim(float t)
@@ -35435,33 +35487,30 @@ static void draw_revive_anim(float t)
     // vueltas de venda ya puestas (de izquierda a derecha)
     float step = (X1 - X0) / 9.0f;
     for (int k = 0; k < nr; k++) rd_cyl_x(X0 + step * ((float)k + 0.5f), LY, LZ, step * 0.58f, LR + 0.007f, wh, (float)k * 0.7f, 1);
-    float hx = X0 + step * ((float)nr + frac);                       // la mano derecha avanza girando alrededor del brazo
+    float hx = X0 + step * ((float)nr + frac);                       // la mano derecha avanza girando sobre el cuerpo
     float ang = frac * 2.0f * PI_F + 0.6f;
-    float hy = LY + 0.085f * cosf(ang), hz = LZ + 0.085f * sinf(ang) - 0.02f;
+    if (nr >= 9) { hx = X1; frac = 0.0f; }
+    float hy = LY + 0.060f * cosf(ang), hz = LZ + 0.060f * sinf(ang) - 0.015f;
+    static const float cyan[3] = { 40.f, 150.f, 160.f };             // manga de Steve
+    float skn[3] = { hand_col[4][0], hand_col[4][1], hand_col[4][2] };
     if (nr < 9 || frac > 0.0f) {
-        if (nr >= 9) { hx = X1; }
         rd_cyl_x(hx, LY, LZ, step * 0.5f * frac + 0.004f, LR + 0.007f, wh, 0.0f, 1);               // vuelta en curso
-        // cinta tensa entre el rollo y el brazo
-        float a0[3], a1[3], b0[3], b1[3];
-        float tx = hx - step * 0.3f;
+        float a0[3], a1[3], b0[3], b1[3];                            // cinta tensa entre el rollo y el cuerpo
+        float tx = hx - step * 0.3f, ty = LY + (LR + 0.007f) * cosf(ang - 1.1f), tz = LZ + (LR + 0.007f) * sinf(ang - 1.1f);
         rd_pt(hx - 0.012f, hy, hz, a0); rd_pt(hx + 0.012f, hy, hz, a1);
-        rd_pt(hx + 0.012f, LY + (LR + 0.007f) * cosf(ang - 1.1f), LZ + (LR + 0.007f) * sinf(ang - 1.1f), b1);
-        rd_pt(tx, LY + (LR + 0.007f) * cosf(ang - 1.1f), LZ + (LR + 0.007f) * sinf(ang - 1.1f), b0);
-        V v[4]; const float *pp[4] = { a0, a1, b1, b0 };
-        for (int j = 0; j < 4; j++) { v[j].x = pp[j][0]; v[j].y = pp[j][1]; v[j].z = pp[j][2]; v[j].r = wh[0]; v[j].g = wh[1]; v[j].b = wh[2]; }
-        tri_cam(v[0], v[1], v[2]); tri_cam(v[0], v[2], v[3]);
-        // rollo y mano derecha (rodea con la palma)
-        rd_cyl_x(hx, hy, hz, 0.026f, 0.026f, wh, ang * 2.0f, 1);
-        rd_cyl_x(hx, hy, hz, 0.005f, 0.028f, wh2, 0.0f, 0);
-        rd_box(hx, hy + 0.035f * cosf(ang) + 0.02f, hz - 0.034f, 0.040f, 0.016f, 0.016f, sk, sk2);
-        rd_box(hx + 0.07f, hy + 0.02f - 0.08f * (1.0f - cosf(ang * 0.5f) * 0.5f), hz - 0.16f, 0.030f, 0.030f, 0.12f, sk, sk2);   // antebrazo
-        rd_box(hx + 0.052f, hy + 0.02f, hz - 0.012f, 0.012f, 0.030f, 0.020f, sk, sk2);
+        rd_pt(hx + 0.012f, ty, tz, b1); rd_pt(tx, ty, tz, b0);
+        V w[4]; const float *pp[4] = { a0, a1, b1, b0 };
+        for (int j = 0; j < 4; j++) { w[j].x = pp[j][0]; w[j].y = pp[j][1]; w[j].z = pp[j][2]; w[j].r = wh[0]; w[j].g = wh[1]; w[j].b = wh[2]; }
+        tri_cam(w[0], w[1], w[2]); tri_cam(w[0], w[2], w[3]);
+        rd_cyl_x(hx, hy, hz, 0.052f, 0.030f, wh, ang * 2.0f, 1);      // rollo sujeto por el puno (sobresale a los lados)
+        rd_cyl_x(hx, hy, hz, 0.004f, 0.033f, wh2, 0.0f, 0);
+        const float sh_r[3] = { hx + 0.20f, hy - 0.30f, hz - 0.36f }, fi_r[3] = { hx + 0.012f, hy - 0.012f, hz - 0.034f };
+        rd_limb(sh_r, fi_r, 0.036f, skn, cyan, 0.45f);               // brazo derecho (de bloque, con el puno sobre el rollo)
     }
-    // mano izquierda: sujeta el brazo por la muneca
-    rd_box(-0.145f, LY + 0.058f, LZ - 0.020f, 0.040f, 0.016f, 0.030f, sk, sk2);
-    rd_box(-0.188f, LY + 0.030f, LZ - 0.010f, 0.012f, 0.032f, 0.022f, sk, sk2);
-    rd_box(-0.102f, LY + 0.030f, LZ - 0.010f, 0.012f, 0.032f, 0.022f, sk, sk2);
-    rd_box(-0.225f, LY + 0.018f, LZ - 0.20f, 0.030f, 0.030f, 0.14f, sk, sk2);                 // antebrazo
+    {   // brazo izquierdo: el puno sujeta el inicio de la venda sobre el cuerpo
+        const float sh_l[3] = { X0 - 0.22f, LY - 0.30f, LZ - 0.36f }, fi_l[3] = { X0 - 0.012f, LY - 0.010f, LZ - 0.040f };
+        rd_limb(sh_l, fi_l, 0.036f, skn, cyan, 0.45f);
+    }
     vm_mode = 0; rd_sc = 1.0f;
 }
 
@@ -36421,6 +36470,7 @@ static void prev_draw(float x, float y, float w, float h)     // imagen de vista
 }
 
 // sel: 0 dificultad, 1 marcador, 2 vista previa (solo en 1/2 jugadores), 3 boton
+static int setup_cap = 0, setup_cap_lock = 0;                 // panel JUGADORES (0 = oculto)
 static void setup_ui(const char *title, int sel, int diff, int diff_locked, const char *btn, int btn_on, u64 title_col)
 {
     static const char *dn_[3] = { "FACIL", "NORMAL", "DIFICIL" };
@@ -36429,22 +36479,23 @@ static void setup_ui(const char *title, int sel, int diff, int diff_locked, cons
     u64 white = GS_SETREG_RGBAQ(235, 235, 238, 0x80, 0), red = GS_SETREG_RGBAQ(225, 20, 20, 0x80, 0), arr = GS_SETREG_RGBAQ(150, 150, 155, 0x80, 0);
     (void)title_col;
     draw_text(24.0f, 22.0f, title, 3, white);
-    for (int i = 0; i < 2; i++) {                         // paneles de opciones (arriba a la derecha)
+    for (int i = 0; i < (setup_cap ? 3 : 2); i++) {        // paneles de opciones (arriba a la derecha)
         float x0 = W * 0.50f, x1 = W - 20.0f, y0 = 20.0f + i * 50.0f, y1 = y0 + 42.0f;
-        u64 bd = (i == sel) ? sel_c : pbd;
+        u64 bd = (i == sel || (i == 2 && sel == 4)) ? sel_c : pbd;
         gsKit_prim_sprite(gsGlobal, x0 - 2.0f, y0 - 2.0f, x1 + 2.0f, y1 + 2.0f, 16776990, bd);
         gsKit_prim_sprite(gsGlobal, x0, y0, x1, y1, 16777000, pbg);
-        const char *nm = i == 0 ? "DIFICULTAD" : "MARCADOR";
-        const char *vl = i == 0 ? dn_[diff < 0 ? 0 : (diff > 2 ? 2 : diff)] : (map_ind ? "SI" : "NO");
+        const char *nm = i == 0 ? "DIFICULTAD" : (i == 1 ? "MARCADOR" : "JUGADORES");
+        char capb[4] = { (char)('0' + setup_cap), 0, 0, 0 };
+        const char *vl = i == 0 ? dn_[diff < 0 ? 0 : (diff > 2 ? 2 : diff)] : (i == 1 ? (map_ind ? "SI" : "NO") : capb);
         draw_text(x0 + 12.0f, y0 + 14.0f, nm, 2, white);
         float cx = x1 - 82.0f;
-        if (!(i == 0 && diff_locked)) {
+        if (!(i == 0 && diff_locked) && !(i == 2 && setup_cap_lock)) {
             draw_text(cx - 70.0f, y0 + 12.0f, "<", 3, arr);
             draw_text(x1 - 28.0f, y0 + 12.0f, ">", 3, arr);
         }
         draw_text(cx - (float)text_w(vl, 2) * 0.5f, y0 + 14.0f, vl, 2, red);
     }
-    if (diff_locked) draw_text(W * 0.50f, 118.0f, "LA DIFICULTAD LA ELIGE EL ANFITRION", 1, arr);
+    if (diff_locked) draw_text(W * 0.50f, setup_cap ? 172.0f : 118.0f, "LA DIFICULTAD Y LOS JUGADORES LOS ELIGE EL ANFITRION", 1, arr);
     {   // vista previa del mapa (imagen) en un marco
         float mx = 34.0f, mw = 232.0f, mh = 116.0f, my = H - 70.0f - 16.0f - mh;
         u64 fc = sel == 2 ? sel_c : GS_SETREG_RGBAQ(205, 205, 210, 0x80, 0);
@@ -36623,6 +36674,7 @@ static int  net_in_lobby, net_got_start, net_guest_t, net_rx_age, net_ann_t, net
 typedef struct { int used; unsigned char ip[4]; int players, maxp; char name[24]; unsigned int seen; } Room;
 static Room rooms[NET_MAXROOMS];
 static int  list_sel;
+static int  list_prev_cnt, list_req, list_upd;   // salas vistas el cuadro anterior; pedidos de lista pendientes; cuadros mostrando ACTUALIZANDO
 static char name_buf[12];                                  // editor de nombre (10 casillas)
 static int  name_pos;
 static int room_count(void) { int c = 0; for (int i = 0; i < NET_MAXROOMS; i++) c += rooms[i].used; return c; }
@@ -36663,6 +36715,7 @@ static void net_srv_send(int type, unsigned int arg)
     put32(b, SRV_MAGIC); b[4] = (unsigned char)type;
     if (type == SV_CREATE) { snprintf((char *)b + 8, 24, "SALA DE %s", my_name); b[5] = (unsigned char)net_cap; }
     else if (type == SV_JOIN) put32(b + 8, arg);
+    else if (type == SV_KEEP && net_host) b[5] = (unsigned char)net_cap;      // el anfitrion avisa la capacidad de la sala (puede cambiarla en la sala de espera)
     struct sockaddr_in a;
     net_fill(&a, srv_ip[0], srv_ip[1], srv_ip[2], srv_ip[3], SRV_PORT);
     NS_sendto(net_sock, b, sizeof(b), 0, (struct sockaddr *)&a, sizeof(a));
@@ -37273,8 +37326,15 @@ static void menu_frame(u32 newp, float lv, int frame)
 #ifdef HAVE_NET
     if (screen == SC_NET) n = 7;
     else if (screen == SC_NAME) n = 1;
-    else if (screen == SC_NETLIST) n = room_count() > 0 ? room_count() : 1;
-    else if (screen == SC_LOBBY) n = net_host ? 3 : 2;
+    else if (screen == SC_NETLIST) {                         // salas + 3 botones (CREAR SALA / ACTUALIZAR / SALIR)
+        int c_ = room_count();
+        if (list_sel >= list_prev_cnt) list_sel += c_ - list_prev_cnt;                 // si estaba en un boton, sigue en el mismo boton aunque cambie la lista
+        if (list_sel < 0) list_sel = 0;
+        if (list_sel > c_ + 2) list_sel = c_ + 2;
+        list_prev_cnt = c_;
+        n = c_ + 3;
+    }
+    else if (screen == SC_LOBBY) n = net_host ? (net_srv_act ? 4 : 3) : 2;
 #endif
     int *sel = (screen == SC_SOLO) ? &solo_sel : (screen == SC_OPT) ? &opt_sel : (screen == SC_SKIN ? &skin_sel : screen == SC_CTRL ? &ctl_sel : (screen == SC_NET ? &net_sel : &menu_sel));
 #ifdef HAVE_NET
@@ -37382,10 +37442,10 @@ static void menu_frame(u32 newp, float lv, int frame)
         else if (ok && *sel == 3) { snprintf(name_buf, sizeof(name_buf), "%-10s", my_name); name_pos = 0; screen = SC_NAME; }   // CAMBIAR NOMBRE
         else if (ok && *sel == 0) {                            // CREAR: con servidor primero se elige cuantos jugadores (2 / 3 / 4); si no, sala de 2
             net_host = 1; net_srv_act = net_srv; net_close(); net_text[0] = 0;
-            if (net_srv) { net_cap = 2; screen = SC_NETCAP; } else { net_cap = 2; screen = SC_NETWAIT; }
+            net_cap = 2; screen = SC_NETWAIT;           // los jugadores (2/3/4) se eligen dentro de la sala de espera
         }
         else if (ok && *sel == 1) { net_srv_act = 0; net_ip_srv = 0; screen = SC_NETIP; net_ip_sel = 0; }                          // UNIRSE POR IP (directo)
-        else if (ok && *sel == 2) { net_host = 0; net_srv_act = net_srv; screen = SC_NETLIST; net_close(); net_text[0] = 0; list_sel = 0; memset(rooms, 0, sizeof(rooms)); }   // PARTIDAS PUBLICAS
+        else if (ok && *sel == 2) { net_host = 0; net_srv_act = net_srv; screen = SC_NETLIST; net_close(); net_text[0] = 0; list_sel = 0; list_prev_cnt = 0; list_req = 3; list_upd = 45; memset(rooms, 0, sizeof(rooms)); }   // PARTIDAS PUBLICAS
         else if (*sel == 4 && (ok || lt || rt)) net_srv = !net_srv;                                    // SERVIDOR: SI / NO
         else if (ok && *sel == 5) { net_ip_srv = 1; screen = SC_NETIP; net_ip_sel = 0; }               // IP DEL SERVIDOR
     } else if (screen == SC_NETCAP) {                         // JUGADORES DE LA SALA: 2 / 3 / 4
@@ -37422,7 +37482,7 @@ static void menu_frame(u32 newp, float lv, int frame)
         else {
             int r = net_connect_poll();
             if (r < 0) { net_close(); snprintf(net_notice, sizeof(net_notice), "%s", net_text); net_notice_t = 300; screen = SC_NET; }
-            else if (r == 2) { screen = SC_LOBBY; lobby_sel = net_host ? 2 : 1; }   // conectado: sala de espera
+            else if (r == 2) { screen = SC_LOBBY; lobby_sel = net_host ? (net_srv_act ? 3 : 2) : 1; }   // conectado: sala de espera
         }
     } else if (screen == SC_LOBBY) {                          // SALA DE ESPERA: J1 y J2, boton COMENZAR
         if (back) { net_lobby_exit(); screen = SC_NET; }
@@ -37430,7 +37490,17 @@ static void menu_frame(u32 newp, float lv, int frame)
             int ld = rt ? 1 : (lt ? -1 : 0);
             if (lobby_sel == 0 && ld && net_host) { solo_diff = (solo_diff + 3 + ld) % 3; net_seed = (net_seed & ~3u) | (unsigned int)solo_diff; }   // el anfitrion elige la dificultad
             if (lobby_sel == 1 && (ld || ok)) map_ind = !map_ind;
-            int r = net_lobby_poll(ok && net_host && lobby_sel == 2);
+            int bsel = (net_host && net_srv_act) ? 3 : 2;
+            if (net_host && net_srv_act && lobby_sel == 2 && (ld || ok)) {                   // JUGADORES de la sala: 2 / 3 / 4 (no menos de los que ya entraron)
+                int npr = 0; for (int q = 0; q < MAXP; q++) npr += net_present[q] ? 1 : 0;
+                int d2 = ld ? ld : 1, nc = net_cap + d2;
+                if (nc > MAXP) nc = ok && !ld ? 2 : MAXP;
+                if (nc < 2) nc = 2;
+                if (nc < npr) nc = (npr < 2) ? 2 : npr;
+                net_cap = nc;
+                net_srv_send(SV_KEEP, 0);
+            }
+            int r = net_lobby_poll(ok && net_host && lobby_sel == bsel);
             if (r < 0) { net_close(); snprintf(net_notice, sizeof(net_notice), "%s", net_text); net_notice_t = 300; screen = SC_NET; }
         }
     } else if (screen == SC_NAME) {                           // CAMBIAR NOMBRE: arriba/abajo letra, izq/der casilla
@@ -37465,11 +37535,20 @@ static void menu_frame(u32 newp, float lv, int frame)
                     else memset(rooms, 0, sizeof(rooms));
                 }
                 if (net_sock >= 0) {
-                    if (net_srv_act && frame_no % 60 == 0) net_srv_send(SV_LIST, 0);       // pide la lista de salas al servidor
+                    if (net_srv_act && list_req > 0 && frame_no % 20 == 0) { net_srv_send(SV_LIST, 0); list_req--; }   // pide la lista al servidor (3 intentos)
+                    if (list_upd > 0) list_upd--;
                     net_list_pump();
                     int cnt = room_count();
-                    if (list_sel >= cnt) list_sel = cnt > 0 ? cnt - 1 : 0;
-                    Room *rm = (ok && cnt > 0) ? room_at(list_sel) : NULL;
+                    if (list_sel > cnt + 2) list_sel = cnt + 2;
+                    if (list_sel >= cnt && (lt || rt)) { list_sel += rt ? 1 : -1; if (list_sel < cnt) list_sel = cnt; if (list_sel > cnt + 2) list_sel = cnt + 2; }   // entre botones con izq/der
+                    if (ok && list_sel >= cnt) {
+                        int btn = list_sel - cnt;
+                        if (btn == 0) { net_host = 1; net_srv_act = net_srv; net_close(); net_text[0] = 0; net_cap = 2; screen = SC_NETWAIT; }   // CREAR SALA
+                        else if (btn == 1) { memset(rooms, 0, sizeof(rooms)); list_req = 3; list_upd = 45; list_sel = 1; list_prev_cnt = 0; }   // ACTUALIZAR
+                        else { net_close(); screen = SC_NET; }                                                                             // SALIR
+                        ok = 0;
+                    }
+                    Room *rm = (ok && cnt > 0 && list_sel < cnt) ? room_at(list_sel) : NULL;
                     if (rm) {
                         if (rm->players >= rm->maxp) { snprintf(net_notice, sizeof(net_notice), "ESA SALA ESTA LLENA"); net_notice_t = 200; }
                         else {
@@ -37672,8 +37751,13 @@ static void menu_frame(u32 newp, float lv, int frame)
         for (int i = 0; i < ncap; i++) npres += net_present[i] ? 1 : 0;
         int full = (npres >= ncap);
         int dsp = net_host ? solo_diff : (int)(net_seed & 3u);
-        setup_ui("SALA DE ESPERA", lobby_sel == 2 && !net_host ? -1 : (lobby_sel == 2 ? 3 : lobby_sel), dsp, !net_host,
-                 net_host ? "COMENZAR PARTIDA" : "ESPERANDO AL ANFITRION", net_host && full, title_c);
+        setup_cap = net_srv_act ? ncap : 0; setup_cap_lock = !net_host;
+        {
+            int capsel = (net_host && net_srv_act);
+            int ssel = !net_host ? (lobby_sel == 2 ? -1 : lobby_sel) : (capsel ? (lobby_sel == 2 ? 4 : (lobby_sel == 3 ? 3 : lobby_sel)) : (lobby_sel == 2 ? 3 : lobby_sel));
+            setup_ui("SALA DE ESPERA", ssel, dsp, !net_host, net_host ? "COMENZAR PARTIDA" : "ESPERANDO AL ANFITRION", net_host && full, title_c);
+        }
+        setup_cap = 0;
         for (int i = 0; i < ncap; i++) {                       // J1 .. J4
             float y = 64.0f + i * 40.0f;
             u64 bc = pc[i];
@@ -37705,26 +37789,38 @@ static void menu_frame(u32 newp, float lv, int frame)
         draw_text(W - 190.0f, H - 20.0f, "O: SALIR DE LA SALA", 1, hint_c);
     } else if (screen == SC_NETLIST) {
         draw_text_c(40.0f, "PARTIDAS PUBLICAS", 4, sel_c);
-        if (net_sock < 0) draw_text_c(200.0f, net_text, 2, norm_c);
-        else if (room_count() == 0) {
+        int cnt_ = room_count();
+        if (net_sock < 0) draw_text_c(150.0f, net_text, 2, norm_c);
+        else if (cnt_ == 0) {
             int d = (frame_no / 20) % 4;
-            snprintf(line, sizeof(line), net_srv_act ? "BUSCANDO SALAS EN EL SERVIDOR%.*s" : "BUSCANDO SALAS EN TU RED%.*s", d, "...");
-            draw_text_c(200.0f, line, 2, norm_c);
-            draw_text_c(236.0f, "NINGUNA SALA POR AHORA", 1, hint_c);
+            if (list_upd > 0) snprintf(line, sizeof(line), net_srv_act ? "BUSCANDO SALAS EN EL SERVIDOR%.*s" : "BUSCANDO SALAS EN TU RED%.*s", d, "...");
+            else snprintf(line, sizeof(line), "NINGUNA SALA POR AHORA");
+            draw_text_c(150.0f, line, 2, norm_c);
+            if (list_upd <= 0) draw_text_c(184.0f, "CREA UNA O PULSA ACTUALIZAR", 1, hint_c);
         } else {
-            for (int i = 0; i < room_count(); i++) {
+            for (int i = 0; i < cnt_; i++) {
                 const Room *rm = room_at(i);
                 if (!rm) continue;
                 if (net_srv_act) snprintf(line, sizeof(line), "%s  %d/%d", rm->name, rm->players, rm->maxp);
                 else snprintf(line, sizeof(line), "%s  %d/2  %d.%d.%d.%d", rm->name, rm->players, rm->ip[0], rm->ip[1], rm->ip[2], rm->ip[3]);
                 char l2[96];
                 snprintf(l2, sizeof(l2), i == list_sel ? "> %s <" : "%s", line);
-                draw_text_c(110.0f + i * 34.0f, l2, 2, rm->players >= rm->maxp ? GS_SETREG_RGBAQ(150, 80, 70, 0x80, 0) : (i == list_sel ? sel_c : norm_c));
+                draw_text_c(92.0f + i * 32.0f, l2, 2, rm->players >= rm->maxp ? GS_SETREG_RGBAQ(150, 80, 70, 0x80, 0) : (i == list_sel ? sel_c : norm_c));
             }
         }
-        draw_text_c(H - 84.0f, net_srv_act ? "SALAS DEL SERVIDOR (CUALQUIER RED / INTERNET)" : "SOLO SALAS EN LA MISMA RED (WIFI / CABLE)", 1, hint_c);
-        if (net_notice_t > 0) draw_text_c(H - 110.0f, net_notice, 2, GS_SETREG_RGBAQ(235, 130, 60, 0x80, 0));
-        draw_text_c(H - 58.0f, "ARRIBA/ABAJO: ELEGIR   X: UNIRSE", 2, hint_c);
+        {   // botones: CREAR SALA / ACTUALIZAR / SALIR
+            static const char *bn[3] = { "CREAR SALA", "ACTUALIZAR", "SALIR" };
+            for (int k = 0; k < 3; k++) {
+                int on = (list_sel == cnt_ + k);
+                char bl[24];
+                snprintf(bl, sizeof(bl), on ? "> %s <" : "%s", bn[k]);
+                float cx = W * (0.20f + 0.30f * (float)k);
+                draw_text(cx - (float)text_w(bl, 2) * 0.5f, H - 132.0f, bl, 2, on ? sel_c : norm_c);
+            }
+        }
+        draw_text_c(H - 100.0f, net_srv_act ? "SALAS DEL SERVIDOR (CUALQUIER RED / INTERNET)" : "SOLO SALAS EN LA MISMA RED (WIFI / CABLE)", 1, hint_c);
+        if (net_notice_t > 0) draw_text_c(H - 118.0f, net_notice, 1, GS_SETREG_RGBAQ(235, 130, 60, 0x80, 0));
+        draw_text_c(H - 58.0f, "ARRIBA/ABAJO: ELEGIR   X: ACEPTAR", 2, hint_c);
         draw_text_c(H - 34.0f, "O: ATRAS", 2, hint_c);
     } else if (screen == SC_NETCAP) {
         draw_text_c(50.0f, "CREAR PARTIDA", 5, sel_c);
