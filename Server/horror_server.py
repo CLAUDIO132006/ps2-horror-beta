@@ -185,6 +185,10 @@ class Server(asyncio.DatagramProtocol):
             ent = self.by_addr.get(addr)
             if ent:
                 ent[0].seen[ent[1]] = now
+                if ent[1] == 0 and len(data) > 5 and 2 <= data[5] <= MAX_PLAYERS and data[5] >= ent[0].players:
+                    if ent[0].maxp != data[5]:                          # el anfitrion cambio los jugadores de la sala
+                        ent[0].maxp = data[5]
+                        self.log("sala %d: ahora para %d jugadores" % (ent[0].id, data[5]))
 
         elif typ == SV_LEAVE:
             self.drop_addr(addr)
