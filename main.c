@@ -4194,16 +4194,16 @@ static const char *map0[MH] = {"FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF
 "FF....ppppppppppppppppp.........................pp............................................FF",
 "FF....pggggggggggggggpp.........................pp............................................FF",
 "FF....pggggggggggggggpp.........................pp............................................FF",
-"FF....pggggggggggggggpp.........................pp............................................FF",
-"FF....pggggggg;;gggggpp.........................pp............................................FF",
-"FF....pggggggg;;gggggpp................................................pppppppppppp...........FF",
-"FF....pggggggg;;gggggpp.................ppppppppp......................pppppppppppp...........FF",
+"FF....pggggggSSSSggggpp.........................pp............................................FF",
+"FF....pggggggS;;Sggggpp.........................pp............................................FF",
+"FF....pggggggS;;Sggggpp................................................pppppppppppp...........FF",
+"FF....pggggggSS;Sggggpp.................ppppppppp......................pppppppppppp...........FF",
 "FF....pgggggggpppggggpp.................ppppppppp......................pppppppppppp...........FF",
-"FF....pgggggggpppggggppppppp............ppppppppp......................ppp#W#W##ppp...........FF",
-"FF....pgggggggpppggggppppppp............pppHJHpppppp...................ppp#,,#,Wppp...........FF",
-"FF....pggggggggggggggpp...pp............pppH,Hpppppp...................ppp#,,,,,ppp...........FF",
-"FF....pggggggggggggggpp...pp............pppH,Hpppppp...................ppp#,,#,#ppp...........FF",
-"FF....pggggggggggggggpp...pp..ppppppppp.ppppppppAppp...................ppp###,##ppp...........FF",
+"FF....pgggggggpppggggppppppp............ppppppppp......................pppppppppppp...........FF",
+"FF....pgggggggpppggggppppppp............pppHJHpppppp...................pppppZZZpppp...........FF",
+"FF....pggggggggggggggpp...pp............pppH,Hpppppp...................pppppZZZpppp...........FF",
+"FF....pggggggggggggggpp...pp............pppH,Hpppppp...................pppppZZZpppp...........FF",
+"FF....pggggggggggggggpp...pp..ppppppppp.ppppppppAppp...................pppppZZZpppp...........FF",
 "FF....pggggggggggggggpp...pp..ppppppppp.pppppppppppp...................pppppppppppp...........FF",
 "FF....ppppppppppppppppp...pp..ppcccccpp.pppppppppppp...................pppppppppppp...........FF",
 "FF....ppppppppppppppppp...pp..ppcccccpp......ppppppp...................pppppppppppp...........FF",
@@ -4352,7 +4352,7 @@ static const char *map1[MH] = {"################################################
 "################################################################################################",
 "################################################################################################"};
 typedef struct { float x,z,a,hx,hz,y0,y1; unsigned char r,g,b,type,layer; float emit; } Prop;
-#define NPROP 365
+#define NPROP 357
 static const Prop props[NPROP] = {
   {192.400f,176.400f,0.000f,0.120f,0.120f,0.000f,10.000f,150,150,155,0,0,0.000f},
   {192.400f,179.600f,0.000f,0.120f,0.120f,0.000f,10.000f,150,150,155,0,0,0.000f},
@@ -4506,20 +4506,6 @@ static const Prop props[NPROP] = {
   {296.000f,252.500f,0.000f,0.350f,0.350f,5.500f,5.800f,255,230,160,0,0,1.000f},
   {285.000f,263.000f,0.000f,0.600f,0.450f,0.000f,0.900f,60,64,70,0,0,0.000f},
   {284.500f,253.400f,0.000f,0.450f,0.450f,0.000f,1.000f,100,90,60,0,0,0.000f},
-  {303.000f,170.000f,0.500f,1.100f,0.600f,0.450f,0.550f,95,70,45,0,0,0.000f},
-  {301.800f,169.500f,0.500f,0.060f,0.060f,0.000f,0.450f,95,70,45,0,0,0.000f},
-  {301.500f,165.500f,0.200f,1.100f,0.800f,0.100f,0.500f,120,110,100,0,0,0.000f},
-  {301.000f,166.000f,0.200f,0.450f,0.250f,0.500f,0.700f,150,140,130,0,0,0.000f},
-  {302.000f,166.000f,0.000f,0.700f,0.500f,0.000f,0.020f,90,15,15,0,0,0.000f},
-  {303.500f,169.500f,0.000f,0.400f,0.300f,0.000f,0.020f,90,15,15,0,0,0.000f},
-  {307.000f,168.000f,0.000f,0.500f,0.350f,0.000f,0.020f,90,15,15,0,0,0.000f},
-  {313.500f,166.000f,0.800f,0.250f,0.250f,0.000f,0.450f,95,70,45,0,0,0.000f},
-  {314.000f,168.000f,2.000f,0.300f,0.050f,0.000f,0.400f,95,70,45,0,0,0.000f},
-  {312.500f,173.000f,0.000f,1.200f,0.250f,0.000f,1.800f,80,60,40,0,0,0.000f},
-  {312.400f,172.900f,0.300f,0.350f,0.150f,1.000f,1.300f,110,60,40,0,0,0.000f},
-  {309.500f,173.200f,0.000f,0.450f,0.300f,0.000f,0.500f,70,90,110,0,0,0.600f},
-  {304.000f,170.000f,1.571f,5.000f,5.400f,3.000f,5.600f,70,60,52,1,0,0.000f},
-  {310.500f,169.000f,0.000f,0.150f,3.250f,3.000f,3.400f,70,60,52,0,0,0.000f},
   {54.500f,59.000f,0.000f,2.000f,0.275f,0.000f,0.500f,95,62,35,0,0,0.000f},
   {54.500f,59.300f,0.000f,2.000f,0.060f,0.500f,1.150f,95,62,35,0,0,0.000f},
   {61.500f,59.000f,0.000f,2.000f,0.275f,0.000f,0.500f,95,62,35,0,0,0.000f},
@@ -4620,6 +4606,12 @@ static const Prop props[NPROP] = {
   {196.850f,51.600f,0.000f,0.650f,0.180f,0.000f,10.350f,80,58,38,0,0,0.000f},
   {196.850f,51.240f,0.000f,0.650f,0.180f,0.000f,10.750f,80,58,38,0,0,0.000f},
   {194.000f,50.000f,0.000f,0.250f,0.250f,12.400f,12.900f,255,250,210,0,0,1.000f},
+  {57.200f,144.000f,0.000f,0.500f,1.200f,0.000f,0.800f,150,150,155,0,0,0.000f},
+  {62.800f,144.000f,0.000f,0.500f,1.200f,0.000f,0.800f,150,150,155,0,0,0.000f},
+  {60.000f,146.000f,0.000f,0.700f,0.250f,0.000f,0.900f,140,140,145,0,0,0.000f},
+  {57.000f,150.500f,0.000f,0.070f,0.070f,0.000f,0.500f,200,230,255,0,0,1.000f},
+  {63.000f,150.500f,0.000f,0.070f,0.070f,0.000f,0.500f,200,230,255,0,0,1.000f},
+  {60.000f,148.000f,0.000f,8.600f,8.600f,4.500f,7.500f,90,90,96,3,0,0.000f},
   {56.000f,132.000f,0.000f,28.000f,0.100f,0.000f,1.600f,40,40,44,0,0,0.000f},
   {56.000f,184.000f,0.000f,28.000f,0.100f,0.000f,1.600f,40,40,44,0,0,0.000f},
   {28.000f,158.000f,0.000f,0.100f,26.000f,0.000f,1.600f,40,40,44,0,0,0.000f},
@@ -4721,13 +4713,13 @@ static const Prop props[NPROP] = {
   {241.630f,312.000f,0.000f,0.060f,4.940f,4.370f,4.500f,150,225,255,0,0,1.000f}
 };
 typedef struct { float x,z,a,hx,hz; unsigned char layer; } Col;
-#define NCOL 428
+#define NCOL 424
 static const Col colliders[NCOL] = {
-  {56.000f,148.000f,0.000f,0.220f,4.200f,0},
-  {64.000f,148.000f,0.000f,0.220f,4.200f,0},
-  {60.000f,144.000f,0.000f,4.200f,0.220f,0},
-  {57.000f,152.000f,0.000f,1.000f,0.220f,0},
-  {63.000f,152.000f,0.000f,1.000f,0.220f,0},
+  {304.000f,170.000f,0.000f,0.220f,6.200f,0},
+  {316.000f,170.000f,0.000f,0.220f,6.200f,0},
+  {310.000f,164.000f,0.000f,6.200f,0.220f,0},
+  {306.000f,176.000f,0.000f,2.000f,0.220f,0},
+  {314.000f,176.000f,0.000f,2.000f,0.220f,0},
   {192.400f,176.400f,0.000f,0.120f,0.120f,0},
   {192.400f,179.600f,0.000f,0.120f,0.120f,0},
   {195.600f,176.400f,0.000f,0.120f,0.120f,0},
@@ -4850,15 +4842,6 @@ static const Col colliders[NCOL] = {
   {296.000f,252.500f,0.000f,0.100f,0.100f,0},
   {285.000f,263.000f,0.000f,0.600f,0.450f,0},
   {284.500f,253.400f,0.000f,0.450f,0.450f,0},
-  {303.000f,170.000f,0.500f,1.100f,0.600f,0},
-  {301.800f,169.500f,0.500f,0.060f,0.060f,0},
-  {301.500f,165.500f,0.200f,1.100f,0.800f,0},
-  {301.000f,166.000f,0.200f,0.450f,0.250f,0},
-  {313.500f,166.000f,0.800f,0.250f,0.250f,0},
-  {314.000f,168.000f,2.000f,0.300f,0.050f,0},
-  {312.500f,173.000f,0.000f,1.200f,0.250f,0},
-  {312.400f,172.900f,0.300f,0.350f,0.150f,0},
-  {309.500f,173.200f,0.000f,0.450f,0.300f,0},
   {54.500f,59.000f,0.000f,2.000f,0.275f,0},
   {54.500f,59.300f,0.000f,2.000f,0.060f,0},
   {61.500f,59.000f,0.000f,2.000f,0.275f,0},
@@ -4933,6 +4916,11 @@ static const Col colliders[NCOL] = {
   {196.850f,51.960f,0.000f,0.650f,0.180f,0},
   {196.850f,51.600f,0.000f,0.650f,0.180f,0},
   {196.850f,51.240f,0.000f,0.650f,0.180f,0},
+  {57.200f,144.000f,0.000f,0.500f,1.200f,0},
+  {62.800f,144.000f,0.000f,0.500f,1.200f,0},
+  {60.000f,146.000f,0.000f,0.700f,0.250f,0},
+  {57.000f,150.500f,0.000f,0.070f,0.070f,0},
+  {63.000f,150.500f,0.000f,0.070f,0.070f,0},
   {56.000f,132.000f,0.000f,28.000f,0.100f,0},
   {56.000f,184.000f,0.000f,28.000f,0.100f,0},
   {28.000f,158.000f,0.000f,0.100f,26.000f,0},
@@ -5229,10 +5217,10 @@ static const int manholes[NMH][2] = {{34,48},{72,64}};
 typedef struct { float x, z, hw; unsigned char orient, type, id; int cx, cz; unsigned char layer; } Door;
 static const Door doors[ND] = {
     { 234.0f, 294.0f, 2.0f, 0, 0, 0, 58, 73 },   // casa junto al inicio          : llave ROJA
-    {  60.0f, 152.0f, 2.0f, 0, 0, 0, 14, 37 },   // casita de piedra              : llave ROJA
+    {  62.0f, 154.0f, 2.0f, 0, 0, 0, 15, 38 },   // casita de piedra              : llave ROJA
     { 324.0f, 326.0f, 4.0f, 0, 0, 1, 80, 81 },   // establo de ladrillo (doble)   : llave AZUL
     {  58.0f,  78.0f, 2.35f, 0, 0, 1, 14, 19 },   // edificio de piedra (noroeste) : llave AZUL
-    { 318.0f, 170.0f, 2.0f, 1, 0, 2, 79, 42 },   // edificio del noreste          : llave AMARILLA
+    { 310.0f, 176.0f, 2.0f, 0, 0, 2, 77, 43 },   // edificio del noreste          : llave AMARILLA
     { 286.0f,  98.0f, 2.0f, 0, 0, 3, 71, 24 },   // cueva                         : llave VERDE
     {  62.0f, 274.0f, 2.0f, 0, 1, 0, 15, 68 },   // cabana                        : candado, codigo 0
     { 178.0f, 174.0f, 2.0f, 0, 1, 1, 44, 43 },   // caseta de la antena           : candado, codigo 1
@@ -6072,13 +6060,14 @@ static CellInfo cell_info(char ch, int layer)
     case 'q': FLOOR(140, 100, 60) break;
     case 'c': FLOOR(128, 128, 126) break;
     case ',': ROOM(3.0f, 150, 110, 70, 96, 70, 48) break;
+    case ';': ROOM(4.5f, 130, 130, 136, 100, 100, 106) break;
     case ':': ROOM(2.8f, 96, 86, 76, 72, 66, 60) break;
     case 'b': ROOM(5.5f, 150, 125, 80, 110, 80, 50) break;
     case '#': WALL(3.0f, 125, 88, 58) break;
     case 'W': WALL(3.0f, 125, 88, 58) c.win = 1; break;
-    case 'S': WALL(4.5f, 152, 154, 150) break;                 // refugio / centro de seguridad: concreto
-    case ';': ROOM(3.4f, 118, 122, 120, 176, 178, 172) break;
-    case 'w': WALL(4.5f, 152, 154, 150) c.win = 2; break;
+    case 'S': WALL(4.5f, 148, 148, 154) break;
+    case 'w': WALL(4.5f, 148, 148, 154) c.win = 2; break;
+    case 'Z': ROOM(3.4f, 118, 122, 120, 176, 178, 172) break;      // refugio
     case 'B': WALL(5.5f, 150, 52, 42) break;
     case 'R': WALL(2.8f, 104, 98, 92) break;
     case 'M': WALL(3.2f, 118, 124, 130) break;
@@ -6898,14 +6887,14 @@ static void neon_letter(char ch, float cx, float yb, const float *col, float emi
     case 'M': m = 32 | 16 | 2 | 4; break;
     case 'A': m = 1 | 2 | 4 | 16 | 32 | 64; break;
     case 'K': m = 32 | 16; break;
-    case 'T': m = 1; break;
-    case 'C': m = 1 | 32 | 16 | 8; break;
-    case 'N': m = 32 | 16 | 2 | 4; break;
-    case 'B': m = 32 | 16 | 8 | 4 | 64; break;       // como una b minuscula de display
     case 'F': m = 1 | 32 | 16 | 64; break;
     case 'G': m = 1 | 32 | 16 | 8 | 4; break;
     case 'I': m = 1 | 8; break;
     case 'O': m = 1 | 2 | 4 | 8 | 16 | 32; break;
+    case 'T': m = 1; break;
+    case 'C': m = 1 | 32 | 16 | 8; break;
+    case 'N': m = 32 | 16 | 2 | 4; break;
+    case 'B': m = 32 | 16 | 8 | 4 | 64; break;       // como una b minuscula de display
     }
     float lx = cx + w * 0.5f - th * 0.5f, rx = cx - w * 0.5f + th * 0.5f;   // la fachada mira al sur: quien la ve tiene su izquierda en +x
     if (m & 1)  box_rot(cx, z, 0, 0, 0, w * 0.5f, hz, yt - th, yt, col, emit);
@@ -7264,97 +7253,100 @@ static void draw_hut(float t)
     (void)woodl; (void)Z0;
 }
 
-// Refugio / centro de seguridad (casita de piedra: celdas x 52..68, z 140..156; entrada al sur en x 60..64):
-// concreto con zocalo de peligro, marco de acero y marquesina con letrero REFUGIO, camaras, luces, cruz de primeros auxilios,
-// techo plano con parapeto, paneles solares, mastil de radio con baliza y luces de emergencia en el interior.
+// Refugio / centro de seguridad (celdas x 304..316, z 164..180; entrada al sur en x 308..312): paredes delgadas de concreto,
+// techo a dos aguas con alero, porche con letrero REFUGIO, marco de acero, camara, cruz de primeros auxilios, ventanas,
+// paneles solares y mastil de radio con baliza, luces de emergencia dentro.
 static void draw_shelter(float t)
 {
     if (cur_layer != 0 && !climbing) return;
-    if (!in_view(60.0f, 150.0f, 12.0f, fminf(draw_lim, (gfx_pd[gfx] * rd_k)))) return;
+    if (!in_view(310.0f, 172.0f, 13.0f, fminf(draw_lim, (gfx_pd[gfx] * rd_k)))) return;
     static const float conc[3] = { 168.f, 168.f, 160.f }, conc2[3] = { 120.f, 124.f, 124.f }, trim[3] = { 70.f, 76.f, 80.f }, steel[3] = { 96.f, 104.f, 112.f };
     static const float slate[3] = { 58.f, 66.f, 78.f }, grn[3] = { 70.f, 230.f, 140.f }, wht[3] = { 245.f, 245.f, 240.f }, blk[3] = { 26.f, 28.f, 30.f };
     static const float panel[3] = { 28.f, 48.f, 92.f }, glass[3] = { 38.f, 62.f, 84.f }, lampc[3] = { 255.f, 236.f, 190.f }, redc[3] = { 255.f, 40.f, 40.f };
     static const float pave[3] = { 112.f, 114.f, 110.f }, yel[3] = { 240.f, 196.f, 40.f };
-    const float XL = 56.0f, XR = 64.0f, ZN = 144.0f, ZF = 152.0f, CX = 60.0f, WH = 3.4f;
-    float ddx = px - CX, ddz = pz - 150.0f;
+    const float XL = 304.0f, XR = 316.0f, ZN = 164.0f, ZF = 176.0f, CX = 310.0f, WH = 3.4f;
+    float ddx = px - CX, ddz = pz - 172.0f;
     int near_ = (ddx * ddx + ddz * ddz) < 40.0f * 40.0f;
-    // paredes delgadas (la puerta ocupa el hueco central de la fachada, x 58..62)
-    box_rot(XL, 148.0f, 0, 0, 0, 0.2f, 4.0f, 0.0f, WH, conc, 0.0f);
-    box_rot(XR, 148.0f, 0, 0, 0, 0.2f, 4.0f, 0.0f, WH, conc, 0.0f);
-    box_rot(CX, ZN, 0, 0, 0, 4.0f, 0.2f, 0.0f, WH, conc, 0.0f);
-    box_rot(57.0f, ZF, 0, 0, 0, 1.0f, 0.2f, 0.0f, WH, conc, 0.0f);
-    box_rot(63.0f, ZF, 0, 0, 0, 1.0f, 0.2f, 0.0f, WH, conc, 0.0f);
+    // paredes delgadas (la puerta ocupa el hueco central de la fachada, x 308..312)
+    box_rot(XL, 170.0f, 0, 0, 0, 0.2f, 6.0f, 0.0f, WH, conc, 0.0f);
+    box_rot(XR, 170.0f, 0, 0, 0, 0.2f, 6.0f, 0.0f, WH, conc, 0.0f);
+    box_rot(CX, ZN, 0, 0, 0, 6.0f, 0.2f, 0.0f, WH, conc, 0.0f);
+    box_rot(306.0f, ZF, 0, 0, 0, 2.0f, 0.2f, 0.0f, WH, conc, 0.0f);
+    box_rot(314.0f, ZF, 0, 0, 0, 2.0f, 0.2f, 0.0f, WH, conc, 0.0f);
     // zocalo oscuro y esquinas
-    box_rot(XL - 0.22f, 148.0f, 0, 0, 0, 0.04f, 4.2f, 0.0f, 0.5f, conc2, 0.0f);
-    box_rot(XR + 0.22f, 148.0f, 0, 0, 0, 0.04f, 4.2f, 0.0f, 0.5f, conc2, 0.0f);
-    box_rot(CX, ZN - 0.22f, 0, 0, 0, 4.2f, 0.04f, 0.0f, 0.5f, conc2, 0.0f);
+    box_rot(XL - 0.22f, 170.0f, 0, 0, 0, 0.04f, 6.2f, 0.0f, 0.5f, conc2, 0.0f);
+    box_rot(XR + 0.22f, 170.0f, 0, 0, 0, 0.04f, 6.2f, 0.0f, 0.5f, conc2, 0.0f);
+    box_rot(CX, ZN - 0.22f, 0, 0, 0, 6.2f, 0.04f, 0.0f, 0.5f, conc2, 0.0f);
     for (int a = 0; a < 2; a++)
         for (int b = 0; b < 2; b++) box_rot(a ? XR : XL, b ? ZF : ZN, 0, 0, 0, 0.3f, 0.3f, 0.0f, WH + 0.1f, conc2, 0.0f);
-    // ventanas (marco claro + cristal)
+    // ventanas (marco claro + cristal): 3 por costado y 2 al fondo
     if (near_) {
-        for (int s2 = 0; s2 < 4; s2++) {
-            float z = (s2 & 1) ? 149.7f : 146.3f, xo = (s2 & 2) ? XR + 0.23f : XL - 0.23f;
+        for (int s2 = 0; s2 < 6; s2++) {
+            float z = 167.0f + 3.0f * (float)(s2 % 3), xo = (s2 >= 3) ? XR + 0.23f : XL - 0.23f;
             box_rot(xo, z, 0, 0, 0, 0.05f, 0.78f, 1.1f, 2.6f, wht, 0.0f);
-            box_rot(xo + ((s2 & 2) ? 0.03f : -0.03f), z, 0, 0, 0, 0.03f, 0.64f, 1.22f, 2.48f, glass, 0.25f);
+            box_rot(xo + ((s2 >= 3) ? 0.03f : -0.03f), z, 0, 0, 0, 0.03f, 0.64f, 1.22f, 2.48f, glass, 0.25f);
         }
-        box_rot(CX, ZN - 0.23f, 0, 0, 0, 0.78f, 0.05f, 1.1f, 2.6f, wht, 0.0f);
-        box_rot(CX, ZN - 0.26f, 0, 0, 0, 0.64f, 0.03f, 1.22f, 2.48f, glass, 0.25f);
+        for (int s2 = 0; s2 < 2; s2++) {
+            float x = s2 ? 313.0f : 307.0f;
+            box_rot(x, ZN - 0.23f, 0, 0, 0, 0.78f, 0.05f, 1.1f, 2.6f, wht, 0.0f);
+            box_rot(x, ZN - 0.26f, 0, 0, 0, 0.64f, 0.03f, 1.22f, 2.48f, glass, 0.25f);
+        }
     }
     // techo a dos aguas con la cumbrera hacia el frente
-    roof_rot(CX, 149.6f, 0, 4.6f, 6.2f, 3.5f, 5.4f, slate);
-    box_rot(CX, 149.6f, 0, 0, 0, 0.12f, 6.2f, 5.36f, 5.52f, trim, 0.0f);
-    box_rot(CX, 155.78f, 0, 0, 0, 4.6f, 0.02f, 3.5f, 3.62f, trim, 0.0f);
+    roof_rot(CX, 171.6f, 0, 6.6f, 8.2f, 3.5f, 5.9f, slate);
+    box_rot(CX, 171.6f, 0, 0, 0, 0.12f, 8.2f, 5.86f, 6.02f, trim, 0.0f);
+    box_rot(CX, 179.78f, 0, 0, 0, 6.6f, 0.02f, 3.5f, 3.62f, trim, 0.0f);
     {   // frontal de concreto bajo el alero (triangulo)
-        V a0 = mk(XL + 0.2f, 3.62f, 155.76f, conc, 0), b0 = mk(XR - 0.2f, 3.62f, 155.76f, conc, 0), c0 = mk(CX, 5.25f, 155.76f, conc, 0);
+        V a0 = mk(XL + 0.2f, 3.62f, 179.76f, conc, 0), b0 = mk(XR - 0.2f, 3.62f, 179.76f, conc, 0), c0 = mk(CX, 5.75f, 179.76f, conc, 0);
         tri_cam(a0, b0, c0);
     }
     // porche: losa, dos postes y viga
-    box_rot(CX, 154.0f, 0, 0, 0, 4.2f, 2.0f, 0.0f, 0.15f, pave, 0.0f);
-    for (int s2 = 0; s2 < 2; s2++) box_rot(s2 ? 63.4f : 56.6f, 155.2f, 0, 0, 0, 0.13f, 0.13f, 0.15f, WH + 0.1f, steel, 0.0f);
-    box_rot(CX, 155.2f, 0, 0, 0, 3.9f, 0.14f, WH, WH + 0.2f, trim, 0.0f);
-    box_rot(58.2f, 154.0f, 0, 0, 0, 0.3f, 0.08f, 3.3f, 3.4f, lampc, 0.8f);
-    box_rot(61.8f, 154.0f, 0, 0, 0, 0.3f, 0.08f, 3.3f, 3.4f, lampc, 0.8f);
+    box_rot(CX, 178.0f, 0, 0, 0, 6.2f, 2.2f, 0.0f, 0.15f, pave, 0.0f);
+    for (int s2 = 0; s2 < 2; s2++) box_rot(s2 ? 315.4f : 304.6f, 179.2f, 0, 0, 0, 0.13f, 0.13f, 0.15f, WH + 0.1f, steel, 0.0f);
+    box_rot(CX, 179.2f, 0, 0, 0, 5.9f, 0.14f, WH, WH + 0.2f, trim, 0.0f);
+    box_rot(307.5f, 178.0f, 0, 0, 0, 0.3f, 0.08f, 3.3f, 3.4f, lampc, 0.8f);
+    box_rot(312.5f, 178.0f, 0, 0, 0, 0.3f, 0.08f, 3.3f, 3.4f, lampc, 0.8f);
     // puerta: marco de acero, camara, cruz de primeros auxilios y lector
-    box_rot(57.8f, ZF + 0.12f, 0, 0, 0, 0.18f, 0.3f, 0.0f, WH, steel, 0.0f);
-    box_rot(62.2f, ZF + 0.12f, 0, 0, 0, 0.18f, 0.3f, 0.0f, WH, steel, 0.0f);
+    box_rot(307.8f, ZF + 0.12f, 0, 0, 0, 0.18f, 0.3f, 0.0f, WH, steel, 0.0f);
+    box_rot(312.2f, ZF + 0.12f, 0, 0, 0, 0.18f, 0.3f, 0.0f, WH, steel, 0.0f);
     box_rot(CX, ZF + 0.34f, 0, 0, 0, 2.0f, 0.02f, WH + 0.02f, WH + 0.1f, grn, 0.9f);
-    box_rot(63.4f, 154.6f, 0, 0, 0, 0.18f, 0.18f, 2.9f, 3.25f, blk, 0.0f);
-    box_rot(63.4f, 154.4f, 0, 0, 0, 0.05f, 0.05f, 3.1f, 3.17f, redc, (sinf(t * 4.0f) > 0.3f) ? 1.0f : 0.1f);
-    box_rot(56.9f, ZF + 0.25f, 0, 0, 0, 0.45f, 0.03f, 1.5f, 2.7f, grn, 0.45f);
-    box_rot(56.9f, ZF + 0.29f, 0, 0, 0, 0.32f, 0.02f, 1.95f, 2.25f, wht, 0.7f);
-    box_rot(56.9f, ZF + 0.29f, 0, 0, 0, 0.1f, 0.02f, 1.65f, 2.55f, wht, 0.7f);
-    box_rot(63.0f, ZF + 0.24f, 0, 0, 0, 0.18f, 0.03f, 1.2f, 1.8f, blk, 0.0f);
-    box_rot(63.0f, ZF + 0.27f, 0, 0, 0, 0.07f, 0.02f, 1.55f, 1.65f, grn, 0.9f);
+    box_rot(314.8f, 178.6f, 0, 0, 0, 0.18f, 0.18f, 2.9f, 3.25f, blk, 0.0f);
+    box_rot(314.8f, 178.4f, 0, 0, 0, 0.05f, 0.05f, 3.1f, 3.17f, redc, (sinf(t * 4.0f) > 0.3f) ? 1.0f : 0.1f);
+    box_rot(306.0f, ZF + 0.25f, 0, 0, 0, 0.5f, 0.03f, 1.5f, 2.7f, grn, 0.45f);
+    box_rot(306.0f, ZF + 0.29f, 0, 0, 0, 0.35f, 0.02f, 1.95f, 2.25f, wht, 0.7f);
+    box_rot(306.0f, ZF + 0.29f, 0, 0, 0, 0.1f, 0.02f, 1.65f, 2.55f, wht, 0.7f);
+    box_rot(313.4f, ZF + 0.24f, 0, 0, 0, 0.18f, 0.03f, 1.2f, 1.8f, blk, 0.0f);
+    box_rot(313.4f, ZF + 0.27f, 0, 0, 0, 0.07f, 0.02f, 1.55f, 1.65f, grn, 0.9f);
     // letrero REFUGIO en el frontal
     static const char txt[8] = "REFUGIO";
     for (int i = 0; i < 7; i++) {
         float e = 1.0f;
         if (i == 4 && sinf(t * 13.0f) + sinf(t * 4.7f) > 1.8f) e = 0.2f;
-        neon_letter(txt[i], CX - ((float)i - 3.0f) * 0.46f, 3.85f, grn, e, 155.8f, 0.34f, 0.5f, 0.08f);
+        neon_letter(txt[i], CX - ((float)i - 3.0f) * 0.62f, 3.95f, grn, e, 179.8f, 0.46f, 0.7f, 0.09f);
     }
     // paneles solares en la vertiente este, mastil con baliza
     if (near_) {
-        for (int k = 0; k < 2; k++) {
-            float z0 = 145.3f + 3.3f * (float)k, z1 = z0 + 2.9f;
-            float xa = CX + 0.9f, xb = CX + 3.6f;
-            float ya = 5.4f - (xa - CX) * (1.9f / 4.6f) + 0.07f, yb = 5.4f - (xb - CX) * (1.9f / 4.6f) + 0.07f;
+        for (int k = 0; k < 3; k++) {
+            float z0 = 165.0f + 3.6f * (float)k, z1 = z0 + 3.2f;
+            float xa = CX + 1.0f, xb = CX + 4.6f;
+            float ya = 5.9f - (xa - CX) * (2.4f / 6.6f) + 0.07f, yb = 5.9f - (xb - CX) * (2.4f / 6.6f) + 0.07f;
             float q[4][3] = { { xa, ya, z0 }, { xb, yb, z0 }, { xb, yb, z1 }, { xa, ya, z1 } };
             quad_sub(q, panel, 2, 0.0f);
         }
     }
-    box_rot(CX, 146.0f, 0, 0, 0, 0.07f, 0.07f, 5.4f, 8.8f, steel, 0.0f);
-    box_rot(CX, 146.0f, 0, 0, 0, 0.8f, 0.04f, 7.5f, 7.56f, steel, 0.0f);
-    box_rot(CX, 145.6f, 0, 0, 0, 0.5f, 0.07f, 6.5f, 7.2f, wht, 0.0f);
-    box_rot(CX, 146.0f, 0, 0, 0, 0.13f, 0.13f, 8.8f, 9.06f, grn, 0.4f + 0.6f * (0.5f + 0.5f * sinf(t * 2.4f)));
+    box_rot(CX, 166.0f, 0, 0, 0, 0.07f, 0.07f, 5.9f, 9.3f, steel, 0.0f);
+    box_rot(CX, 166.0f, 0, 0, 0, 0.8f, 0.04f, 8.0f, 8.06f, steel, 0.0f);
+    box_rot(CX, 165.6f, 0, 0, 0, 0.5f, 0.07f, 7.0f, 7.7f, wht, 0.0f);
+    box_rot(CX, 166.0f, 0, 0, 0, 0.13f, 0.13f, 9.3f, 9.56f, grn, 0.4f + 0.6f * (0.5f + 0.5f * sinf(t * 2.4f)));
     // bolardos al frente
     for (int s2 = 0; s2 < 2; s2++) {
-        float x = s2 ? 63.2f : 56.8f;
-        box_rot(x, 158.2f, 0, 0, 0, 0.14f, 0.14f, 0.0f, 0.9f, yel, 0.0f);
-        box_rot(x, 158.2f, 0, 0, 0, 0.145f, 0.145f, 0.55f, 0.68f, blk, 0.0f);
+        float x = s2 ? 313.2f : 306.8f;
+        box_rot(x, 182.4f, 0, 0, 0, 0.14f, 0.14f, 0.0f, 0.9f, yel, 0.0f);
+        box_rot(x, 182.4f, 0, 0, 0, 0.145f, 0.145f, 0.55f, 0.68f, blk, 0.0f);
     }
     // interior: luces de emergencia en el techo y cruz verde en el muro del fondo
-    box_rot(58.0f, 148.0f, 0, 0, 0, 0.1f, 3.6f, 3.3f, 3.38f, lampc, 0.85f);
-    box_rot(62.0f, 148.0f, 0, 0, 0, 0.1f, 3.6f, 3.3f, 3.38f, lampc, 0.85f);
+    box_rot(307.0f, 170.0f, 0, 0, 0, 0.1f, 5.4f, 3.3f, 3.38f, lampc, 0.85f);
+    box_rot(313.0f, 170.0f, 0, 0, 0, 0.1f, 5.4f, 3.3f, 3.38f, lampc, 0.85f);
     box_rot(CX, ZN + 0.24f, 0, 0, 0, 0.6f, 0.03f, 1.8f, 2.9f, grn, 0.5f);
     box_rot(CX, ZN + 0.27f, 0, 0, 0, 0.4f, 0.02f, 2.15f, 2.55f, wht, 0.7f);
     box_rot(CX, ZN + 0.27f, 0, 0, 0, 0.12f, 0.02f, 1.95f, 2.75f, wht, 0.7f);
@@ -64875,7 +64867,7 @@ static void menu_frame(u32 newp, float lv, int frame)
             } else draw_text(24.0f, yy, "ESPERA A QUE EL ANFITRION COMIENCE", 1, hint_c);
         }
         draw_text(W - 190.0f, H - 20.0f, "O: SALIR DE LA SALA", 1, hint_c);
-        draw_text(W - 60.0f, 6.0f, "V143", 1, hint_c);
+        draw_text(W - 60.0f, 6.0f, "V144", 1, hint_c);
     } else if (screen == SC_NETLIST) {
         draw_text_c(40.0f, "PARTIDAS PUBLICAS", 4, sel_c);
         int cnt_ = room_count();
