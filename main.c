@@ -4229,18 +4229,18 @@ static const char *map0[MH] = {"FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF
 "FF.......ppp#,,,,,,#ppp...pp....................pp...ppppppppppp....ppppppppp.................FF",
 "FF.......ppp###,#W##ppp...pp....................pp...ppppppppppp....ppppppppp.................FF",
 "FF.......pppppqqqpppppp...pp....................pp...ppppppppppp..............................FF",
-"FF.......pppppqqqpppppp...pp....................pp...pppMWMWMppp..............................FF",
-"FF.......ppppppppppppppppppp....................pp...pppM,,,Mppp...........pppppppppppp.......FF",
-"FF.........ppppppppppppppppp....................pp...pppM,,,Mppp...........pppppppppppp.......FF",
-"FF.........ppppppppp............................pp...pppMM,MMppp...........pppppppppppp.......FF",
-"FF..............................................pp...ppppppppppp...........pppBBBBBBppppp.....FF",
-"FF..............................................pppppppppppppppp...........pppBbbbbBppppp.....FF",
-"FF..............................................pppppppppppppppp...........pppBbbbbBppppp.....FF",
-"FF..............................................pp........ppp..............pppBbbbbBpAppp.....FF",
-"FF..............................................pp.........................pppBbbbbBppppp.....FF",
-"FF..............................................pp.........................pppBbbbbBppppp.....FF",
-"FF..............................................pp.........................pppBbbbbBppppp.....FF",
-"FF..............................................pp.........................pppBBbbBBppp.......FF",
+"FF.......pppppqqqpppppp...pp....................pp...ppppppppppp..............................FF",
+"FF.......ppppppppppppppppppp....................pp...pppp,,,pppp...........pppppppppppp.......FF",
+"FF.........ppppppppppppppppp....................pp...pppp,,,pppp...........pppppppppppp.......FF",
+"FF.........ppppppppp............................pp...ppppppppppp...........pppppppppppp.......FF",
+"FF..............................................pp...ppppppppppp...........pppppppppppppp.....FF",
+"FF..............................................pppppppppppppppp...........ppppbbbbpppppp.....FF",
+"FF..............................................pppppppppppppppp...........ppppbbbbpppppp.....FF",
+"FF..............................................pp........ppp..............ppppbbbbppAppp.....FF",
+"FF..............................................pp.........................ppppbbbbpppppp.....FF",
+"FF..............................................pp.........................ppppbbbbpppppp.....FF",
+"FF..............................................pp.........................ppppbbbbpppppp.....FF",
+"FF..............................................pp.........................pppppppppppp.......FF",
 "FF..............................................pp.........................pppppppppppp.......FF",
 "FF..............................................pp.........................pppppppppppp.......FF",
 "FF..............................................pp.........................pppppppppppp.......FF",
@@ -4352,7 +4352,7 @@ static const char *map1[MH] = {"################################################
 "################################################################################################",
 "################################################################################################"};
 typedef struct { float x,z,a,hx,hz,y0,y1; unsigned char r,g,b,type,layer; float emit; } Prop;
-#define NPROP 357
+#define NPROP 350
 static const Prop props[NPROP] = {
   {192.400f,176.400f,0.000f,0.120f,0.120f,0.000f,10.000f,150,150,155,0,0,0.000f},
   {192.400f,179.600f,0.000f,0.120f,0.120f,0.000f,10.000f,150,150,155,0,0,0.000f},
@@ -4627,21 +4627,14 @@ static const Prop props[NPROP] = {
   {332.000f,302.000f,0.000f,0.900f,0.450f,0.000f,0.600f,185,150,60,0,0,0.000f},
   {331.000f,302.000f,0.000f,0.900f,0.450f,0.600f,1.200f,185,150,60,0,0,0.000f},
   {317.000f,305.000f,0.000f,0.900f,0.450f,0.000f,0.600f,185,150,60,0,0,0.000f},
-  {324.000f,302.000f,0.000f,12.000f,2.000f,3.200f,3.400f,120,85,50,0,0,0.000f},
+  {324.000f,302.000f,0.000f,7.900f,2.000f,3.200f,3.400f,120,85,50,0,0,0.000f},
   {320.000f,301.400f,0.000f,1.600f,1.200f,3.400f,4.000f,185,150,60,0,0,0.000f},
   {328.000f,301.400f,0.000f,1.500f,1.100f,3.400f,4.000f,185,150,60,0,0,0.000f},
   {320.000f,318.000f,0.000f,1.700f,0.900f,0.300f,1.300f,150,40,35,0,0,0.000f},
   {320.000f,318.000f,0.000f,0.800f,0.700f,1.300f,2.000f,130,35,30,0,0,0.000f},
   {319.000f,319.200f,0.000f,0.500f,0.100f,0.000f,1.200f,30,30,34,0,0,0.000f},
   {321.600f,319.200f,0.000f,0.500f,0.100f,0.000f,1.200f,30,30,34,0,0,0.000f},
-  {315.000f,307.000f,0.000f,0.060f,1.800f,0.000f,1.400f,100,70,40,0,0,0.000f},
-  {333.000f,307.000f,0.000f,0.060f,1.800f,0.000f,1.400f,100,70,40,0,0,0.000f},
-  {315.000f,311.000f,0.000f,0.060f,1.800f,0.000f,1.400f,100,70,40,0,0,0.000f},
-  {333.000f,311.000f,0.000f,0.060f,1.800f,0.000f,1.400f,100,70,40,0,0,0.000f},
-  {315.000f,315.000f,0.000f,0.060f,1.800f,0.000f,1.400f,100,70,40,0,0,0.000f},
-  {333.000f,315.000f,0.000f,0.060f,1.800f,0.000f,1.400f,100,70,40,0,0,0.000f},
   {328.000f,321.000f,0.000f,0.250f,0.250f,0.000f,1.000f,200,150,60,0,0,0.700f},
-  {324.000f,312.000f,0.000f,13.500f,17.500f,5.500f,10.000f,90,40,36,1,0,0.000f},
   {342.000f,310.000f,0.000f,1.400f,1.400f,0.000f,9.000f,150,150,155,0,0,0.000f},
   {342.000f,310.000f,0.000f,1.900f,1.900f,9.000f,11.200f,100,60,55,3,0,0.000f},
   {196.000f,187.750f,0.000f,38.000f,0.250f,-3.400f,-2.700f,120,80,50,0,1,0.000f},
@@ -4713,8 +4706,21 @@ static const Prop props[NPROP] = {
   {241.630f,312.000f,0.000f,0.060f,4.940f,4.370f,4.500f,150,225,255,0,0,1.000f}
 };
 typedef struct { float x,z,a,hx,hz; unsigned char layer; } Col;
-#define NCOL 424
+#define NCOL 431
 static const Col colliders[NCOL] = {
+  {316.000f,312.000f,0.000f,0.220f,12.200f,0},
+  {332.000f,312.000f,0.000f,0.220f,12.200f,0},
+  {324.000f,300.000f,0.000f,8.200f,0.220f,0},
+  {318.000f,324.000f,0.000f,2.000f,0.220f,0},
+  {330.000f,324.000f,0.000f,2.000f,0.220f,0},
+  {319.400f,342.000f,0.000f,0.250f,0.250f,0},
+  {328.600f,342.000f,0.000f,0.250f,0.250f,0},
+  {228.000f,288.000f,0.000f,0.220f,4.200f,0},
+  {240.000f,288.000f,0.000f,0.220f,4.200f,0},
+  {234.000f,284.000f,0.000f,6.200f,0.220f,0},
+  {230.000f,292.000f,0.000f,2.000f,0.220f,0},
+  {238.000f,292.000f,0.000f,2.000f,0.220f,0},
+  {310.000f,170.000f,0.000f,1.050f,0.650f,0},
   {304.000f,170.000f,0.000f,0.220f,6.200f,0},
   {316.000f,170.000f,0.000f,0.220f,6.200f,0},
   {310.000f,164.000f,0.000f,6.200f,0.220f,0},
@@ -4994,12 +5000,6 @@ static const Col colliders[NCOL] = {
   {320.000f,318.000f,0.000f,1.700f,0.900f,0},
   {319.000f,319.200f,0.000f,0.500f,0.100f,0},
   {321.600f,319.200f,0.000f,0.500f,0.100f,0},
-  {315.000f,307.000f,0.000f,0.060f,1.800f,0},
-  {333.000f,307.000f,0.000f,0.060f,1.800f,0},
-  {315.000f,311.000f,0.000f,0.060f,1.800f,0},
-  {333.000f,311.000f,0.000f,0.060f,1.800f,0},
-  {315.000f,315.000f,0.000f,0.060f,1.800f,0},
-  {333.000f,315.000f,0.000f,0.060f,1.800f,0},
   {328.000f,321.000f,0.000f,0.250f,0.250f,0},
   {342.000f,310.000f,0.000f,1.400f,1.400f,0},
   {236.000f,104.000f,0.000f,0.800f,0.550f,1},
@@ -5216,9 +5216,9 @@ static const int manholes[NMH][2] = {{34,48},{72,64}};
 #define DOOR_FINAL 8            // PUERTA FINAL: escondida en la alcantarilla, se abre con las 3 llaves finales
 typedef struct { float x, z, hw; unsigned char orient, type, id; int cx, cz; unsigned char layer; } Door;
 static const Door doors[ND] = {
-    { 234.0f, 294.0f, 2.0f, 0, 0, 0, 58, 73 },   // casa junto al inicio          : llave ROJA
+    { 234.0f, 292.0f, 2.0f, 0, 0, 0, 58, 72 },   // casa junto al inicio          : llave ROJA
     {  62.0f, 154.0f, 2.0f, 0, 0, 0, 15, 38 },   // casita de piedra              : llave ROJA
-    { 324.0f, 326.0f, 4.0f, 0, 0, 1, 80, 81 },   // establo de ladrillo (doble)   : llave AZUL
+    { 324.0f, 324.0f, 4.0f, 0, 0, 1, 80, 80 },   // establo de ladrillo (doble)   : llave AZUL
     {  58.0f,  78.0f, 2.35f, 0, 0, 1, 14, 19 },   // edificio de piedra (noroeste) : llave AZUL
     { 310.0f, 176.0f, 2.0f, 0, 0, 2, 77, 43 },   // edificio del noreste          : llave AMARILLA
     { 286.0f,  98.0f, 2.0f, 0, 0, 3, 71, 24 },   // cueva                         : llave VERDE
@@ -5234,7 +5234,7 @@ static Item items[NIT] = {   // x, z se rellenan en place_keys() (valores de aba
     { 324.0f, 308.0f, 0, 2 },   // llave AMARILLA: dentro del establo
     {  60.0f, 148.0f, 1, 0 },   // codigo de la cabana: dentro de la casita de piedra
     {  58.0f,  60.0f, 1, 1 },   // codigo de la antena: dentro del edificio noroeste
-    { 306.0f, 168.0f, 0, 3 },   // llave VERDE: dentro del edificio del noreste
+    { 310.0f, 170.0f, 0, 3 },   // llave VERDE: dentro del edificio del noreste
 };
 
 // ---------------- Sets de llaves: en cada partida se elige uno AL AZAR ----------------
@@ -5246,7 +5246,7 @@ static Item items[NIT] = {   // x, z se rellenan en place_keys() (valores de aba
 #define NKSET 5
 static const float slot_xz[NSLOT][2] = {
     { 198.0f, 336.0f }, { 234.0f, 287.0f }, { 324.0f, 308.0f }, { 60.0f, 148.0f }, { 58.0f, 60.0f },
-    { 306.0f, 168.0f }, { 58.0f, 258.8f }, { 342.0f, 72.0f }, { 178.0f, 169.5f } };
+    { 310.0f, 170.0f }, { 58.0f, 258.8f }, { 342.0f, 72.0f }, { 178.0f, 169.5f } };
 // Cada set dice en que lugar queda cada objeto, en este orden:
 //   llave ROJA, AZUL, AMARILLA, VERDE, papel con el codigo de la CABANA, papel con el codigo de la ANTENA, llaves finales 1, 2 y 3
 static const unsigned char key_sets[NKSET][9] = {
@@ -5950,6 +5950,8 @@ static int   door_msg, door_msg_id, code_door = -1, code_val, code_pos, inv_open
 static int   has_map, map_open, map_msg;     // mapa: ya lo tomaste / lo tienes abierto / aviso en pantalla (cuadros)
 
 static unsigned char solid_grid[2][MH][MW];
+static unsigned char ai_wall[MH][MW];   // celdas junto a las paredes delgadas (supermercado, refugio): para el monstruo siguen siendo pared, asi no intenta atravesarlas
+#define AI_SOLID(l, z, x) (solid_grid[l][z][x] || ((l) == 0 && ai_wall[z][x]))
 static int   dist_map[MH][MW];
 static short bqx[MW * MH], bqz[MW * MH];
 
@@ -6086,6 +6088,16 @@ static void build_solid_grid(void)
         for (int z = 0; z < MH; z++)
             for (int x = 0; x < MW; x++)
                 solid_grid[l][z][x] = (cell_info((l ? map1 : map0)[z][x], l).kind == 2);
+    for (int z = 0; z < MH; z++) for (int x = 0; x < MW; x++) ai_wall[z][x] = 0;
+    for (int z = 71; z <= 72; z++) { ai_wall[z][56] = 1; ai_wall[z][60] = 1; }          // supermercado
+    for (int x = 57; x <= 59; x++) ai_wall[70][x] = 1;
+    ai_wall[73][57] = 1; ai_wall[73][59] = 1;
+    for (int z = 41; z <= 43; z++) { ai_wall[z][75] = 1; ai_wall[z][79] = 1; }          // refugio del noreste
+    for (int x = 76; x <= 78; x++) ai_wall[40][x] = 1;
+    ai_wall[44][76] = 1; ai_wall[44][78] = 1;
+    for (int z = 75; z <= 80; z++) { ai_wall[z][78] = 1; ai_wall[z][83] = 1; }          // granero
+    for (int x = 79; x <= 82; x++) ai_wall[74][x] = 1;
+    ai_wall[81][79] = 1; ai_wall[81][82] = 1;
 }
 
 // ---------------- Arboles (determinista por celda) ----------------
@@ -6182,8 +6194,8 @@ static const signed char lockers[NLOCK][4] = {   // casilla x, z y hacia donde m
     {81, 15, 0, 1},
     {13, 18, 0, -1},
     {15, 11, 0, -1},
-    {77, 42, 0, 1},
-    {75, 43, 0, -1},
+    {78, 41, -1, 0},
+    {78, 43, -1, 0},
     {17, 66, 1, 0},
     {13, 64, 1, 0},
     {15, 65, -1, 0},
@@ -6263,6 +6275,8 @@ typedef struct { float x, y, z, r, g, b; } V;
 static float clampf(float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); }
 
 // Apuntar: el objeto debe estar en el centro de la mira (cono horizontal ~25 grados y vertical ~35). y = altura sobre el suelo
+// Mesa del refugio (noreste): las llaves y papeles que caen encima quedan a la altura de la mesa
+static float tab_h(float x, float z) { return (fabsf(x - 310.0f) < 1.1f && fabsf(z - 170.0f) < 0.7f) ? 0.80f : 0.0f; }
 static int aim_ok(float x, float y, float z)
 {
     float dx = x - px, dz = z - pz, dy = (foot_y + y) - (foot_y + 1.6f);
@@ -6283,12 +6297,12 @@ static int pick_near2(int ign)
     if (cur_layer == 0) for (int i = 0; i < NIT; i++) {
         if (item_got[i] || (!ign && carry && items[i].kind == 0)) continue;
         float ax = items[i].x - px, az = items[i].z - pz, d = ax * ax + az * az;
-        if (d < best && aim_ok(items[i].x, 0.25f, items[i].z)) { best = d; bi = i; }
+        if (d < best && aim_ok(items[i].x, 0.25f + tab_h(items[i].x, items[i].z), items[i].z)) { best = d; bi = i; }
     }
     for (int i = 0; i < 3; i++) {
         if (notes_off[i] || (!ign && carry) || (int)notes_pos[i][3] != cur_layer) continue;
         float ax = notes_pos[i][0] - px, az = notes_pos[i][1] - pz, d = ax * ax + az * az;
-        if (d < best && aim_ok(notes_pos[i][0], 0.25f, notes_pos[i][1])) { best = d; bi = 100 + i; }
+        if (d < best && aim_ok(notes_pos[i][0], 0.25f + tab_h(notes_pos[i][0], notes_pos[i][1]), notes_pos[i][1])) { best = d; bi = 100 + i; }
     }
     return bi;
 }
@@ -6874,7 +6888,7 @@ static void draw_pumps(void)
 }
 
 // ---------------- Super Market (la casa de enfrente de la gasolinera): fachada con letrero de neon ----------------
-static void neon_letter(char ch, float cx, float yb, const float *col, float emit, float z, float w, float h, float th)
+static void neon_letter_now(char ch, float cx, float yb, const float *col, float emit, float z, float w, float h, float th)
 {
     const float hz = th * 0.47f, ym = yb + h * 0.5f, yt = yb + h;
     int m = 0;                                  // a=1 arriba, b=2 sup.der, c=4 inf.der, d=8 abajo, e=16 inf.izq, f=32 sup.izq, g=64 medio
@@ -6891,6 +6905,7 @@ static void neon_letter(char ch, float cx, float yb, const float *col, float emi
     case 'G': m = 1 | 32 | 16 | 8 | 4; break;
     case 'I': m = 1 | 8; break;
     case 'O': m = 1 | 2 | 4 | 8 | 16 | 32; break;
+    case 'D': m = 2 | 4 | 8 | 16 | 64; break;
     case 'T': m = 1; break;
     case 'C': m = 1 | 32 | 16 | 8; break;
     case 'N': m = 32 | 16 | 2 | 4; break;
@@ -6904,6 +6919,13 @@ static void neon_letter(char ch, float cx, float yb, const float *col, float emi
     if (m & 16) box_rot(lx, z, 0, 0, 0, th * 0.5f, hz, yb, ym, col, emit);
     if (m & 2)  box_rot(rx, z, 0, 0, 0, th * 0.5f, hz, ym, yt, col, emit);
     if (m & 4)  box_rot(rx, z, 0, 0, 0, th * 0.5f, hz, yb, ym, col, emit);
+    if (ch == 'V') {
+        for (int k = 0; k < 4; k++) {
+            float u = (float)k / 3.0f, yc = yb + th * 0.7f + (h - th * 1.4f) * u, off = (w * 0.5f - th * 0.5f) * u;
+            box_rot(cx + off, z, 0, 0, 0, th * 0.6f, hz, yc - th * 0.7f, yc + th * 0.7f, col, emit);
+            if (k) box_rot(cx - off, z, 0, 0, 0, th * 0.6f, hz, yc - th * 0.7f, yc + th * 0.7f, col, emit);
+        }
+    }
     if (ch == 'T' || ch == 'I') box_rot(cx, z, 0, 0, 0, th * 0.5f, hz, yb, yt, col, emit);
     static const float rs[3][2] = { { 0.40f, 0.40f }, { 0.65f, 0.22f }, { 0.90f, 0.05f } };     // patas en escalera (R, K)
     if (ch == 'R' || ch == 'K') {
@@ -6931,6 +6953,27 @@ static void neon_letter(char ch, float cx, float yb, const float *col, float emi
             box_rot(cx + w * 0.5f - w * ms[i][0], z, 0, 0, 0, th * 0.55f, hz, py_ - th * 0.5f, py_ + th * 0.5f, col, emit);
         }
     }
+}
+
+// Los letreros de neon se guardan y se dibujan DESPUES de la oscuridad de pantalla (draw_neon_flush): siguen viendose con la linterna apagada
+#define NEON_Q 96
+typedef struct { char ch; float cx, yb, col[3], emit, z, w, h, th; } NeonQ;
+static NeonQ neon_q[NEON_Q];
+static int neon_n;
+static void neon_letter(char ch, float cx, float yb, const float *col, float emit, float z, float w, float h, float th)
+{
+    if (neon_n >= NEON_Q) { neon_letter_now(ch, cx, yb, col, emit, z, w, h, th); return; }
+    NeonQ *q = &neon_q[neon_n++];
+    q->ch = ch; q->cx = cx; q->yb = yb; q->col[0] = col[0]; q->col[1] = col[1]; q->col[2] = col[2];
+    q->emit = emit; q->z = z; q->w = w; q->h = h; q->th = th;
+}
+static void draw_neon_flush(void)
+{
+    for (int i = 0; i < neon_n; i++) {
+        const NeonQ *q = &neon_q[i];
+        neon_letter_now(q->ch, q->cx, q->yb, q->col, q->emit, q->z, q->w, q->h, q->th);
+    }
+    neon_n = 0;
 }
 
 
@@ -7007,17 +7050,41 @@ static void draw_cabin(float t)
 static void draw_supermarket(float t)
 {
     if (cur_layer != 0 && !climbing) return;
-    if (!in_view(234.0f, 296.0f, 12.0f, fminf(draw_lim, (gfx_pd[gfx] * rd_k)))) return;
+    if (!in_view(234.0f, 290.0f, 13.0f, fminf(draw_lim, (gfx_pd[gfx] * rd_k)))) return;
     static const float dark[3] = { 22.f, 22.f, 30.f }, pink[3] = { 255.f, 60.f, 170.f }, cyan[3] = { 60.f, 230.f, 255.f };
     static const float stone[3] = { 205.f, 205.f, 210.f }, glass[3] = { 140.f, 190.f, 215.f }, frame[3] = { 40.f, 40.f, 46.f };
     static const float red[3] = { 200.f, 40.f, 44.f }, white[3] = { 235.f, 235.f, 238.f }, green[3] = { 70.f, 255.f, 130.f };
-    const float zf = 296.0f;
+    static const float wall[3] = { 178.f, 180.f, 186.f }, roofc[3] = { 90.f, 94.f, 102.f }, wood[3] = { 125.f, 88.f, 58.f }, ac[3] = { 150.f, 154.f, 160.f };
+    const float zf = 292.0f, XL = 228.0f, XR = 240.0f, ZN = 284.0f, WH = 3.3f;
+    float ddx = px - 234.0f, ddz = pz - 288.0f;
+    int near_ = (ddx * ddx + ddz * ddz) < 40.0f * 40.0f;
+    // paredes delgadas (la puerta ocupa el hueco x 232..236)
+    box_rot(XL, 288.0f, 0, 0, 0, 0.2f, 4.0f, 0.0f, WH, wall, 0.0f);
+    box_rot(XR, 288.0f, 0, 0, 0, 0.2f, 4.0f, 0.0f, WH, wall, 0.0f);
+    box_rot(234.0f, ZN, 0, 0, 0, 6.0f, 0.2f, 0.0f, WH, wall, 0.0f);
+    box_rot(230.0f, zf, 0, 0, 0, 2.0f, 0.2f, 0.0f, WH, wall, 0.0f);
+    box_rot(238.0f, zf, 0, 0, 0, 2.0f, 0.2f, 0.0f, WH, wall, 0.0f);
+    // techo plano con parapeto y dos unidades de aire
+    box_rot(234.0f, 288.0f, 0, 0, 0, 6.2f, 4.2f, 3.05f, WH - 0.02f, roofc, 0.0f);
+    box_rot(234.0f, ZN - 0.1f, 0, 0, 0, 6.2f, 0.1f, WH, WH + 0.35f, stone, 0.0f);
+    box_rot(XL - 0.1f, 288.0f, 0, 0, 0, 0.1f, 4.2f, WH, WH + 0.35f, stone, 0.0f);
+    box_rot(XR + 0.1f, 288.0f, 0, 0, 0, 0.1f, 4.2f, WH, WH + 0.35f, stone, 0.0f);
+    box_rot(231.5f, 287.0f, 0, 0, 0, 0.9f, 0.7f, WH, WH + 0.7f, ac, 0.0f);
+    box_rot(237.0f, 286.5f, 0, 0, 0, 0.9f, 0.7f, WH, WH + 0.7f, ac, 0.0f);
+    // ventanas al fondo (marco de madera + cristal)
+    if (near_) {
+        for (int s2 = 0; s2 < 2; s2++) {
+            float x = s2 ? 238.0f : 230.0f;
+            box_rot(x, ZN - 0.22f, 0, 0, 0, 1.0f, 0.05f, 1.0f, 2.5f, wood, 0.0f);
+            box_rot(x, ZN - 0.26f, 0, 0, 0, 0.85f, 0.03f, 1.15f, 2.35f, glass, 0.2f);
+        }
+    }
     // letrero (panel oscuro sobre la fachada) con marco de neon
-    box_rot(234.0f, 296.2f, 0, 0, 0, 9.8f, 0.2f, 3.2f, 5.3f, dark, 0.0f);
-    box_rot(234.0f, 296.5f, 0, 0, 0, 9.8f, 0.06f, 5.2f, 5.3f, pink, 1.0f);
-    box_rot(234.0f, 296.5f, 0, 0, 0, 9.8f, 0.06f, 3.2f, 3.3f, pink, 1.0f);
-    box_rot(224.3f, 296.5f, 0, 0, 0, 0.1f, 0.06f, 3.2f, 5.3f, pink, 1.0f);
-    box_rot(243.7f, 296.5f, 0, 0, 0, 0.1f, 0.06f, 3.2f, 5.3f, pink, 1.0f);
+    box_rot(234.0f, zf + 0.2f, 0, 0, 0, 5.9f, 0.2f, WH, 5.2f, dark, 0.0f);
+    box_rot(234.0f, zf + 0.5f, 0, 0, 0, 5.9f, 0.06f, 5.1f, 5.2f, pink, 1.0f);
+    box_rot(234.0f, zf + 0.5f, 0, 0, 0, 5.9f, 0.06f, WH, WH + 0.1f, pink, 1.0f);
+    box_rot(228.1f, zf + 0.5f, 0, 0, 0, 0.1f, 0.06f, WH, 5.2f, pink, 1.0f);
+    box_rot(239.9f, zf + 0.5f, 0, 0, 0, 0.1f, 0.06f, WH, 5.2f, pink, 1.0f);
     // letras de neon: "SUPER MARKET" (la E de SUPER y la K parpadean)
     static const char txt[13] = "SUPER MARKET";
     for (int i = 0; i < 12; i++) {
@@ -7025,33 +7092,33 @@ static void draw_supermarket(float t)
         float e = 1.0f;
         if (i == 3 && sinf(t * 23.0f) + sinf(t * 7.3f) > 1.55f) e = 0.12f;
         if (i == 11 && sinf(t * 17.0f + 1.0f) + sinf(t * 5.1f) > 1.6f) e = 0.12f;
-        neon_letter(txt[i], 234.0f - ((float)i - 5.5f) * 1.5f, 3.65f, i < 5 ? pink : cyan, e, 296.58f, 1.1f, 1.2f, 0.15f);
+        neon_letter(txt[i], 234.0f - ((float)i - 5.5f) * 0.95f, 3.78f, i < 5 ? pink : cyan, e, zf + 0.58f, 0.7f, 0.9f, 0.11f);
     }
-    // toldo rayado sobre la puerta
+    // toldo rayado sobre la puerta, con dos postes
     for (int i = 0; i < 10; i++)
-        box_rot(229.5f + (float)i, 297.2f, 0, 0, 0, 0.5f, 1.2f, 2.55f, 2.7f, (i & 1) ? white : red, 0.0f);
-    box_rot(234.0f, 298.45f, 0, 0, 0, 5.0f, 0.06f, 2.3f, 2.7f, red, 0.0f);
+        box_rot(229.5f + (float)i, zf + 1.2f, 0, 0, 0, 0.5f, 1.2f, 2.55f, 2.7f, (i & 1) ? white : red, 0.0f);
+    box_rot(234.0f, zf + 2.45f, 0, 0, 0, 5.0f, 0.06f, 2.3f, 2.7f, red, 0.0f);
+    box_rot(229.1f, zf + 2.3f, 0, 0, 0, 0.06f, 0.06f, 0.0f, 2.55f, frame, 0.0f);
+    box_rot(238.9f, zf + 2.3f, 0, 0, 0, 0.06f, 0.06f, 0.0f, 2.55f, frame, 0.0f);
     // "ABIERTO" no cabe: un cartel verde pequeno junto a la puerta
-    box_rot(237.7f, zf + 0.1f, 0, 0, 0, 0.5f, 0.05f, 1.5f, 1.9f, green, 0.9f);
+    box_rot(236.5f, zf + 0.1f, 0, 0, 0, 0.3f, 0.05f, 1.5f, 1.9f, green, 0.9f);
     // vitrinas con marco a cada lado de la puerta
     for (int s = 0; s < 2; s++) {
-        float cx = s ? 240.0f : 228.0f;
-        box_rot(cx, zf + 0.04f, 0, 0, 0, 3.15f, 0.04f, 0.65f, 2.75f, frame, 0.0f);
-        box_rot(cx, zf + 0.09f, 0, 0, 0, 3.0f, 0.04f, 0.8f, 2.6f, glass, 0.2f);
-        box_rot(cx, zf + 0.14f, 0, 0, 0, 0.06f, 0.04f, 0.8f, 2.6f, frame, 0.0f);
-        box_rot(cx - 1.5f, zf + 0.14f, 0, 0, 0, 0.06f, 0.04f, 0.8f, 2.6f, frame, 0.0f);
-        box_rot(cx + 1.5f, zf + 0.14f, 0, 0, 0, 0.06f, 0.04f, 0.8f, 2.6f, frame, 0.0f);
-        box_rot(cx, zf + 0.14f, 0, 0, 0, 3.0f, 0.04f, 1.6f, 1.66f, frame, 0.0f);
+        float cx = s ? 238.0f : 230.0f;
+        box_rot(cx, zf + 0.24f, 0, 0, 0, 1.75f, 0.04f, 0.65f, 2.75f, frame, 0.0f);
+        box_rot(cx, zf + 0.29f, 0, 0, 0, 1.6f, 0.04f, 0.8f, 2.6f, glass, 0.2f);
+        box_rot(cx, zf + 0.34f, 0, 0, 0, 0.05f, 0.04f, 0.8f, 2.6f, frame, 0.0f);
+        box_rot(cx, zf + 0.34f, 0, 0, 0, 1.6f, 0.04f, 1.6f, 1.66f, frame, 0.0f);
     }
     // pilastras en las esquinas y zocalo
-    box_rot(224.0f, zf + 0.15f, 0, 0, 0, 0.4f, 0.4f, 0.0f, 3.25f, stone, 0.0f);
-    box_rot(244.0f, zf + 0.15f, 0, 0, 0, 0.4f, 0.4f, 0.0f, 3.25f, stone, 0.0f);
-    box_rot(234.0f, zf + 0.05f, 0, 0, 0, 10.0f, 0.06f, 0.0f, 0.45f, red, 0.0f);
+    box_rot(XL, zf + 0.1f, 0, 0, 0, 0.35f, 0.35f, 0.0f, WH + 0.05f, stone, 0.0f);
+    box_rot(XR, zf + 0.1f, 0, 0, 0, 0.35f, 0.35f, 0.0f, WH + 0.05f, stone, 0.0f);
+    box_rot(234.0f, zf + 0.05f, 0, 0, 0, 6.0f, 0.06f, 0.0f, 0.45f, red, 0.0f);
     // cajas de fruta junto a la entrada (decoracion)
-    box_rot(229.0f, 298.4f, 0, 0, 0, 0.8f, 0.45f, 0.0f, 0.6f, (const float[3]){ 150.f, 105.f, 60.f }, 0.0f);
-    box_rot(239.0f, 298.4f, 0, 0, 0, 0.8f, 0.45f, 0.0f, 0.6f, (const float[3]){ 150.f, 105.f, 60.f }, 0.0f);
-    box_rot(229.0f, 298.4f, 0, 0, 0, 0.7f, 0.35f, 0.6f, 0.75f, (const float[3]){ 200.f, 60.f, 40.f }, 0.0f);
-    box_rot(239.0f, 298.4f, 0, 0, 0, 0.7f, 0.35f, 0.6f, 0.75f, (const float[3]){ 230.f, 190.f, 50.f }, 0.0f);
+    box_rot(230.2f, zf + 1.6f, 0, 0, 0, 0.8f, 0.45f, 0.0f, 0.6f, (const float[3]){ 150.f, 105.f, 60.f }, 0.0f);
+    box_rot(237.8f, zf + 1.6f, 0, 0, 0, 0.8f, 0.45f, 0.0f, 0.6f, (const float[3]){ 150.f, 105.f, 60.f }, 0.0f);
+    box_rot(230.2f, zf + 1.6f, 0, 0, 0, 0.7f, 0.35f, 0.6f, 0.75f, (const float[3]){ 200.f, 60.f, 40.f }, 0.0f);
+    box_rot(237.8f, zf + 1.6f, 0, 0, 0, 0.7f, 0.35f, 0.6f, 0.75f, (const float[3]){ 230.f, 190.f, 50.f }, 0.0f);
 }
 
 #define GA_NV 64
@@ -7281,10 +7348,10 @@ static void draw_shelter(float t)
         for (int b = 0; b < 2; b++) box_rot(a ? XR : XL, b ? ZF : ZN, 0, 0, 0, 0.3f, 0.3f, 0.0f, WH + 0.1f, conc2, 0.0f);
     // ventanas (marco claro + cristal): 3 por costado y 2 al fondo
     if (near_) {
-        for (int s2 = 0; s2 < 6; s2++) {
-            float z = 167.0f + 3.0f * (float)(s2 % 3), xo = (s2 >= 3) ? XR + 0.23f : XL - 0.23f;
+        for (int s2 = 0; s2 < 2; s2++) {
+            float z = s2 ? 173.0f : 167.0f, xo = XL - 0.23f;
             box_rot(xo, z, 0, 0, 0, 0.05f, 0.78f, 1.1f, 2.6f, wht, 0.0f);
-            box_rot(xo + ((s2 >= 3) ? 0.03f : -0.03f), z, 0, 0, 0, 0.03f, 0.64f, 1.22f, 2.48f, glass, 0.25f);
+            box_rot(xo - 0.03f, z, 0, 0, 0, 0.03f, 0.64f, 1.22f, 2.48f, glass, 0.25f);
         }
         for (int s2 = 0; s2 < 2; s2++) {
             float x = s2 ? 313.0f : 307.0f;
@@ -7350,6 +7417,129 @@ static void draw_shelter(float t)
     box_rot(CX, ZN + 0.24f, 0, 0, 0, 0.6f, 0.03f, 1.8f, 2.9f, grn, 0.5f);
     box_rot(CX, ZN + 0.27f, 0, 0, 0, 0.4f, 0.02f, 2.15f, 2.55f, wht, 0.7f);
     box_rot(CX, ZN + 0.27f, 0, 0, 0, 0.12f, 0.02f, 1.95f, 2.75f, wht, 0.7f);
+    // decoracion: mesa central (ahi queda la llave), camas de refugiados en el suelo y varias con sangre
+    {
+        static const float wood[3] = { 96.f, 70.f, 46.f }, lant[3] = { 255.f, 200.f, 120.f };
+        box_rot(CX, 170.0f, 0, 0, 0, 1.0f, 0.6f, 0.74f, 0.8f, wood, 0.0f);
+        for (int a = 0; a < 4; a++) box_rot(CX + ((a & 1) ? 0.9f : -0.9f), 170.0f + ((a & 2) ? 0.5f : -0.5f), 0, 0, 0, 0.05f, 0.05f, 0.0f, 0.74f, wood, 0.0f);
+        box_rot(CX - 0.7f, 170.0f, 0, 0, 0, 0.09f, 0.09f, 0.8f, 0.98f, lant, 0.9f);
+        if (near_ || (ddx * ddx + ddz * ddz) < 26.0f * 26.0f) {
+            static const float bed[8][4] = {      // x, z, giro, sangre (0 limpia, 1 manchada, 2 llena de sangre)
+                { 313.1f, 165.5f, 0.0f, 0.0f }, { 311.5f, 165.5f, 0.0f, 1.0f }, { 308.5f, 165.5f, 0.0f, 2.0f }, { 306.9f, 165.5f, 0.0f, 0.0f },
+                { 305.3f, 167.6f, 1.571f, 0.0f }, { 305.3f, 173.2f, 1.571f, 2.0f }, { 314.1f, 170.0f, 1.571f, 1.0f }, { 313.6f, 173.9f, 0.0f, 0.0f } };
+            static const float mat[3][3] = { { 150.f, 140.f, 115.f }, { 120.f, 126.f, 120.f }, { 138.f, 128.f, 104.f } };
+            static const float blk2[3][3] = { { 70.f, 86.f, 60.f }, { 96.f, 80.f, 62.f }, { 74.f, 76.f, 96.f } };
+            static const float pil[3] = { 200.f, 200.f, 190.f }, bl[3] = { 104.f, 8.f, 8.f }, bl2[3] = { 78.f, 6.f, 6.f };
+            for (int b = 0; b < 8; b++) {
+                float bx = bed[b][0], bz = bed[b][1], ba = bed[b][2];
+                int bd = (int)bed[b][3];
+                box_rot(bx, bz, ba, 0, 0, 0.45f, 1.0f, 0.03f, 0.2f, mat[b % 3], 0.0f);
+                box_rot(bx, bz, ba, 0, 0.4f, 0.47f, 0.6f, 0.2f, 0.26f, blk2[(b + 1) % 3], 0.0f);
+                box_rot(bx, bz, ba, 0, -0.75f, 0.3f, 0.2f, 0.2f, 0.3f, pil, 0.0f);
+                if (bd >= 1) box_rot(bx, bz, ba, 0.05f, 0.25f, 0.28f, 0.3f, 0.262f, 0.272f, bl, 0.0f);
+                if (bd >= 2) {
+                    box_rot(bx, bz, ba, -0.1f, 0.75f, 0.32f, 0.2f, 0.262f, 0.272f, bl2, 0.0f);
+                    box_rot(bx, bz, ba, 0.0f, -0.7f, 0.2f, 0.14f, 0.3f, 0.31f, bl, 0.0f);
+                    box_rot(bx, bz, ba, 0.62f, 0.2f, 0.18f, 0.5f, 0.0f, 0.012f, bl2, 0.0f);
+                    box_rot(bx, bz, ba, 0.7f, 0.95f, 0.1f, 0.12f, 0.0f, 0.012f, bl, 0.0f);
+                }
+            }
+            box_rot(310.8f, 174.9f, 0, 0, 0, 0.3f, 0.22f, 0.012f, 0.014f, bl2, 0.0f);       // charcos en el suelo
+            box_rot(307.6f, 168.2f, 0.3f, 0, 0, 0.22f, 0.16f, 0.012f, 0.014f, bl, 0.0f);
+        }
+    }
+}
+
+// Granero (establo de ladrillo): paredes delgadas rojas con molduras blancas, techo de granero (mansarda) con ventana del
+// henil, cupula con veleta, faroles, pacas. Cuarto de x 316..332, z 300..324; puerta doble al sur (x 320..328).
+// Y el letrero "BIENVENIDO" (de madera, sin neon) sobre el camino, antes de llegar.
+static void draw_barn(float t)
+{
+    if (cur_layer != 0 && !climbing) return;
+    const float lim = fminf(draw_lim, (gfx_pd[gfx] * rd_k));
+    static const float woodD[3] = { 70.f, 46.f, 28.f }, board[3] = { 98.f, 64.f, 36.f }, cream[3] = { 242.f, 232.f, 200.f };
+    if (in_view(324.0f, 342.0f, 7.0f, lim)) {
+        for (int s2 = 0; s2 < 2; s2++) box_rot(s2 ? 328.6f : 319.4f, 342.0f, 0, 0, 0, 0.22f, 0.22f, 0.0f, 4.7f, woodD, 0.0f);
+        box_rot(324.0f, 342.0f, 0, 0, 0, 4.7f, 0.14f, 3.3f, 4.5f, board, 0.0f);
+        box_rot(324.0f, 342.0f, 0, 0, 0, 4.85f, 0.18f, 4.5f, 4.7f, woodD, 0.0f);
+        box_rot(324.0f, 342.0f, 0, 0, 0, 4.85f, 0.18f, 3.1f, 3.3f, woodD, 0.0f);
+        static const char hi[11] = "BIENVENIDO";
+        for (int i = 0; i < 10; i++)
+            neon_letter_now(hi[i], 324.0f - ((float)i - 4.5f) * 0.82f, 3.55f, cream, 0.0f, 342.15f, 0.6f, 0.7f, 0.1f);
+    }
+    if (!in_view(324.0f, 312.0f, 20.0f, lim)) return;
+    static const float red[3] = { 156.f, 42.f, 36.f }, redD[3] = { 120.f, 32.f, 28.f }, white[3] = { 238.f, 234.f, 226.f }, stone[3] = { 128.f, 126.f, 122.f };
+    static const float roof[3] = { 64.f, 60.f, 64.f }, dark[3] = { 28.f, 24.f, 24.f }, glass[3] = { 44.f, 52.f, 66.f }, lant[3] = { 255.f, 200.f, 120.f };
+    static const float hay[3] = { 205.f, 170.f, 70.f }, hay2[3] = { 190.f, 154.f, 60.f };
+    const float XL = 316.0f, XR = 332.0f, ZN = 300.0f, ZS = 324.0f, CX = 324.0f, WH = 5.5f;
+    float ddx = px - CX, ddz = pz - 312.0f;
+    int near_ = (ddx * ddx + ddz * ddz) < 45.0f * 45.0f;
+    // paredes delgadas (el hueco x 320..328 es la puerta doble)
+    box_rot(XL, 312.0f, 0, 0, 0, 0.2f, 12.0f, 0.0f, WH, red, 0.0f);
+    box_rot(XR, 312.0f, 0, 0, 0, 0.2f, 12.0f, 0.0f, WH, red, 0.0f);
+    box_rot(CX, ZN, 0, 0, 0, 8.0f, 0.2f, 0.0f, WH, red, 0.0f);
+    box_rot(318.0f, ZS, 0, 0, 0, 2.0f, 0.2f, 0.0f, WH, red, 0.0f);
+    box_rot(330.0f, ZS, 0, 0, 0, 2.0f, 0.2f, 0.0f, WH, red, 0.0f);
+    // base de piedra y esquinas blancas
+    box_rot(XL - 0.22f, 312.0f, 0, 0, 0, 0.04f, 12.2f, 0.0f, 0.6f, stone, 0.0f);
+    box_rot(XR + 0.22f, 312.0f, 0, 0, 0, 0.04f, 12.2f, 0.0f, 0.6f, stone, 0.0f);
+    box_rot(CX, ZN - 0.22f, 0, 0, 0, 8.2f, 0.04f, 0.0f, 0.6f, stone, 0.0f);
+    box_rot(318.0f, ZS + 0.22f, 0, 0, 0, 2.2f, 0.04f, 0.0f, 0.6f, stone, 0.0f);
+    box_rot(330.0f, ZS + 0.22f, 0, 0, 0, 2.2f, 0.04f, 0.0f, 0.6f, stone, 0.0f);
+    for (int a = 0; a < 2; a++)
+        for (int b = 0; b < 2; b++) box_rot(a ? XR : XL, b ? ZS : ZN, 0, 0, 0, 0.28f, 0.28f, 0.0f, WH + 0.05f, white, 0.0f);
+    // marco blanco de la puerta doble y riel
+    box_rot(319.7f, ZS + 0.05f, 0, 0, 0, 0.24f, 0.3f, 0.0f, WH + 0.35f, white, 0.0f);
+    box_rot(328.3f, ZS + 0.05f, 0, 0, 0, 0.24f, 0.3f, 0.0f, WH + 0.35f, white, 0.0f);
+    box_rot(CX, ZS + 0.05f, 0, 0, 0, 4.55f, 0.3f, WH, WH + 0.35f, white, 0.0f);
+    // techo de granero (mansarda): dos pendientes por lado
+    {
+        const float z0 = 299.2f, z1 = 324.8f, ex = 8.6f, kx = 6.0f;
+        float q1[4][3] = { { CX - ex, WH, z0 }, { CX - ex, WH, z1 }, { CX - kx, 8.0f, z1 }, { CX - kx, 8.0f, z0 } };
+        float q2[4][3] = { { CX - kx, 8.0f, z0 }, { CX - kx, 8.0f, z1 }, { CX, 9.5f, z1 }, { CX, 9.5f, z0 } };
+        float q3[4][3] = { { CX + ex, WH, z0 }, { CX + ex, WH, z1 }, { CX + kx, 8.0f, z1 }, { CX + kx, 8.0f, z0 } };
+        float q4[4][3] = { { CX + kx, 8.0f, z0 }, { CX + kx, 8.0f, z1 }, { CX, 9.5f, z1 }, { CX, 9.5f, z0 } };
+        quad_sub(q1, roof, 3, 0.0f); quad_sub(q2, roof, 3, 0.0f); quad_sub(q3, roof, 3, 0.0f); quad_sub(q4, roof, 3, 0.0f);
+        for (int e = 0; e < 2; e++) {                               // frontales (pentagono): rojo
+            float zz = e ? z1 - 0.02f : z0 + 0.02f;
+            V a = mk(CX - ex, WH, zz, red, 0), b = mk(CX + ex, WH, zz, red, 0), c = mk(CX + kx, 8.0f, zz, red, 0), d = mk(CX, 9.5f, zz, red, 0), f = mk(CX - kx, 8.0f, zz, red, 0);
+            tri_cam(a, b, c); tri_cam(a, c, d); tri_cam(a, d, f);
+        }
+        box_rot(CX, 312.0f, 0, 0, 0, 0.12f, 12.8f, 9.45f, 9.6f, white, 0.0f);          // cumbrera
+        box_rot(CX - kx, 312.0f, 0, 0, 0, 0.09f, 12.8f, 7.95f, 8.08f, white, 0.0f);      // quiebre de la mansarda
+        box_rot(CX + kx, 312.0f, 0, 0, 0, 0.09f, 12.8f, 7.95f, 8.08f, white, 0.0f);
+        // ventana del henil con marco blanco, y la viga del gancho
+        box_rot(CX, z1 + 0.0f, 0, 0, 0, 1.5f, 0.05f, 6.0f, 8.3f, white, 0.0f);
+        box_rot(CX, z1 + 0.04f, 0, 0, 0, 1.25f, 0.03f, 6.25f, 8.05f, dark, 0.0f);
+        box_rot(CX, z1 + 0.07f, 0, 0, 0, 0.05f, 0.03f, 6.25f, 8.05f, white, 0.0f);
+        box_rot(CX, z1 + 0.07f, 0, 0, 0, 1.25f, 0.03f, 7.1f, 7.18f, white, 0.0f);
+        box_rot(CX, z1 + 0.9f, 0, 0, 0, 0.08f, 0.9f, 9.0f, 9.14f, white, 0.0f);
+    }
+    // cupula de ventilacion con veleta
+    box_rot(CX, 312.0f, 0, 0, 0, 0.95f, 0.95f, 9.4f, 10.5f, red, 0.0f);
+    box_rot(CX, 312.0f, 0, 0, 0, 1.0f, 1.0f, 10.4f, 10.5f, white, 0.0f);
+    pyr_rot(CX, 312.0f, 1.25f, 10.5f, 11.7f, roof);
+    box_rot(CX, 312.0f, 0, 0, 0, 0.03f, 0.03f, 11.7f, 12.9f, dark, 0.0f);
+    box_rot(CX, 312.0f, 0, 0, 0.5f, 0.03f, 0.5f, 12.2f, 12.3f, dark, 0.0f);
+    // ventanas laterales (tres por lado) y faroles junto a la puerta
+    if (near_) {
+        for (int s2 = 0; s2 < 6; s2++) {
+            float z = 305.0f + 7.0f * (float)(s2 % 3), xo = (s2 >= 3) ? XR + 0.23f : XL - 0.23f;
+            box_rot(xo, z, 0, 0, 0, 0.05f, 0.95f, 2.3f, 4.0f, white, 0.0f);
+            box_rot(xo + ((s2 >= 3) ? 0.03f : -0.03f), z, 0, 0, 0, 0.03f, 0.8f, 2.45f, 3.85f, glass, 0.15f);
+            box_rot(xo + ((s2 >= 3) ? 0.05f : -0.05f), z, 0, 0, 0, 0.02f, 0.03f, 2.45f, 3.85f, white, 0.0f);
+        }
+        for (int s2 = 0; s2 < 2; s2++) {
+            float x = s2 ? 329.2f : 318.8f;
+            box_rot(x, 325.2f, 0, 0, 0, 0.06f, 0.06f, 0.0f, 2.6f, dark, 0.0f);
+            box_rot(x, 325.2f, 0, 0, 0, 0.14f, 0.14f, 2.6f, 3.0f, lant, 0.9f);
+            box_rot(x, 325.2f, 0, 0, 0, 0.2f, 0.2f, 3.0f, 3.06f, dark, 0.0f);
+        }
+        // pacas de heno junto a la entrada
+        box_rot(317.4f, 327.2f, 0, 0, 0, 0.95f, 0.5f, 0.0f, 0.6f, hay, 0.0f);
+        box_rot(317.4f, 327.2f, 0, 0, 0, 0.85f, 0.45f, 0.6f, 1.2f, hay2, 0.0f);
+        box_rot(330.8f, 327.0f, 0, 0, 0, 0.95f, 0.5f, 0.0f, 0.6f, hay2, 0.0f);
+    }
 }
 
 static void draw_church(void)
@@ -9512,7 +9702,7 @@ static void draw_glows(float t)
         float ix = items[i].x - px, iz = items[i].z - pz;
         if (ix * ix + iz * iz > 36.0f * 36.0f || !los_to(items[i].x, items[i].z, 0.0f)) continue;
         if (items[i].kind == 0) continue;                 // las llaves no brillan
-        draw_glow(items[i].x, 0.12f, items[i].z, 0.22f, 240, 240, 230, 95);
+        draw_glow(items[i].x, 0.12f + tab_h(items[i].x, items[i].z), items[i].z, 0.22f, 240, 240, 230, 95);
     }
     int got = notes_got[0] + notes_got[1] + notes_got[2];
     for (int i = 0; i < 3; i++) {
@@ -9545,7 +9735,7 @@ static void compute_flow(int layer, int tx, int tz)
         for (int k = 0; k < 4; k++) {
             int nx = x + dx[k], nz = z + dz[k];
             if (nx < 0 || nz < 0 || nx >= MW || nz >= MH) continue;
-            if (solid_grid[layer][nz][nx] || dist_map[nz][nx] != 9999) continue;
+            if (AI_SOLID(layer, nz, nx) || dist_map[nz][nx] != 9999) continue;
             dist_map[nz][nx] = dist_map[z][x] + 1;
             bqx[t] = (short)nx; bqz[t++] = (short)nz;
         }
@@ -9562,7 +9752,7 @@ static int mon_clear(int layer, float x0, float z0, float x1, float z1)
         float t = (float)i / n;
         for (int k = -1; k <= 1; k++) {                       // tres carriles: el cuerpo es ancho
             int cx = (int)((x0 + dx * t + nx * 0.45f * k) / CS), cz = (int)((z0 + dz * t + nz * 0.45f * k) / CS);
-            if (cx < 0 || cz < 0 || cx >= MW || cz >= MH || solid_grid[layer][cz][cx]) return 0;
+            if (cx < 0 || cz < 0 || cx >= MW || cz >= MH || AI_SOLID(layer, cz, cx)) return 0;
         }
     }
     return 1;
@@ -9670,7 +9860,7 @@ static void update_monster(float dt, int notes)
                 unsigned int h = hash2((int)game_seed + mon_wp_n * 31 + k, 777 + mon_wp_n);
                 int wx = (int)(h % MW), wz = (int)((h >> 8) % MH);
                 float cx = (wx + 0.5f) * CS, cz = (wz + 0.5f) * CS;
-                if (solid_grid[mlayer][wz][wx]) continue;
+                if (AI_SOLID(mlayer, wz, wx)) continue;
                 if ((cx - sx_) * (cx - sx_) + (cz - sz_) * (cz - sz_) < 14.0f * 14.0f) continue;
                 mon_wpx = cx; mon_wpz = cz; mon_wp_ok = 1; need_flow = 1;
             }
@@ -9818,6 +10008,10 @@ static void place_medkits(void)
                 }
             }
         }
+        if (i == 3) { bx = 67.299f; bz = 64.0f; ba = atan2f(-1.0f, 0.0f); by = 1.20f; }   // iglesia: botiquin en la pared izquierda segun se entra (en el juego el este queda a la izquierda al mirar al norte)
+        if (i == 2) { bx = 331.649f; bz = 312.0f; ba = atan2f(-1.0f, 0.0f); by = 1.20f; }   // granero: en la pared este
+        if (i == 0) { bx = 228.351f; bz = 288.2f; ba = atan2f(1.0f, 0.0f); by = 1.20f; }   // supermercado: botiquin en la pared oeste, entre los dos estantes
+        if (i == 4) { bx = 304.351f; bz = 170.0f; ba = atan2f(1.0f, 0.0f); by = 1.20f; }   // refugio: botiquin en la pared derecha segun se entra (oeste)
         mk_x[i] = bx; mk_z[i] = bz; mk_a[i] = ba; mk_y[i] = by;
         mk_open[i] = 0; mk_t[i] = 0.0f; mk_bd[i] = 2;
     }
@@ -62328,7 +62522,7 @@ static void draw_key_floor(float x, float z, float a, int code)
         for (int j = 0; j < 4; j++) {
             const short *m = kmv[kmf[f][j]];
             float lx = (float)m[1] * s, lz = (float)m[2] * s, hy = ((float)m[0] + 1004.0f) * s;
-            p[j][0] = x + lx * ca + lz * sa; p[j][1] = 0.0f + hy + 0.004f; p[j][2] = z - lx * sa + lz * ca;
+            p[j][0] = x + lx * ca + lz * sa; p[j][1] = tab_h(x, z) + hy + 0.004f; p[j][2] = z - lx * sa + lz * ca;
         }
         float k = (float)kms[f] / 255.0f;
         fc[0] = col[0] * k; fc[1] = col[1] * k; fc[2] = col[2] * k;
@@ -63030,7 +63224,7 @@ static void draw_items(float t)
         if (item_got[i]) continue;
         const Item *it = &items[i];
         if (!in_view(it->x, it->z, 0.8f, (gfx_pd[gfx] * rd_k))) continue;
-        float y = 0.03f, a = 0.6f + (float)i * 1.37f;               // en el suelo, quietas
+        float y = 0.03f + tab_h(it->x, it->z), a = 0.6f + (float)i * 1.37f;               // en el suelo, quietas
         if (it->kind == 0) {                                    // llave en el suelo (modelo 3D)
             draw_key_floor(it->x, it->z, a, 1 + it->id);
         } else {                                                // papel con un codigo
@@ -63422,6 +63616,7 @@ static void render_game_inner(float t, int moving, int near_ladder, int notes)
             draw_cabin(t);
             draw_hut(t);
             draw_shelter(t);
+            draw_barn(t);
             draw_graves();
             draw_church();
             draw_candles();
@@ -63450,6 +63645,7 @@ static void render_game_inner(float t, int moving, int near_ladder, int notes)
             gsGlobal->PrimAlphaEnable = GS_SETTING_ON;
             draw_sewer_water(t);
             draw_spot_overlay();
+            draw_neon_flush();                          // neon por encima de la oscuridad (con z real: lo tapan paredes y estructuras)
             draw_glows(t);
             draw_other_beam();                          // el circulo de luz del otro jugador
             gsGlobal->PrimAlphaEnable = GS_SETTING_OFF;
@@ -64867,7 +65063,7 @@ static void menu_frame(u32 newp, float lv, int frame)
             } else draw_text(24.0f, yy, "ESPERA A QUE EL ANFITRION COMIENCE", 1, hint_c);
         }
         draw_text(W - 190.0f, H - 20.0f, "O: SALIR DE LA SALA", 1, hint_c);
-        draw_text(W - 60.0f, 6.0f, "V144", 1, hint_c);
+        draw_text(W - 60.0f, 6.0f, "V149", 1, hint_c);
     } else if (screen == SC_NETLIST) {
         draw_text_c(40.0f, "PARTIDAS PUBLICAS", 4, sel_c);
         int cnt_ = room_count();
