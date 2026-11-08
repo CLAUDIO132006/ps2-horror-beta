@@ -23460,7 +23460,8 @@ static void draw_candle_flames(float t)
         float sx = W * 0.5f + cxv / czv * FOCAL;
         float syb = H * 0.5f - cyb / czv * FOCAL, syt = H * 0.5f - cyt / czv * FOCAL;
         float hpx = syb - syt;                       // alto de la llama en pantalla
-        if (hpx < 1.0f || sx < -40.0f || sx > W + 40.0f) continue;
+        if (sx < -40.0f || sx > W + 40.0f) continue;
+        if (hpx < 11.0f) { hpx = 11.0f; syt = syb - hpx; }   // tamano minimo en pantalla: la llama se sigue viendo a distancia
         float cw = hpx * 0.56f / FL_W, ch = hpx / FL_H;
         int fi = ((int)(t * 14.0f) + n * 7) % FL_N;
         int fz_ = glow_z(czv, 0.15f);
