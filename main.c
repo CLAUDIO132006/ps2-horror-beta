@@ -4352,7 +4352,7 @@ static const char *map1[MH] = {"################################################
 "################################################################################################",
 "################################################################################################"};
 typedef struct { float x,z,a,hx,hz,y0,y1; unsigned char r,g,b,type,layer; float emit; } Prop;
-#define NPROP 361
+#define NPROP 354
 static const Prop props[NPROP] = {
   {192.400f,176.400f,0.000f,0.120f,0.120f,0.000f,10.000f,150,150,155,0,0,0.000f},
   {192.400f,179.600f,0.000f,0.120f,0.120f,0.000f,10.000f,150,150,155,0,0,0.000f},
@@ -4528,13 +4528,6 @@ static const Prop props[NPROP] = {
   {61.500f,71.300f,0.000f,2.000f,0.060f,0.500f,1.150f,95,62,35,0,0,0.000f},
   {58.000f,57.100f,0.000f,1.700f,0.600f,0.000f,1.000f,110,80,52,0,0,0.220f},
   {58.000f,57.100f,0.000f,1.750f,0.650f,1.000f,1.060f,235,235,240,0,0,0.220f},
-  {58.000f,56.600f,0.000f,0.090f,0.090f,1.060f,4.600f,95,62,35,0,0,0.220f},
-  {58.000f,56.600f,0.000f,0.900f,0.090f,3.500f,3.800f,95,62,35,0,0,0.220f},
-  {58.000f,56.780f,0.000f,0.140f,0.120f,3.800f,4.100f,205,170,140,0,0,0.220f},
-  {58.000f,56.780f,0.000f,0.200f,0.090f,2.600f,3.750f,205,170,140,0,0,0.220f},
-  {58.000f,56.780f,0.000f,0.850f,0.060f,3.500f,3.650f,205,170,140,0,0,0.220f},
-  {58.000f,56.780f,0.000f,0.230f,0.110f,2.200f,2.700f,235,235,240,0,0,0.220f},
-  {58.000f,56.780f,0.000f,0.130f,0.080f,1.500f,2.200f,205,170,140,0,0,0.220f},
   {53.600f,57.000f,0.000f,0.450f,0.450f,0.000f,1.300f,90,60,35,0,0,0.000f},
   {52.700f,66.000f,0.000f,0.400f,1.100f,0.000f,0.120f,70,20,20,0,0,0.000f},
   {239.200f,285.000f,0.000f,0.450f,2.000f,0.000f,1.000f,150,150,150,0,0,0.000f},
@@ -7665,6 +7658,135 @@ static void draw_candles(void)
             }
             tri_cam(v[0], v[1], v[2]);
         }
+    }
+}
+
+
+// ---------------- Cristo crucificado de la iglesia (modelado con cajas: corona de espinas, sangre, herida del costado) ----------------
+static void cb_(float x0, float x1, float y0, float y1, float z0, float z1, const float *c, float e)
+{
+    box_rot(58.0f + (x0 + x1) * 0.5f, (z0 + z1) * 0.5f, 0, 0, 0, (x1 - x0) * 0.5f, (z1 - z0) * 0.5f, y0, y1, c, e);
+}
+static void draw_christ(void)
+{
+    if (cur_layer != 0 && !climbing) return;
+    float ddx = px - 58.0f, ddz = pz - 56.6f, dd = ddx * ddx + ddz * ddz;
+    if (dd > 40.0f * 40.0f) return;
+    {   float qx = dance_cam ? dance_px : px, qz = dance_cam ? dance_pz : pz;
+        if (!(qx > 48.0f && qx < 68.0f && qz > 48.0f && qz < 80.0f) && !in_view(58.0f, 57.0f, 6.0f, fminf(draw_lim, (gfx_pd[gfx] * rd_k)))) return; }
+    static const float wood[3] = { 95.f, 62.f, 35.f }, woodd[3] = { 72.f, 46.f, 26.f }, skin[3] = { 214.f, 172.f, 138.f }, skind[3] = { 186.f, 142.f, 112.f };
+    static const float hair[3] = { 58.f, 38.f, 24.f }, blood[3] = { 150.f, 12.f, 14.f }, bloodb[3] = { 205.f, 26.f, 24.f }, thorn[3] = { 78.f, 56.f, 30.f };
+    static const float cloth[3] = { 232.f, 226.f, 210.f }, clothd[3] = { 196.f, 190.f, 174.f }, plaque[3] = { 226.f, 213.f, 172.f }, ink[3] = { 40.f, 30.f, 24.f };
+    static const float water[3] = { 225.f, 150.f, 150.f };
+    const float E = 0.22f, EB = 0.12f;
+    const int det = dd < 14.0f * 14.0f;                                 // detalle fino solo de cerca (rendimiento)
+    const float zb = 56.6f, zf = 56.78f;                                // z de la cruz y del cuerpo
+    // cruz: poste, travesano y letrero INRI
+    cb_(-0.09f, 0.09f, 1.06f, 4.60f, zb - 0.09f, zb + 0.09f, wood, E);
+    cb_(-0.95f, 0.95f, 3.45f, 3.75f, zb - 0.09f, zb + 0.09f, wood, E);
+    cb_(-0.22f, 0.22f, 4.22f, 4.46f, zb + 0.09f, zb + 0.12f, plaque, E);
+    if (det) { cb_(-0.16f, 0.16f, 4.36f, 4.38f, zb + 0.12f, zb + 0.125f, ink, 0.0f); cb_(-0.12f, 0.12f, 4.30f, 4.32f, zb + 0.12f, zb + 0.125f, ink, 0.0f); }
+    cb_(-0.10f, 0.10f, 1.06f, 1.10f, zb - 0.10f, zb + 0.10f, woodd, E);
+    // cabeza, cabello y barba
+    cb_(-0.115f, 0.115f, 3.80f, 4.07f, zf - 0.105f, zf + 0.105f, skin, E);
+    cb_(-0.13f, 0.13f, 4.00f, 4.10f, zf - 0.12f, zf + 0.115f, hair, E);                 // cabello sobre la frente
+    cb_(-0.13f, 0.13f, 3.80f, 4.06f, zf - 0.125f, zf - 0.08f, hair, E);                 // cabello atras
+    cb_(-0.145f, -0.115f, 3.62f, 4.04f, zf - 0.11f, zf + 0.05f, hair, E);               // mechones largos a los lados
+    cb_(0.115f, 0.145f, 3.62f, 4.04f, zf - 0.11f, zf + 0.05f, hair, E);
+    cb_(-0.085f, 0.085f, 3.72f, 3.86f, zf + 0.09f, zf + 0.125f, hair, E);              // barba
+    cb_(-0.035f, 0.035f, 3.86f, 3.90f, zf + 0.105f, zf + 0.125f, hair, E);             // bigote
+    cb_(-0.018f, 0.018f, 3.835f, 3.855f, zf + 0.115f, zf + 0.128f, blood, EB);          // boca
+    if (det) {
+        cb_(-0.085f, -0.035f, 3.945f, 3.965f, zf + 0.105f, zf + 0.12f, ink, 0.0f);      // ojos cerrados
+        cb_(0.035f, 0.085f, 3.945f, 3.965f, zf + 0.105f, zf + 0.12f, ink, 0.0f);
+        cb_(-0.09f, -0.03f, 3.98f, 3.995f, zf + 0.105f, zf + 0.118f, hair, 0.0f);       // cejas
+        cb_(0.03f, 0.09f, 3.98f, 3.995f, zf + 0.105f, zf + 0.118f, hair, 0.0f);
+        cb_(-0.015f, 0.015f, 3.89f, 3.96f, zf + 0.105f, zf + 0.13f, skind, E);          // nariz
+    }
+    // corona de espinas: dos anillos entrelazados y espinas
+    for (int k = 0; k < 8; k++) {
+        float th = 0.7853982f * (float)k;
+        box_rot(58.0f, zf, th, 0.145f, 0.0f, 0.02f, 0.07f, 4.015f, 4.055f, thorn, E);
+        box_rot(58.0f, zf, th + 0.3927f, 0.15f, 0.0f, 0.02f, 0.07f, 4.065f, 4.105f, thorn, E);
+        if (det) box_rot(58.0f, zf, th + 0.19f, 0.15f, 0.0f, 0.008f, 0.008f, 4.10f, 4.175f, thorn, E);
+        if (det && k < 6) box_rot(58.0f, zf, th + 0.5f, 0.175f, 0.0f, 0.03f, 0.008f, 4.03f, 4.045f, thorn, E);   // espinas hacia afuera
+    }
+    // sangre de la corona: gotas por la frente, sienes y mejillas
+    cb_(-0.07f, -0.05f, 3.90f, 4.01f, zf + 0.108f, zf + 0.122f, bloodb, EB);
+    cb_(0.025f, 0.045f, 3.86f, 4.01f, zf + 0.108f, zf + 0.122f, bloodb, EB);
+    cb_(0.085f, 0.100f, 3.84f, 4.00f, zf + 0.108f, zf + 0.122f, blood, EB);
+    cb_(-0.118f, -0.108f, 3.80f, 4.02f, zf + 0.0f, zf + 0.09f, blood, EB);
+    cb_(0.108f, 0.118f, 3.78f, 4.02f, zf + 0.0f, zf + 0.09f, blood, EB);
+    cb_(-0.01f, 0.01f, 4.00f, 4.04f, zf + 0.108f, zf + 0.122f, bloodb, EB);
+    // cuello y torso
+    cb_(-0.05f, 0.05f, 3.66f, 3.80f, zf - 0.05f, zf + 0.05f, skin, E);
+    cb_(-0.235f, 0.235f, 3.50f, 3.68f, zf - 0.10f, zf + 0.10f, skin, E);                // hombros
+    cb_(-0.205f, 0.205f, 3.20f, 3.50f, zf - 0.10f, zf + 0.10f, skin, E);                // pecho
+    cb_(-0.165f, 0.165f, 2.72f, 3.20f, zf - 0.09f, zf + 0.09f, skin, E);                // abdomen
+    cb_(-0.19f, 0.19f, 2.58f, 2.74f, zf - 0.10f, zf + 0.10f, skin, E);                  // cadera
+    if (det) {
+        for (int k = 0; k < 4; k++) cb_(-0.17f + 0.02f * (float)k, 0.17f - 0.02f * (float)k, 3.22f + 0.065f * (float)k, 3.235f + 0.065f * (float)k, zf + 0.10f, zf + 0.108f, skind, E);   // costillas
+        cb_(-0.015f, 0.015f, 2.80f, 3.20f, zf + 0.09f, zf + 0.098f, skind, E);          // linea del abdomen
+        cb_(-0.11f, -0.01f, 3.40f, 3.46f, zf + 0.10f, zf + 0.108f, skind, E);           // pectorales
+        cb_(0.01f, 0.11f, 3.40f, 3.46f, zf + 0.10f, zf + 0.108f, skind, E);
+        // marcas de la flagelacion (latigazos)
+        cb_(-0.15f, -0.02f, 3.43f, 3.445f, zf + 0.108f, zf + 0.116f, blood, EB);
+        cb_(0.02f, 0.14f, 3.33f, 3.345f, zf + 0.108f, zf + 0.116f, blood, EB);
+        cb_(-0.13f, 0.0f, 3.12f, 3.135f, zf + 0.098f, zf + 0.106f, blood, EB);
+        cb_(0.0f, 0.15f, 2.98f, 2.995f, zf + 0.098f, zf + 0.106f, blood, EB);
+        cb_(-0.14f, -0.03f, 2.88f, 2.895f, zf + 0.098f, zf + 0.106f, blood, EB);
+        cb_(-0.20f, -0.05f, 3.58f, 3.595f, zf + 0.10f, zf + 0.108f, blood, EB);
+    }
+    // herida del costado (lado derecho de Cristo = izquierda de quien mira) con sangre y agua escurriendo
+    cb_(0.085f, 0.135f, 3.06f, 3.13f, zf + 0.098f, zf + 0.112f, bloodb, EB);
+    cb_(0.10f, 0.12f, 2.80f, 3.06f, zf + 0.098f, zf + 0.110f, blood, EB);
+    cb_(0.13f, 0.145f, 2.74f, 3.04f, zf + 0.090f, zf + 0.104f, water, EB);
+    cb_(0.07f, 0.09f, 2.84f, 3.03f, zf + 0.092f, zf + 0.104f, blood, EB);
+    // brazos extendidos sobre el travesano, con las manos clavadas
+    for (int sd = -1; sd <= 1; sd += 2) {
+        float s = (float)sd;
+        float a0 = s > 0 ? 0.20f : -0.55f, a1 = s > 0 ? 0.55f : -0.20f;
+        cb_(a0, a1, 3.50f, 3.66f, zb + 0.09f, zb + 0.15f, skin, E);                      // brazo
+        float f0 = s > 0 ? 0.55f : -0.83f, f1 = s > 0 ? 0.83f : -0.55f;
+        cb_(f0, f1, 3.45f, 3.60f, zb + 0.09f, zb + 0.145f, skin, E);                     // antebrazo
+        float h0 = s > 0 ? 0.83f : -0.93f, h1 = s > 0 ? 0.93f : -0.83f;
+        cb_(h0, h1, 3.43f, 3.60f, zb + 0.09f, zb + 0.14f, skin, E);                      // mano
+        float nx = s * 0.88f;
+        cb_(nx - 0.025f, nx + 0.025f, 3.48f, 3.54f, zb + 0.138f, zb + 0.15f, bloodb, EB);  // clavo y herida
+        cb_(nx - 0.012f, nx + 0.012f, 3.00f, 3.48f, zb + 0.09f, zb + 0.15f, blood, EB);    // sangre escurriendo de la mano
+        if (det) {
+            cb_(s > 0 ? 0.55f : -0.83f, s > 0 ? 0.83f : -0.55f, 3.43f, 3.455f, zb + 0.09f, zb + 0.152f, blood, EB);   // hilo de sangre en el antebrazo
+            cb_(nx - 0.018f, nx + 0.018f, 2.90f, 3.00f, zb + 0.09f, zb + 0.15f, bloodb, EB);                          // gota
+            cb_(s * 0.30f - 0.01f, s * 0.30f + 0.01f, 3.50f, 3.66f, zb + 0.15f, zb + 0.153f, skind, E);               // codo (sombra)
+        }
+    }
+    // paño de pureza y cuerda
+    cb_(-0.205f, 0.205f, 2.44f, 2.62f, zf - 0.115f, zf + 0.115f, cloth, E);
+    cb_(-0.195f, 0.195f, 2.12f, 2.44f, zf - 0.105f, zf + 0.115f, cloth, E);
+    cb_(0.06f, 0.20f, 1.86f, 2.14f, zf + 0.03f, zf + 0.12f, clothd, E);                  // pliegue colgando del lado derecho
+    cb_(-0.21f, 0.21f, 2.58f, 2.64f, zf - 0.12f, zf + 0.12f, woodd, E);                  // cuerda
+    if (det) {
+        cb_(-0.10f, -0.085f, 2.20f, 2.44f, zf + 0.115f, zf + 0.122f, clothd, E);
+        cb_(0.00f, 0.015f, 2.16f, 2.44f, zf + 0.115f, zf + 0.122f, clothd, E);
+        cb_(-0.17f, -0.15f, 2.14f, 2.40f, zf + 0.115f, zf + 0.122f, clothd, E);
+        cb_(0.115f, 0.13f, 2.20f, 2.42f, zf + 0.115f, zf + 0.122f, clothd, E);
+    }
+    // piernas juntas, rodillas con heridas y pies clavados
+    cb_(-0.145f, -0.005f, 1.98f, 2.14f, zf - 0.07f, zf + 0.09f, skin, E);
+    cb_(0.005f, 0.145f, 1.98f, 2.14f, zf - 0.07f, zf + 0.09f, skin, E);
+    cb_(-0.13f, -0.005f, 1.62f, 1.98f, zf - 0.06f, zf + 0.085f, skin, E);
+    cb_(0.005f, 0.13f, 1.62f, 1.98f, zf - 0.06f, zf + 0.085f, skin, E);
+    cb_(-0.13f, 0.13f, 1.52f, 1.64f, zf - 0.05f, zf + 0.13f, skin, E);                   // pies
+    cb_(-0.03f, 0.03f, 1.55f, 1.62f, zf + 0.128f, zf + 0.14f, bloodb, EB);              // clavo en los pies
+    cb_(-0.015f, 0.015f, 1.10f, 1.52f, zb + 0.09f, zb + 0.14f, blood, EB);               // sangre goteando por la cruz
+    cb_(-0.05f, 0.05f, 1.08f, 1.12f, zb + 0.09f, zb + 0.15f, blood, EB);                 // charco al pie
+    if (det) {
+        cb_(-0.12f, -0.03f, 1.88f, 1.95f, zf + 0.082f, zf + 0.092f, blood, EB);         // rodillas / espinillas heridas
+        cb_(0.03f, 0.12f, 1.92f, 1.99f, zf + 0.082f, zf + 0.092f, blood, EB);
+        cb_(-0.11f, -0.04f, 1.74f, 1.78f, zf + 0.078f, zf + 0.088f, blood, EB);
+        cb_(0.04f, 0.11f, 1.70f, 1.74f, zf + 0.078f, zf + 0.088f, blood, EB);
+        cb_(-0.12f, -0.02f, 2.05f, 2.065f, zf + 0.09f, zf + 0.098f, blood, EB);          // latigazos en los muslos
+        cb_(0.02f, 0.13f, 2.08f, 2.095f, zf + 0.09f, zf + 0.098f, blood, EB);
     }
 }
 
@@ -23208,8 +23330,35 @@ static void kc_draw(const Player *Q, const StPose *S, int c, float em)
     StPart hd = S->head, af = S->armR, ad = S->armL;                   // cabeza y brazos con pivote propio de cada modelo
     hd.py = K->neck; af.py = K->shy; ad.py = K->shy;
     if (!af.full) { af.ang -= 1.5708f; af.c = cosf(af.ang); af.s = sinf(af.ang); }   // el brazo del .obj ya viene a 90 grados
-    kc_mesh(C, &S->legA, K, 1, em);
-    kc_mesh(C, &S->legB, K, 2, em);
+    StPart la = S->legA, lb = S->legB;
+    if (S->body.full && Q->dance_id >= 0 && state == 0 && !Q->climbing) {
+        // EMOTE: la animacion importada esta hecha para el esqueleto de Steve (hombros 2.7 sobre la cadera, cuello 2.99, piernas a +-0.57,
+        // brazos a +-1.745). Aqui se recolocan las articulaciones con las medidas reales de ESTE modelo para que las piezas no se separen.
+        static float J[NKC][4]; static unsigned char Jok[NKC];       // z media de pierna A, pierna B, brazo delantero, brazo colgante
+        if (!Jok[c]) {
+            static const int pidx[4] = { 1, 2, 4, 5 };
+            for (int q = 0; q < 4; q++) {
+                int a = K->pv[pidx[q]], b = K->pv[pidx[q] + 1]; double sum = 0.0;
+                for (int i = a; i < b; i++) sum += K->v[i * 3 + 2] * (1.0 / 256.0);
+                J[c][q] = b > a ? (float)(sum / (b - a)) : 0.0f;
+            }
+            Jok[c] = 1;
+        }
+        const float *R0 = S->body.R;
+        const float Hx = S->body.tx, Hy = S->body.ty, Hz = S->body.tz;
+        #define KOFF(yy, zz, o) { o[0] = R0[1] * (yy) + R0[2] * (zz); o[1] = R0[4] * (yy) + R0[5] * (zz); o[2] = R0[7] * (yy) + R0[8] * (zz); }
+        float o[3];
+        KOFF(K->neck - 3.5f, 0.0f, o); hd.py = K->neck; hd.pz = 0.0f; hd.tx = Hx + o[0]; hd.ty = Hy + o[1]; hd.tz = Hz + o[2];
+        KOFF(K->shy - 3.5f, J[c][2], o); af.py = K->shy; af.pz = J[c][2]; af.tx = Hx + o[0]; af.ty = Hy + o[1]; af.tz = Hz + o[2];
+        { float r[9]; memcpy(r, af.R, sizeof(r));                    // el brazo delantero del .obj ya esta a 90 grados: R * Rz(-90)
+          for (int k = 0; k < 3; k++) { af.R[k * 3] = -r[k * 3 + 1]; af.R[k * 3 + 1] = r[k * 3]; af.R[k * 3 + 2] = r[k * 3 + 2]; } }
+        KOFF(K->shy - 3.5f, J[c][3], o); ad.py = K->shy; ad.pz = J[c][3]; ad.tx = Hx + o[0]; ad.ty = Hy + o[1]; ad.tz = Hz + o[2];
+        #undef KOFF
+        la.tx = Hx + (S->legA.tx - Hx) * (J[c][0] / -0.57f); la.ty = Hy + (S->legA.ty - Hy) * (J[c][0] / -0.57f); la.tz = Hz + (S->legA.tz - Hz) * (J[c][0] / -0.57f); la.pz = J[c][0];
+        lb.tx = Hx + (S->legB.tx - Hx) * (J[c][1] / 0.57f);  lb.ty = Hy + (S->legB.ty - Hy) * (J[c][1] / 0.57f);  lb.tz = Hz + (S->legB.tz - Hz) * (J[c][1] / 0.57f);  lb.pz = J[c][1];
+    }
+    kc_mesh(C, &la, K, 1, em);
+    kc_mesh(C, &lb, K, 2, em);
     kc_mesh(C, &S->body, K, 0, em);
     kc_mesh(C, &hd, K, 3, em);
     kc_mesh(C, &af, K, 4, em);
@@ -23467,7 +23616,7 @@ static void draw_candle_flames(float t)
         if (hpx < 11.0f) { hpx = 11.0f; syt = syb - hpx; }   // tamano minimo en pantalla: la llama se sigue viendo a distancia
         float cw = hpx * 0.56f / FL_W, ch = hpx / FL_H;
         int fi = ((int)(t * 14.0f) + n * 7) % FL_N;
-        int fz_ = glow_z(czv, 1.2f);          // bien adelantada: que ni el candelabro ni el altar tapen la llama
+        int fz_ = spec_day ? glow_z(czv, 1.2f) : 16777100;   // de noche la oscuridad de pantalla (z 16777000) tapaba la llama: se dibuja por encima de ella; la linea de vista ya evita verla a traves de paredes
         for (int j = 0; j < FL_H; j++)
             for (int i = 0; i < FL_W; i++) {
                 const unsigned char *c = fl_px[fi][j * FL_W + i];
@@ -79325,6 +79474,7 @@ static void render_game_inner(float t, int moving, int near_ladder, int notes)
             draw_graves();
             draw_church();
             draw_candles();
+            draw_christ();
             draw_chimney();
             draw_rocks();
             draw_lamps();
