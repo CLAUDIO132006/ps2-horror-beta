@@ -9498,6 +9498,87 @@ static int other_lens_world(float *wx, float *wy, float *wz)
     return 1;
 }
 
+// ---- Kirby REDONDO: cuerpo, pies y manos son elipsoides; la cara elegida se pega al frente de la esfera ----
+static void kb_ell(const StCtx *C, const StPart *p, float cx, float cy, float cz, float rx, float ry, float rz,
+                   const float *col, int nu, int nv, float emit)
+{
+    for (int j = 0; j < nv; j++) {
+        float t0 = -1.5708f + 3.14159f * (float)j / nv, t1 = -1.5708f + 3.14159f * (float)(j + 1) / nv;
+        for (int i = 0; i < nu; i++) {
+            float f0 = 6.28318f * (float)i / nu, f1 = 6.28318f * (float)(i + 1) / nu;
+            float tm = (t0 + t1) * 0.5f, fm = (f0 + f1) * 0.5f;
+            float n0 = cosf(tm) * cosf(fm) / rx, n1 = sinf(tm) / ry, n2 = cosf(tm) * sinf(fm) / rz;
+            float nl = 1.0f / sqrtf(n0 * n0 + n1 * n1 + n2 * n2); n0 *= nl; n1 *= nl; n2 *= nl;
+            float nx, ny, nz; st_nrm(p, n0, n1, n2, &nx, &ny, &nz);
+            float wx = nx * C->fwx + nz * C->rtx, wz = nx * C->fwz + nz * C->rtz;
+            float m[3], c3[3];
+            st_pt(C, p, cx + rx * cosf(tm) * cosf(fm), cy + ry * sinf(tm), cz + rz * cosf(tm) * sinf(fm), m);
+            if (wx * (px - m[0]) + ny * (cam_y - m[1]) + wz * (pz - m[2]) <= 0.0f) continue;
+            float sh = 0.62f + 0.38f * (ny > 0.0f ? ny : 0.0f);
+            c3[0] = col[0] * sh; c3[1] = col[1] * sh; c3[2] = col[2] * sh;
+            float q[4][3];
+            const float T[4] = { t0, t0, t1, t1 }, F[4] = { f0, f1, f1, f0 };
+            for (int k = 0; k < 4; k++)
+                st_pt(C, p, cx + rx * cosf(T[k]) * cosf(F[k]), cy + ry * sinf(T[k]), cz + rz * cosf(T[k]) * sinf(F[k]), q[k]);
+            quad_sub(q, c3, 1, emit);
+        }
+    }
+}
+
+static void kb_face(const StCtx *C, const StPart *p, float cx, float cy, float cz, float rx, float ry, float rz,
+                    const unsigned char *face, float emit)
+{
+    const float S = 0.118f;                                         // radianes por pixel de la cara
+    for (int yi = 0; yi < 16; yi++) {
+        float t0 = 0.08f + (8.0f - (float)(yi + 1)) * S, t1 = t0 + S;
+        int xi = 0;
+        while (xi < 16) {
+            const unsigned char *a = &face[(yi * 16 + xi) * 3];
+            if (a[0] == 240 && a[1] == 160 && a[2] == 176) { xi++; continue; }
+            int xe = xi + 1;
+            while (xe < 16 && !memcmp(&face[(yi * 16 + xe) * 3], a, 3)) xe++;
+            float f0 = (8.0f - (float)xe) * S, f1 = (8.0f - (float)xi) * S;        // columna 0 = lado +z
+            float tm = (t0 + t1) * 0.5f, fm = (f0 + f1) * 0.5f;
+            float n0 = cosf(tm) * cosf(fm) / rx, n1 = sinf(tm) / ry, n2 = cosf(tm) * sinf(fm) / rz;
+            float nl = 1.0f / sqrtf(n0 * n0 + n1 * n1 + n2 * n2); n0 *= nl; n1 *= nl; n2 *= nl;
+            float nx, ny, nz; st_nrm(p, n0, n1, n2, &nx, &ny, &nz);
+            float wx = nx * C->fwx + nz * C->rtx, wz = nx * C->fwz + nz * C->rtz, m[3];
+            st_pt(C, p, cx + rx * cosf(tm) * cosf(fm), cy + ry * sinf(tm), cz + rz * cosf(tm) * sinf(fm), m);
+            if (wx * (px - m[0]) + ny * (cam_y - m[1]) + wz * (pz - m[2]) > 0.0f) {
+                float q[4][3], col[3] = { (float)a[0] * 0.95f, (float)a[1] * 0.95f, (float)a[2] * 0.95f };
+                const float T[4] = { t0, t0, t1, t1 }, F[4] = { f0, f1, f1, f0 };
+                for (int k = 0; k < 4; k++)
+                    st_pt(C, p, cx + rx * 1.012f * cosf(T[k]) * cosf(F[k]), cy + ry * 1.012f * sinf(T[k]),
+                          cz + rz * 1.012f * cosf(T[k]) * sinf(F[k]), q[k]);
+                quad_sub(q, col, 1, emit);
+            }
+            xi = xe;
+        }
+    }
+}
+
+static void kirby_draw(const Player *Q, const StPose *S, int ski, float em)
+{
+    const StCtx *C = &S->C;
+    static const float pink[3] = { 240.f, 160.f, 176.f }, red[3] = { 215.f, 35.f, 45.f };
+    static const float dark[3] = { 38.f, 38.f, 42.f };
+    float lens[3] = { 255.f, 246.f, 200.f };
+    if (Q->uv_on) { lens[0] = 190.f; lens[1] = 110.f; lens[2] = 255.f; }
+    if (!Q->flash_on) { lens[0] = 90.f; lens[1] = 90.f; lens[2] = 92.f; }
+    float ddx = Q->px - px, ddz = Q->pz - pz, dd = ddx * ddx + ddz * ddz;
+    int nu = dd < 144.0f ? 12 : 8, nv = dd < 144.0f ? 7 : 5;
+    int slot = ski - NSKIN_MENU;
+    kb_ell(C, &S->legA, 0.35f, 1.30f, -0.95f, 1.15f, 0.85f, 0.85f, red, 8, 4, em);
+    kb_ell(C, &S->legB, 0.35f, 1.30f,  0.95f, 1.15f, 0.85f, 0.85f, red, 8, 4, em);
+    kb_ell(C, &S->armL, 0.10f, 4.10f, -2.65f, 0.80f, 0.95f, 0.80f, pink, 6, 4, em);
+    kb_ell(C, &S->armR, 0.10f, 4.10f,  2.65f, 0.80f, 0.95f, 0.80f, pink, 6, 4, em);
+    st_box(C, &S->armR, -0.25f, 0.25f, 2.55f, 3.50f, 2.40f, 2.95f, dark, em);          // linterna en la mano
+    st_box(C, &S->armR, -0.29f, 0.29f, 2.38f, 2.55f, 2.36f, 2.99f, lens, (Q->flash_on ? 0.85f : 0.05f));
+    kb_ell(C, &S->body, 0.0f, 4.55f, 0.0f, 2.50f, 2.50f, 2.35f, pink, nu, nv, em);
+    if (slot >= 0 && slot < 4 && kirby_cur[slot] >= 0)
+        kb_face(C, &S->body, 0.0f, 4.55f, 0.0f, 2.50f, 2.50f, 2.35f, kirby_face[(int)kirby_cur[slot]], em);
+}
+
 static void draw_player_model(const Player *Q, int pidx)
 {
     if (state != 0 || Q->hide_id >= 0) return;
@@ -9515,6 +9596,7 @@ static void draw_player_model(const Player *Q, int pidx)
     if (Q->uv_on) { lens[0] = 190.f; lens[1] = 110.f; lens[2] = 255.f; }
     if (!Q->flash_on) { lens[0] = 90.f; lens[1] = 90.f; lens[2] = 92.f; }
     const float em = 0.07f;
+    if (skin_of(pidx) >= NSKIN_MENU) { kirby_draw(Q, &S, skin_of(pidx), em); return; }   // Kirby: redondo
     if (K->tex) {                                              // skin con textura (STEVE ORIGINAL, SANTA...)
         float ddx = Q->px - px, ddz = Q->pz - pz, dd = ddx * ddx + ddz * ddz;
         // Detalle segun la distancia (bloques de 1/2/4 texeles). Cerca: cuerpo en bloques de 2 y la cara de la cabeza completa.
@@ -65031,6 +65113,23 @@ static void menu_frame(u32 newp, float lv, int frame)
         float cx = W * 0.5f, y0 = 246.0f;
 #define SKC(v) GS_SETREG_RGBAQ((int)(v)[0], (int)(v)[1], (int)(v)[2], 0x80, 0)
 #define SKR(x0, y0_, x1, y1, col) gsKit_prim_sprite(gsGlobal, cx + (x0), y0 + (y0_), cx + (x1), y0 + (y1), 16777000, col)
+        if (skin_pick[prow] == KIRBY_IDX) {                       // Kirby: redondo
+            const float kcx = 0.0f, kcy = 42.0f, kr = 46.0f;
+            for (int e = -1; e <= 1; e += 2) {                    // pies (elipses rojas)
+                for (int yy = 0; yy < 14; yy += 2) { float t = (yy - 7.0f) / 7.0f, hw = 20.0f * sqrtf(1.0f - t * t) + 0.5f; float fx = e * 24.0f; SKR(fx - hw, 78.0f + yy, fx + hw, 80.0f + yy, GS_SETREG_RGBAQ(215, 35, 45, 0x80, 0)); }
+                for (int yy = 0; yy < 24; yy += 2) { float t = (yy - 12.0f) / 12.0f, hw = 9.0f * sqrtf(1.0f - t * t) + 0.5f; float fx = e * 52.0f; SKR(fx - hw, 20.0f + yy, fx + hw, 22.0f + yy, GS_SETREG_RGBAQ(240, 160, 176, 0x80, 0)); }   // manos
+            }
+            for (int yy = -46; yy < 46; yy += 2) {                // cuerpo (disco rosa)
+                float t = (yy + 1.0f) / kr, hw = kr * sqrtf(1.0f - t * t);
+                SKR(kcx - hw, kcy + yy, kcx + hw, kcy + yy + 2, GS_SETREG_RGBAQ(240, 160, 176, 0x80, 0));
+            }
+            for (int yi = 0; yi < 16; yi++)                       // cara elegida
+                for (int xi = 0; xi < 16; xi++) {
+                    const unsigned char *a_ = &kirby_face[(int)kirby_cur[prow]][(yi * 16 + xi) * 3];
+                    if (a_[0] == 240 && a_[1] == 160 && a_[2] == 176) continue;
+                    SKR(-24 + xi * 3, kcy - 22 + yi * 3, -21 + xi * 3, kcy - 19 + yi * 3, GS_SETREG_RGBAQ(a_[0], a_[1], a_[2], 0x80, 0));
+                }
+        } else
         if (K->tex) {                                             // skin con textura: se ve tal cual (de frente)
             skin_prev_rect(K->tex, 8, 8, 8, 8,    cx - 16.0f, y0,         4, 0, K->geo ? 2 : 1);     // cabeza
             skin_prev_rect(K->tex, 20, 20, 8, 12, cx - 16.0f, y0 + 32.0f, 4, 0, K->geo ? 2 : 1);     // torso
