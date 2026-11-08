@@ -6241,7 +6241,7 @@ static const signed char lockers[NLOCK][4] = {   // casilla x, z y hacia donde m
     {76, 9, 0, 1},
     {81, 15, 0, 1},
     {13, 18, 0, -1},
-    {15, 11, 0, -1},
+    {15, 18, 0, -1},          // dentro de la iglesia, junto a la puerta (simetrico al otro)
     {78, 41, -1, 0},
     {78, 43, -1, 0},
     {17, 66, 1, 0},
@@ -23592,11 +23592,12 @@ static const unsigned char fl_px[FL_N][FL_W * FL_H][4] = {{{0,0,0,0},{0,0,0,0},{
 static void draw_candle_flames(float t)
 {
     if (cur_layer != 0 || climbing) return;
-    int outside_ = 0;
-    {   float qx = dance_cam ? dance_px : px, qz = dance_cam ? dance_pz : pz;
-        if (!(qx > 48.0f && qx < 68.0f && qz > 48.0f && qz < 80.0f)) {                      // fuera de la iglesia: las llamas se ven mientras estes cerca de ella
+    int outside_ = 0;                                        // camara fuera de la iglesia: las llamas solo se ven a traves de la puerta abierta
+    {   int cam_in = (px > 48.3f && px < 67.7f && pz > 56.4f && pz < 79.0f);
+        if (!cam_in) {
             if (!in_view(58.0f, 57.0f, 6.0f, fminf(draw_lim, (gfx_pd[gfx] * rd_k)))) return;
             if (fabsf(px - 58.0f) > 40.0f || fabsf(pz - 62.0f) > 40.0f) return;   // la camara (no el personaje observado)
+            if (pz <= 79.0f || !door_open[3]) return;                               // por detras o por los lados la pared las tapa; con la puerta cerrada tambien
             outside_ = 1;
         } }
     static const float cxs[4] = { 56.5f, 57.2f, 58.8f, 59.5f };
@@ -23608,7 +23609,10 @@ static void draw_candle_flames(float t)
         float yb = 1.60f - cam_y, yt = 1.78f - cam_y;
         float cyb = yb * cpitch - cz0 * spitch, cyt = yt * cpitch - cz0 * spitch, czv = yb * spitch + cz0 * cpitch;
         if (czv < 0.4f) continue;
-        if (outside_ && !los_to(cxs[n], 57.1f, 0.6f)) continue;     // desde fuera, solo si hay linea de vista (no a traves de paredes)
+        if (outside_) {                                             // el rayo camara -> vela debe pasar por el hueco de la puerta (x 55.8..60.2 en la pared z 79)
+            float tt = (pz - 79.0f) / (pz - 57.1f), xi = px + (cxs[n] - px) * tt;
+            if (fabsf(xi - 58.0f) > 2.2f) continue;
+        }
         float sx = W * 0.5f + cxv / czv * FOCAL;
         float syb = H * 0.5f - cyb / czv * FOCAL, syt = H * 0.5f - cyt / czv * FOCAL;
         float hpx = syb - syt;                       // alto de la llama en pantalla
