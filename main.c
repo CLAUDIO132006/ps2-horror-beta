@@ -6038,6 +6038,7 @@ static int   bf_on[NBF], bf_l[NBF];
 static int   pl_bnd[MAXP];                           // vendas que lleva cada jugador (hace falta 1 para revivir)
 #define NHOLE 10
 static float hole_x[NHOLE], hole_z[NHOLE], hole_a[NHOLE];   // hoyos del cementerio (frente a una lapida al azar)
+static float hole_d[NHOLE];                                 // profundidad de cada hoyo (0.5 .. 1.2 m)
 static int   hole_p[NHOLE], nholes, lt_hole;                // progreso de excavacion (0..4); en cual esta el encendedor
 static int   pala_on, pl_pala[MAXP];                        // pala suelta en el suelo / pala en la mano de cada jugador
 static float pala_x, pala_z, pala_a, pala_sw;
@@ -7105,7 +7106,8 @@ static void draw_cabin(float t)
     for (int i = 0; i < 6; i++) {
         float e = 1.0f;
         if (i == 3 && sinf(t * 19.0f) + sinf(t * 6.1f) > 1.7f) e = 0.15f;
-        neon_letter(txt[i], 62.0f - ((float)i - 2.5f) * 0.72f, 1.72f, amber, e, 284.45f, 0.5f, 0.6f, 0.09f);
+        neon_letter_now(txt[i], 62.0f - ((float)i - 2.5f) * 0.72f, 1.72f, amber, e, 284.45f, 0.5f, 0.6f, 0.09f);   // directo (con z real)
+        neon_letter(txt[i], 62.0f - ((float)i - 2.5f) * 0.72f, 1.72f, amber, e, 284.45f, 0.5f, 0.6f, 0.09f);       // y encima de la oscuridad
     }
     // linternas en las esquinas del porche (parpadean suave como una llama)
     float fk = 0.85f + 0.15f * sinf(t * 11.0f + 2.0f);
@@ -7310,7 +7312,8 @@ static void place_holes(void)
             for (int j = 0; j < nholes && ok; j++) { float dx = hole_x[j] - x, dz = hole_z[j] - z; if (dx * dx + dz * dz < 2.2f * 2.2f) ok = 0; }
             for (int sI = -1; sI <= 1 && ok; sI++) if (blocked(x + sa * 0.7f * (float)sI, z + ca * 0.7f * (float)sI, 0.35f)) ok = 0;
             if (!ok) continue;
-            hole_x[nholes] = x; hole_z[nholes] = z; hole_a[nholes] = a; nholes++;
+            hole_x[nholes] = x; hole_z[nholes] = z; hole_a[nholes] = a;
+            hole_d[nholes] = 0.5f + 0.7f * (float)(hash2((int)game_seed + nholes * 7, 8181 + nholes) % 1000u) / 999.0f; nholes++;
             break;
         }
     }
@@ -7366,11 +7369,26 @@ static void draw_holes(void)
             float h = 0.16f * (1.0f - 0.22f * (float)p);
             box_rot(x, z, a, 0.0f, 0.0f, 0.44f, 0.88f, 0.0f, h, dirt, 0.0f);
             box_rot(x, z, a, 0.0f, 0.0f, 0.30f, 0.74f, h, h + 0.025f, dirt2, 0.0f);
-        } else {                                                         // hoyo abierto con la tierra amontonada alrededor
-            box_rot(x, z, a, 0.0f, 0.0f, 0.40f, 0.82f, 0.0f, 0.006f, pit, 0.0f);
-            box_rot(x, z, a, -0.62f, 0.0f, 0.16f, 0.80f, 0.0f, 0.10f, rim, 0.0f);
-            box_rot(x, z, a, 0.62f, 0.0f, 0.16f, 0.80f, 0.0f, 0.10f, rim, 0.0f);
-            box_rot(x, z, a, 0.0f, -0.95f, 0.40f, 0.14f, 0.0f, 0.09f, rim, 0.0f);
+        } else {                                                         // hoyo abierto: paredes inclinadas, fondo de tierra y tierra amontonada (mas hondo = mas alto el borde y mas oscuro el fondo)
+            float dd = hole_d[k], rh = 0.10f + 0.14f * dd, fk = 1.0f - 0.30f * dd;
+            float wl[3] = { 88.f * (1.0f - 0.15f * dd), 62.f * (1.0f - 0.15f * dd), 40.f * (1.0f - 0.15f * dd) };
+            float we[3] = { 70.f * (1.0f - 0.15f * dd), 49.f * (1.0f - 0.15f * dd), 32.f * (1.0f - 0.15f * dd) };
+            float fl[3] = { 78.f * fk, 54.f * fk, 35.f * fk };
+            float sa_ = sinf(a), ca_ = cosf(a);
+            box_rot(x, z, a, 0.0f, 0.0f, 0.30f, 0.72f, 0.0f, 0.004f, fl, 0.0f);                          // fondo
+            for (int sd = -1; sd <= 1; sd += 2) {                                                         // paredes largas (izquierda / derecha)
+                float fx = (float)sd;
+                float q[4][3], lx_[4] = { 0.30f * fx, 0.30f * fx, 0.40f * fx, 0.40f * fx }, lz_[4] = { -0.72f, 0.72f, 0.82f, -0.82f }, ly_[4] = { 0.004f, 0.004f, rh, rh };
+                for (int j = 0; j < 4; j++) { q[j][0] = x + lx_[j] * ca_ + lz_[j] * sa_; q[j][1] = ly_[j]; q[j][2] = z - lx_[j] * sa_ + lz_[j] * ca_; }
+                quad_sub(q, wl, 1, 0.0f);
+                float lx2[4] = { -0.30f, 0.30f, 0.40f, -0.40f }, lz2[4] = { 0.72f * fx, 0.72f * fx, 0.82f * fx, 0.82f * fx };   // paredes de los extremos
+                for (int j = 0; j < 4; j++) { q[j][0] = x + lx2[j] * ca_ + lz2[j] * sa_; q[j][1] = ly_[j]; q[j][2] = z - lx2[j] * sa_ + lz2[j] * ca_; }
+                quad_sub(q, we, 1, 0.0f);
+            }
+            box_rot(x, z, a, -0.62f, 0.0f, 0.22f, 0.95f, 0.0f, rh, rim, 0.0f);                           // tierra amontonada alrededor
+            box_rot(x, z, a, 0.62f, 0.0f, 0.22f, 0.95f, 0.0f, rh, rim, 0.0f);
+            box_rot(x, z, a, 0.0f, -0.93f, 0.40f, 0.12f, 0.0f, rh * 0.9f, rim, 0.0f);
+            box_rot(x, z, a, 0.0f, 0.93f, 0.40f, 0.12f, 0.0f, rh * 0.9f, rim, 0.0f);
         }
     }
 }
@@ -7468,7 +7486,8 @@ static void draw_hut(float t)
     for (int i = 0; i < 6; i++) {
         float e = 1.0f;
         if (i == 2 && sinf(t * 17.0f) + sinf(t * 5.3f) > 1.75f) e = 0.15f;
-        neon_letter(txt[i], 178.0f - ((float)i - 2.5f) * 0.5f, 2.56f, cyan, e, 177.02f, 0.32f, 0.38f, 0.06f);
+        neon_letter_now(txt[i], 178.0f - ((float)i - 2.5f) * 0.5f, 2.56f, cyan, e, 177.02f, 0.32f, 0.38f, 0.06f);   // directo (con z real)
+        neon_letter(txt[i], 178.0f - ((float)i - 2.5f) * 0.5f, 2.56f, cyan, e, 177.02f, 0.32f, 0.38f, 0.06f);       // y encima de la oscuridad
     }
     box_rot(178.0f, Z1 + 0.65f, 0, 0, 0, 1.8f, 0.55f, 0.0f, 0.12f, stone, 0.0f);
     box_rot(178.0f, Z1 + 1.35f, 0, 0, 0, 1.8f, 0.15f, 0.0f, 0.06f, stone, 0.0f);
@@ -7562,7 +7581,8 @@ static void draw_shelter(float t)
     for (int i = 0; i < 7; i++) {
         float e = 1.0f;
         if (i == 4 && sinf(t * 13.0f) + sinf(t * 4.7f) > 1.8f) e = 0.2f;
-        neon_letter(txt[i], CX - ((float)i - 3.0f) * 0.62f, 3.95f, grn, e, 179.8f, 0.46f, 0.7f, 0.09f);
+        neon_letter_now(txt[i], CX - ((float)i - 3.0f) * 0.62f, 3.95f, grn, e, 179.8f, 0.46f, 0.7f, 0.09f);   // directo (con z real)
+        neon_letter(txt[i], CX - ((float)i - 3.0f) * 0.62f, 3.95f, grn, e, 179.8f, 0.46f, 0.7f, 0.09f);       // y encima de la oscuridad
     }
     // paneles solares en la vertiente este, mastil con baliza
     if (near_) {
@@ -79174,7 +79194,7 @@ static void draw_floor_lighter(void)
     float col0[3] = { 150.0f, 150.0f, 150.0f };
     for (int i = 0; i < LT_NV; i++) {
         float xm = (float)lt_v[i][0] * sc, ym = (float)lt_v[i][1] * sc, zm = ((float)lt_v[i][2] + 18.0f) * sc;
-        pv[i] = mk(lt_x + ca * xm - sa * ym, foot_y + zm, lt_z + sa * xm + ca * ym, col0, 0.30f);
+        pv[i] = mk(lt_x + ca * xm - sa * ym, tab_h(lt_x, lt_z) + zm, lt_z + sa * xm + ca * ym, col0, 0.30f);   // en el suelo (no sube con la camara del espectador)
     }
     for (int i = 0; i < LT_NT; i++) {
         if (lt_nz[i] < -55) continue;                                // caras de abajo
@@ -79187,7 +79207,7 @@ static void draw_floor_lighter(void)
     }
 }
 
-// Pala en la mano (al centro, algo baja); se agita al cavar
+// Pala en las dos manos (mango en diagonal, hoja hacia delante y abajo); se agita al cavar
 static void draw_pala_hand(float t)
 {
     static float up[MAXP];
@@ -79196,21 +79216,26 @@ static void draw_pala_hand(float t)
     pala_sw *= 0.90f;
     if (up[sl] < 0.02f) return;
     float e = up[sl] * up[sl] * (3.0f - 2.0f * up[sl]);
-    rd_th = 0.55f + 0.50f * (1.0f - e) + 0.55f * pala_sw; rd_ya = 0.10f;
-    rd_ox = 0.05f + 0.010f * walk_amp * sinf(walk_ph + 0.5f);
-    rd_oy = -0.20f - 0.45f * (1.0f - e) + 0.008f * walk_amp * sinf(2.0f * walk_ph + 0.4f) - 0.015f * step_imp - 0.10f * pala_sw + sinf(t * 1.3f) * 0.002f;
-    rd_oz = 0.40f;
+    rd_sc = 0.80f;
+    rd_th = 0.50f + 0.60f * (1.0f - e) + 0.45f * pala_sw; rd_ya = 0.12f;
+    rd_ox = 0.02f + 0.010f * walk_amp * sinf(walk_ph + 0.5f);
+    rd_oy = -0.27f - 0.45f * (1.0f - e) + 0.008f * walk_amp * sinf(2.0f * walk_ph + 0.4f) - 0.015f * step_imp - 0.10f * pala_sw + sinf(t * 1.3f) * 0.002f;
+    rd_oz = 0.52f;
     vm_mode = 1;
     {
-        static const float wood[3] = { 120.f, 84.f, 50.f }, wood2[3] = { 96.f, 66.f, 38.f }, metal[3] = { 158.f, 162.f, 168.f }, metal2[3] = { 120.f, 124.f, 130.f };
+        static const float wood[3] = { 128.f, 90.f, 54.f }, wood2[3] = { 100.f, 70.f, 42.f }, metal[3] = { 168.f, 172.f, 178.f }, metal2[3] = { 120.f, 124.f, 130.f };
         float sk[3] = { hand_col[4][0], hand_col[4][1], hand_col[4][2] }, sk2[3] = { hand_col[2][0], hand_col[2][1], hand_col[2][2] };
-        rd_box(0.0f, 0.0f, 0.04f, 0.013f, 0.013f, 0.30f, wood, wood2);          // mango
-        rd_box(0.0f, 0.030f, -0.24f, 0.045f, 0.012f, 0.012f, wood, wood2);      // empunadura
-        rd_box(0.0f, -0.004f, 0.38f, 0.065f, 0.007f, 0.085f, metal, metal2);    // hoja
-        rd_box(0.0f, -0.004f, 0.33f, 0.016f, 0.012f, 0.03f, metal2, metal2);    // union
-        rd_box(0.0f, -0.034f, -0.14f, 0.034f, 0.016f, 0.024f, sk, sk2);         // mano
+        rd_box(0.0f, 0.0f, 0.06f, 0.011f, 0.011f, 0.34f, wood, wood2);          // mango
+        rd_box(0.0f, 0.0f, -0.30f, 0.050f, 0.010f, 0.010f, wood, wood2);        // empunadura en T
+        rd_box(0.0f, -0.002f, 0.44f, 0.014f, 0.010f, 0.06f, metal2, metal2);    // cuello de la hoja
+        rd_box(0.0f, -0.006f, 0.56f, 0.075f, 0.008f, 0.085f, metal, metal2);    // hoja
+        rd_box(0.0f, -0.006f, 0.64f, 0.050f, 0.008f, 0.020f, metal2, metal2);   // punta
+        rd_box(0.040f, 0.0f, -0.12f, 0.034f, 0.030f, 0.036f, sk, sk2);          // mano derecha (atras)
+        rd_box(0.040f, -0.045f, -0.20f, 0.030f, 0.026f, 0.110f, sk, sk2);       // antebrazo derecho
+        rd_box(-0.040f, 0.0f, 0.20f, 0.034f, 0.030f, 0.036f, sk, sk2);          // mano izquierda (delante)
+        rd_box(-0.040f, -0.050f, 0.04f, 0.030f, 0.026f, 0.110f, sk, sk2);       // antebrazo izquierdo
     }
-    vm_mode = 0;
+    vm_mode = 0; rd_sc = 1.0f;
 }
 
 // Encendedor en la mano (al centro, entre la linterna y la llave): sube desde abajo al agarrarlo
@@ -79224,7 +79249,7 @@ static const short lt_lido[LT_NL][2] = {{64,37},{66,37},{64,37},{69,37},{65,37},
 static void draw_lighter_hand(float t)
 {
     static float up[MAXP], op[MAXP];
-    int sl = pl_cur, tgt = pl_lt[pl_cur] > 0;
+    int sl = pl_cur, tgt = pl_lt[pl_cur] > 0 && pl_pala[pl_cur] <= 0;
     op[sl] += ((float)(tgt && pl_lt_on[sl]) - op[sl]) * 0.22f;
     up[sl] += ((float)tgt - up[sl]) * 0.16f;
     if (up[sl] < 0.02f) return;
@@ -79781,7 +79806,7 @@ static void render_game_inner(float t, int moving, int near_ladder, int notes)
             gsGlobal->PrimAlphaEnable = GS_SETTING_OFF;
 
             if (!dance_cam && rv_on[pl_cur] && rv_tgt[pl_cur] >= 0 && pl_dn[rv_tgt[pl_cur]]) draw_revive_anim(t);
-            else if (!dance_cam) { draw_flashlight(t, moving);
+            else if (!dance_cam) { if (pl_pala[pl_cur] <= 0) draw_flashlight(t, moving);
             draw_detector(t); draw_key_hand(t); draw_bandage_hand(t); draw_lighter_hand(t); draw_pala_hand(t); }                           // el radio que marca la distancia al monstruo
 
             if (!dance_cam && pl_view_alt < 0 && state == 0 && !map_open && code_door < 0 && !emoji_open && !dance_open && !inv_open) {
@@ -81456,7 +81481,7 @@ static int ui_input(u32 newp)
     if ((newp & PAD_R3) && !carry && pl_bnd[pl_cur] <= 0 && pl_lt[pl_cur] <= 0 && pl_pala[pl_cur] > 0 && hide_id < 0 && !map_open && code_door < 0 && !climbing) {   // R3: soltar la pala
         float dxf = sinf(yaw), dzf = cosf(yaw), nx = px + dxf * 0.9f, nz = pz + dzf * 0.9f;
         if (solid(nx, nz)) { nx = px; nz = pz; }
-        pala_on = 1; pala_x = nx; pala_z = nz; pala_a = yaw; pl_pala[pl_cur] = 0; sfx_play(SFX_BDDROP, 1.0f); noise_emit(cur_layer, px, pz, 10.0f);
+        pala_on = 1; pala_x = nx; pala_z = nz; pala_a = yaw; pl_pala[pl_cur] = 0; flash_on = 1; sfx_play(SFX_BDDROP, 1.0f); noise_emit(cur_layer, px, pz, 10.0f);
     }
     if ((newp & PAD_R3) && carry && hide_id < 0 && !map_open && code_door < 0 && !climbing) {   // CIRCULO: soltar la llave
         float dxf = sinf(yaw), dzf = cosf(yaw), nx = px + dxf * 0.9f, nz = pz + dzf * 0.9f;
@@ -81479,12 +81504,12 @@ static int ui_input(u32 newp)
         if (hj_ >= 0 && !map_open) {                                  // cavar un hoyo con la pala (4 golpes)
             hole_p[hj_]++; pala_sw = 1.0f; sfx_play(SFX_DIRT, 1.0f); noise_emit(cur_layer, px, pz, 14.0f);
             if (hole_p[hj_] >= 4) {
-                if (hj_ == lt_hole) { lt_on = 1; lt_x = hole_x[hj_]; lt_z = hole_z[hj_]; lt_l = 0; door_msg_id = 61; } else door_msg_id = 62;
-                door_msg = 160; sfx_play(SFX_KEY, 0.8f);
+                if (hj_ == lt_hole) { lt_on = 1; lt_x = hole_x[hj_]; lt_z = hole_z[hj_]; lt_l = 0; }   // sin aviso: solo se ve el encendedor en el fondo
+                door_msg = 0;
             } else { door_msg = 60; door_msg_id = 60; }
         }
         else if (pa_ >= 0 && !map_open && pl_pala[pl_cur] > 0) { door_msg = 120; door_msg_id = 64; }
-        else if (pa_ >= 0 && !map_open) { pala_on = 0; pl_pala[pl_cur] = 1; door_msg = 120; door_msg_id = 63; sfx_play(SFX_KEY, 0.9f); noise_emit(cur_layer, px, pz, 6.0f); }
+        else if (pa_ >= 0 && !map_open) { pala_on = 0; pl_pala[pl_cur] = 1; flash_on = 0; door_msg = 120; door_msg_id = 63; sfx_play(SFX_KEY, 0.9f); noise_emit(cur_layer, px, pz, 6.0f); }
         else if (pj_ >= 0 && !map_open) {                                  // surtidor: recargar el encendedor
             if (lt_fuel >= LT_FUEL_MAX - 60) { door_msg = 100; door_msg_id = 59; }
             else { lt_fuel = LT_FUEL_MAX; door_msg = 120; door_msg_id = 58; sfx_play(SFX_POP, 0.9f); noise_emit(cur_layer, px, pz, 8.0f); }
@@ -81610,7 +81635,7 @@ static void player_move(float dt, float t, const PadIn *in)
     float fwd = in->fwd, str = in->str, turn = in->turn, look = in->look, mag = in->mag;
     u32 newp = in->np;
     int near_ladder = -1;
-    if (newp & PAD_L1) { flash_on = !flash_on; sfx_play(flash_on ? SFX_FON : SFX_FOFF, 0.9f); }
+    if ((newp & PAD_L1) && pl_pala[pl_cur] <= 0) { flash_on = !flash_on; sfx_play(flash_on ? SFX_FON : SFX_FOFF, 0.9f); }
     if (pl_dn[pl_cur] && !spec_mode) { player_move_downed(dt, t, in); return; }
     int rv_busy = revive_hold(dt, in);                          // revivir al companero
     if (rv_busy) { fwd = str = mag = 0.0f; }                    // arrodillado: no te mueves
@@ -81637,7 +81662,8 @@ static void player_move(float dt, float t, const PadIn *in)
         } else hide_hold = 0.0f;
     }
     if (pl_lt[pl_cur] > 0) {                                                        // encendedor en la mano
-        if (!map_open && code_door < 0 && !climbing && hide_id < 0 && (in->np & PAD_R1)) {   // R1: abrir y prender / cerrar
+        if (pl_pala[pl_cur] > 0) pl_lt_on[pl_cur] = 0;                               // con la pala en las dos manos no se puede usar
+        if (!map_open && code_door < 0 && !climbing && hide_id < 0 && pl_pala[pl_cur] <= 0 && (in->np & PAD_R1)) {   // R1: abrir y prender / cerrar
             if (pl_lt_on[pl_cur]) { pl_lt_on[pl_cur] = 0; sfx_play(SFX_CLICK, 0.9f); }
             else if (lt_fuel > 0) { pl_lt_on[pl_cur] = 1; sfx_play(SFX_CLICK, 0.9f); noise_emit(cur_layer, px, pz, 4.0f); door_msg = 90; door_msg_id = 57; }
             else { sfx_play(SFX_CLICK, 0.6f); door_msg = 140; door_msg_id = 56; }   // sin gasolina
