@@ -6038,6 +6038,9 @@ static float bf_x[NBF], bf_z[NBF];                   // vendas soltadas en el su
 static int   bf_on[NBF], bf_l[NBF];
 static int   pl_bnd[MAXP];                           // vendas que lleva cada jugador (hace falta 1 para revivir)
 #define NHOLE 10
+#define GAR_H 6.0f                                       // altura de la plataforma de la garita
+static float ham_y;                                       // altura a la que esta el martillo
+static int   give_open, give_sel;                         // MODO SECRETO: menu de objetos (flecha abajo)
 static int   cof_hit, cof_open;                             // ataud de piedra de la cripta: golpes de martillo / abierto
 static int   ham_on, pl_ham[MAXP];                          // martillo suelto / en la mano de cada jugador
 static float ham_x, ham_z, ham_a, ham_sw;
@@ -6361,6 +6364,29 @@ static int aim_ok(float x, float y, float z)
     float right = dx * cy - dz * sy;
     float up = -dx * sy * sp + dy * cp - dz * cy * sp;
     return fabsf(right) < 0.20f * depth && fabsf(up) < 0.20f * depth;  // el objeto debe estar casi en el centro de la pantalla (~11 grados)
+}
+
+// ---- Garita (atalaya de madera en 194, 50): plataforma a GAR_H y escaleras de dos tramos (A: suelo -> descanso 3 m, B: descanso -> plataforma) ----
+static float gar_h(float x, float z)
+{
+    if (x > 191.8f && x < 196.2f && z > 47.8f && z < 52.2f) return GAR_H;                                  // plataforma
+    if (z >= 52.2f && z < 53.6f && x > 191.8f && x < 197.3f) { int k = (int)((197.3f - x) / 0.55f); if (k > 9) k = 9; return 3.0f + 0.3f * (float)(k + 1); }   // tramo B (hacia el oeste)
+    if (x >= 197.3f && x < 198.7f && z >= 52.2f && z <= 54.0f) return 3.0f;                                // descanso
+    if (x >= 197.3f && x < 198.7f && z > 54.0f && z < 59.5f) { int k = (int)((59.5f - z) / 0.55f); if (k > 9) k = 9; return 0.3f * (float)(k + 1); }    // tramo A (hacia el norte)
+    return 0.0f;
+}
+
+// colision del jugador: igual que blocked(), pero sabe subir escalones de la garita y no te deja caer ni pasar por debajo
+static int pmv_blocked(float x, float z)
+{
+    if (cur_layer == 0 && !climbing) {
+        float ht = gar_h(x, z);
+        if (ht > 0.0f || foot_y > 0.5f) {
+            if (ht > foot_y + 0.52f || ht < foot_y - 0.85f) return 1;
+            if (ht > 0.0f) return 0;
+        }
+    }
+    return blocked(x, z, 0.35f);
 }
 
 // llave / papel al alcance (se agarra con CUADRADO): 0..NIT-1 = objeto, 100+i = llave final
@@ -7365,23 +7391,7 @@ static void place_holes(void)
         if (!found) { pala_x = bx; pala_z = bz; }
         pala_a = 0.7f; pala_on = 1;
     }
-    {   // el martillo: escondido en el interior de una estructura (la semilla decide cual; nunca en la cripta)
-        int sl = (int)(hash2((int)game_seed, 7272) % (unsigned)NSLOT);
-        if (sl == 3) sl = 4;
-        float bx = slot_xz[sl][0], bz = slot_xz[sl][1]; int found = 0;
-        for (int ring = 2; ring < 14 && !found; ring++) {
-            float r = 0.5f * (float)ring; int na = 16;
-            for (int k = 0; k < na && !found; k++) {
-                float ang = (float)k * (2.0f * PI_F / 16.0f) + 0.4f * (float)ring, x = bx + sinf(ang) * r, z = bz + cosf(ang) * r;
-                if (blocked(x, z, 0.5f)) continue;
-                int ok = 1;
-                for (int j = 0; j < NIT && ok; j++) { float dx = items[j].x - x, dz = items[j].z - z; if (dx * dx + dz * dz < 1.2f * 1.2f) ok = 0; }
-                if (ok) { ham_x = x; ham_z = z; found = 1; }
-            }
-        }
-        if (!found) { ham_x = bx + 1.2f; ham_z = bz; }
-        ham_a = 1.9f; ham_on = 1;
-    }
+    ham_x = 193.2f; ham_z = 49.3f; ham_a = 0.5f; ham_y = GAR_H; ham_on = 1;   // el martillo: arriba de la garita
 }
 
 static int hole_near(void)
@@ -7459,7 +7469,7 @@ static int coffin_near(void)
 
 static int ham_floor_near(void)
 {
-    if (climbing || hide_id >= 0 || !ham_on || cur_layer != 0) return -1;
+    if (climbing || hide_id >= 0 || !ham_on || cur_layer != 0 || fabsf(foot_y - ham_y) > 1.0f) return -1;
     float ax = ham_x - px, az = ham_z - pz;
     if (ax * ax + az * az < 2.6f && aim_ok(ham_x, 0.05f, ham_z)) return 0;
     return -1;
@@ -7470,8 +7480,8 @@ static void draw_floor_hammer(void)
     if (!ham_on || cur_layer != 0) return;
     if (!in_view(ham_x, ham_z, 0.8f, 14.0f)) return;
     static const float wood[3] = { 120.f, 84.f, 50.f }, iron[3] = { 92.f, 94.f, 100.f };
-    box_rot(ham_x, ham_z, ham_a, 0.0f, 0.0f, 0.022f, 0.30f, 0.0f, 0.045f, wood, 0.25f);
-    box_rot(ham_x, ham_z, ham_a, 0.0f, 0.30f, 0.11f, 0.055f, 0.0f, 0.10f, iron, 0.25f);
+    box_rot(ham_x, ham_z, ham_a, 0.0f, 0.0f, 0.022f, 0.30f, ham_y, ham_y + 0.045f, wood, 0.25f);
+    box_rot(ham_x, ham_z, ham_a, 0.0f, 0.30f, 0.11f, 0.055f, ham_y, ham_y + 0.10f, iron, 0.25f);
 }
 
 // ---- Cripta (la casita de piedra del cementerio, x 52..68, z 140..156): rediseno tenebroso + ataud de piedra ----
@@ -7538,8 +7548,9 @@ static void draw_crypt(void)
 static void draw_ladder_mesh(float cx, float wz);
 static void draw_coffin(void)
 {
-    if (cur_layer != 0 && !climbing) return;
     float lim = fminf(draw_lim, (gfx_pd[gfx] * rd_k));
+    if (cof_open && in_view(58.0f, 146.0f, 3.5f, lim)) draw_ladder_mesh(58.0f, 146.8f);      // la escalera se ve desde arriba y desde el cuarto de abajo
+    if (cur_layer != 0 && !climbing) return;
     if (!in_view(58.0f, 146.0f, 3.5f, lim)) return;
     static const float stone[3] = { 120.f, 120.f, 128.f }, stoneL[3] = { 140.f, 140.f, 148.f }, dark[3] = { 18.f, 16.f, 20.f }, inner[3] = { 52.f, 48.f, 50.f };
     const float cx = 58.0f, cz = 146.0f;
@@ -7561,7 +7572,86 @@ static void draw_coffin(void)
         box_rot(cx, cz, 0.0f, 0.0f, 0.0f, 0.44f, 1.12f, 0.0f, 0.02f, inner, 0.0f);
         box_rot(cx + 1.9f, cz - 0.3f, 0.5f, 0.0f, 0.0f, 0.70f, 0.62f, 0.0f, 0.12f, stoneL, 0.0f);   // trozos de la tapa
         box_rot(cx + 1.2f, cz + 1.6f, -0.7f, 0.0f, 0.0f, 0.55f, 0.40f, 0.0f, 0.09f, stone, 0.0f);
-        draw_ladder_mesh(cx, cz + 0.8f);
+    }
+}
+
+static void draw_garita(float t)
+{
+    (void)t;
+    if (cur_layer != 0 && !climbing) return;
+    float lim = fminf(draw_lim, (gfx_pd[gfx] * rd_k));
+    if (!in_view(195.0f, 54.0f, 11.0f, lim)) return;
+    static const float woodD[3] = { 84.f, 58.f, 36.f }, woodL[3] = { 136.f, 98.f, 60.f }, post[3] = { 108.f, 76.f, 46.f }, roofc[3] = { 104.f, 46.f, 38.f };
+    static const float stoneb[3] = { 112.f, 110.f, 104.f }, cream[3] = { 255.f, 236.f, 170.f }, plank[3] = { 70.f, 48.f, 30.f };
+    const float cx = 194.0f, cz = 50.0f, GH = GAR_H;
+    float ddx = px - 194.0f, ddz = pz - 54.0f;
+    int nr = (ddx * ddx + ddz * ddz) < 40.0f * 40.0f;                       // cerca: con barandas y largueros
+    for (int sx = -1; sx <= 1; sx += 2)                                      // patas, zapatas de piedra y postes del techo
+        for (int sz = -1; sz <= 1; sz += 2) {
+            float x = cx + 2.0f * (float)sx, z = cz + 2.0f * (float)sz;
+            box_rot(x, z, 0.0f, 0.0f, 0.0f, 0.38f, 0.38f, 0.0f, 0.30f, stoneb, 0.0f);
+            box_rot(x, z, 0.0f, 0.0f, 0.0f, 0.20f, 0.20f, 0.30f, GH, post, 0.0f);
+            box_rot(cx + 2.05f * (float)sx, cz + 2.05f * (float)sz, 0.0f, 0.0f, 0.0f, 0.12f, 0.12f, GH, GH + 2.7f, post, 0.0f);
+        }
+    for (int r = 0; r < 3; r++) {                                            // travesanos entre las patas
+        float y = 1.6f + 1.6f * (float)r;
+        box_rot(cx, cz - 2.0f, 0.0f, 0.0f, 0.0f, 1.8f, 0.07f, y, y + 0.14f, woodD, 0.0f);
+        box_rot(cx, cz + 2.0f, 0.0f, 0.0f, 0.0f, 1.8f, 0.07f, y, y + 0.14f, woodD, 0.0f);
+        box_rot(cx - 2.0f, cz, 0.0f, 0.0f, 0.0f, 0.07f, 1.8f, y, y + 0.14f, woodD, 0.0f);
+        box_rot(cx + 2.0f, cz, 0.0f, 0.0f, 0.0f, 0.07f, 1.8f, y, y + 0.14f, woodD, 0.0f);
+    }
+    box_rot(cx, cz, 0.0f, 0.0f, 0.0f, 2.2f, 2.2f, GH - 0.22f, GH, woodL, 0.0f);                    // suelo de la plataforma
+    for (int i = 1; i < 8; i++) box_rot(cx - 2.2f + 0.55f * (float)i, cz, 0.0f, 0.0f, 0.0f, 0.012f, 2.2f, GH, GH + 0.006f, plank, 0.0f);
+    if (nr) {                                                                                       // barandas de la plataforma (abierta donde llega la escalera)
+        box_rot(cx, cz - 2.15f, 0.0f, 0.0f, 0.0f, 2.2f, 0.04f, GH + 1.0f, GH + 1.08f, post, 0.0f);
+        box_rot(cx, cz - 2.15f, 0.0f, 0.0f, 0.0f, 2.2f, 0.03f, GH + 0.52f, GH + 0.58f, post, 0.0f);
+        box_rot(cx - 2.15f, cz, 0.0f, 0.0f, 0.0f, 0.04f, 2.2f, GH + 1.0f, GH + 1.08f, post, 0.0f);
+        box_rot(cx - 2.15f, cz, 0.0f, 0.0f, 0.0f, 0.03f, 2.2f, GH + 0.52f, GH + 0.58f, post, 0.0f);
+        box_rot(cx + 2.15f, cz, 0.0f, 0.0f, 0.0f, 0.04f, 2.2f, GH + 1.0f, GH + 1.08f, post, 0.0f);
+        box_rot(cx + 2.15f, cz, 0.0f, 0.0f, 0.0f, 0.03f, 2.2f, GH + 0.52f, GH + 0.58f, post, 0.0f);
+        box_rot(194.8f, cz + 2.15f, 0.0f, 0.0f, 0.0f, 1.4f, 0.04f, GH + 1.0f, GH + 1.08f, post, 0.0f);
+        box_rot(194.8f, cz + 2.15f, 0.0f, 0.0f, 0.0f, 1.4f, 0.03f, GH + 0.52f, GH + 0.58f, post, 0.0f);
+        for (int i = 0; i < 4; i++) {
+            box_rot(cx - 1.05f + 1.05f * (float)i, cz - 2.15f, 0.0f, 0.0f, 0.0f, 0.05f, 0.05f, GH, GH + 1.08f, post, 0.0f);
+            if (i < 3) { box_rot(cx - 2.15f, cz - 1.05f + 1.05f * (float)i, 0.0f, 0.0f, 0.0f, 0.05f, 0.05f, GH, GH + 1.08f, post, 0.0f);
+                         box_rot(cx + 2.15f, cz - 1.05f + 1.05f * (float)i, 0.0f, 0.0f, 0.0f, 0.05f, 0.05f, GH, GH + 1.08f, post, 0.0f); }
+        }
+        box_rot(193.4f, cz + 2.15f, 0.0f, 0.0f, 0.0f, 0.05f, 0.05f, GH, GH + 1.08f, post, 0.0f);
+        box_rot(195.1f, cz + 2.15f, 0.0f, 0.0f, 0.0f, 0.05f, 0.05f, GH, GH + 1.08f, post, 0.0f);
+    }
+    roof_rot(cx, cz, 0.0f, 3.0f, 3.0f, GH + 2.7f, GH + 4.3f, roofc);                                  // techo a dos aguas
+    box_rot(cx, cz, 0.0f, 0.0f, 0.0f, 0.12f, 3.0f, GH + 4.3f, GH + 4.4f, woodD, 0.0f);
+    box_rot(cx, cz, 0.0f, 0.0f, 0.0f, 0.02f, 0.02f, GH + 2.2f, GH + 2.7f, woodD, 0.0f);               // farol colgado
+    box_rot(cx, cz, 0.0f, 0.0f, 0.0f, 0.20f, 0.20f, GH + 1.85f, GH + 2.2f, cream, 1.0f);
+    box_rot(cx, cz, 0.0f, 0.0f, 0.0f, 0.27f, 0.27f, GH + 2.2f, GH + 2.26f, woodD, 0.0f);
+    // escalera: tramo A (norte, suelo -> descanso a 3 m), descanso y tramo B (oeste, descanso -> plataforma)
+    for (int k = 0; k < 10; k++) {
+        float h = 0.3f * (float)(k + 1), z1 = 59.5f - 0.55f * (float)k, zc = z1 - 0.275f;
+        box_rot(198.0f, zc, 0.0f, 0.0f, 0.0f, 0.70f, 0.275f, h - 0.07f, h, woodL, 0.0f);
+        if (!nr) continue;
+        box_rot(197.35f, zc, 0.0f, 0.0f, 0.0f, 0.05f, 0.275f, fmaxf(0.0f, h - 0.40f), h - 0.07f, woodD, 0.0f);
+        box_rot(198.65f, zc, 0.0f, 0.0f, 0.0f, 0.05f, 0.275f, fmaxf(0.0f, h - 0.40f), h - 0.07f, woodD, 0.0f);
+        box_rot(197.35f, zc, 0.0f, 0.0f, 0.0f, 0.035f, 0.275f, h + 0.85f, h + 0.92f, post, 0.0f);
+        box_rot(198.65f, zc, 0.0f, 0.0f, 0.0f, 0.035f, 0.275f, h + 0.85f, h + 0.92f, post, 0.0f);
+        if ((k & 1) == 0) { box_rot(197.35f, zc, 0.0f, 0.0f, 0.0f, 0.045f, 0.045f, 0.0f, h + 0.92f, post, 0.0f); box_rot(198.65f, zc, 0.0f, 0.0f, 0.0f, 0.045f, 0.045f, 0.0f, h + 0.92f, post, 0.0f); }
+    }
+    box_rot(198.0f, 53.1f, 0.0f, 0.0f, 0.0f, 0.70f, 0.90f, 2.86f, 3.0f, woodL, 0.0f);                 // descanso
+    if (nr) {
+        for (int a = 0; a < 2; a++) for (int b = 0; b < 2; b++)
+            box_rot(197.38f + 1.24f * (float)a, 52.28f + 1.64f * (float)b, 0.0f, 0.0f, 0.0f, 0.07f, 0.07f, 0.0f, 2.86f, post, 0.0f);
+        box_rot(198.66f, 53.1f, 0.0f, 0.0f, 0.0f, 0.035f, 0.90f, 3.85f, 3.92f, post, 0.0f);
+        box_rot(198.0f, 52.24f, 0.0f, 0.0f, 0.0f, 0.70f, 0.035f, 3.85f, 3.92f, post, 0.0f);
+        box_rot(197.7f, 53.8f, 0.0f, 0.0f, 0.0f, 0.40f, 0.035f, 3.85f, 3.92f, post, 0.0f);
+    }
+    for (int k = 0; k < 10; k++) {
+        float h = 3.0f + 0.3f * (float)(k + 1), x1 = 197.3f - 0.55f * (float)k, xc = x1 - 0.275f;
+        box_rot(xc, 52.9f, 0.0f, 0.0f, 0.0f, 0.275f, 0.70f, h - 0.07f, h, woodL, 0.0f);
+        if (!nr) continue;
+        box_rot(xc, 53.55f, 0.0f, 0.0f, 0.0f, 0.275f, 0.05f, h - 0.40f, h - 0.07f, woodD, 0.0f);
+        box_rot(xc, 53.55f, 0.0f, 0.0f, 0.0f, 0.275f, 0.035f, h + 0.85f, h + 0.92f, post, 0.0f);
+        if ((k & 1) == 0 || k == 9) box_rot(xc, 53.55f, 0.0f, 0.0f, 0.0f, 0.045f, 0.045f, (k % 3 == 0) ? 0.0f : h - 0.07f, h + 0.92f, post, 0.0f);
+        if (k <= 1) { box_rot(xc, 52.25f, 0.0f, 0.0f, 0.0f, 0.275f, 0.035f, h + 0.85f, h + 0.92f, post, 0.0f);
+                      box_rot(xc, 52.25f, 0.0f, 0.0f, 0.0f, 0.275f, 0.05f, h - 0.40f, h - 0.07f, woodD, 0.0f); }
     }
 }
 
@@ -8189,6 +8279,7 @@ static void draw_props(float t)
 {
     for (int i = 0; i < NPROP; i++) {
         const Prop *p = &props[i];
+        if (i >= 197 && i <= 244) continue;                    // la garita vieja (se dibuja en draw_garita)
         if (p->layer != cur_layer && !climbing) continue;
         float rad = fmaxf(p->hx, p->hz) * 1.45f + 0.6f;
         if (!in_view(p->x, p->z, rad, fminf(draw_lim, (gfx_pd[gfx] * rd_k)))) continue;
@@ -24282,7 +24373,7 @@ static void place_medkits(void)
 
 static void reset_game(void)
 {
-    spec_mode = 0; spec_day = 0; spec_walk = 0;
+    spec_mode = 0; spec_day = 0; spec_walk = 0; give_open = 0;
     if (net_online) game_seed = game_seed * 1664525u + 1013904223u;   // online: los dos juegos avanzan igual
     else game_seed = (unsigned int)frame_no;
     need_flow = 1; last_layer = -1; last_foot = 0;
@@ -82351,7 +82442,7 @@ static void draw_floor_bandages(void)
     for (int k = 0; k < NBF; k++) {
         if (!bf_on[k] || bf_l[k] != cur_layer) continue;
         if (!in_view(bf_x[k], bf_z[k], 0.3f, 14.0f)) continue;
-        const float R = 0.038f, HL = 0.050f, x = bf_x[k], z = bf_z[k], y = 0.040f + foot_y;
+        const float R = 0.038f, HL = 0.050f, x = bf_x[k], z = bf_z[k], y = 0.040f;
         float ring[2][10][3];
         for (int e = 0; e < 2; e++)
             for (int j = 0; j < 10; j++) {
@@ -82558,6 +82649,38 @@ static void draw_emoji_menu(void)                                       // menu 
 // ---- Bailes (flecha izquierda): 30 casillas, por ahora 5 con nombre; las demas quedan libres ----
 #define N_DANCES 4
 static const char *dance_names[30] = { "FLAIR", "BREAKDANCE 1990", "TWERK", "GANGNAM STYLE", 0 };
+
+// ---- MODO SECRETO: menu de objetos (flecha abajo) ----
+#define NGIVE 12
+static const char *give_names[NGIVE] = { "LLAVE ROJA", "LLAVE AZUL", "LLAVE AMARILLA", "LLAVE VERDE", "LLAVE FINAL 1", "LLAVE FINAL 2", "LLAVE FINAL 3",
+                                         "VENDA", "ENCENDEDOR (CON GASOLINA)", "PALA", "MARTILLO", "MAPA" };
+
+static void give_item(int i)
+{
+    if (i >= 0 && i <= 3) carry = 1 + i;
+    else if (i >= 4 && i <= 6) carry = 5 + (i - 4);
+    else if (i == 7) pl_bnd[pl_cur] = 1;
+    else if (i == 8) { pl_lt[pl_cur] = 1; pl_lt_on[pl_cur] = 0; lt_fuel = LT_FUEL_MAX; }
+    else if (i == 9) { pl_pala[pl_cur] = 1; pl_ham[pl_cur] = 0; flash_on = 0; }
+    else if (i == 10) { pl_ham[pl_cur] = 1; pl_pala[pl_cur] = 0; }
+    else if (i == 11) has_map = 1;
+}
+
+static void draw_give_menu(void)
+{
+    float rowh = fminf(24.0f, (H - 100.0f) / (float)NGIVE), gh = rowh * (float)NGIVE, gw = 330.0f;
+    float x0 = (W - gw) * 0.5f, y0 = (H - gh) * 0.5f;
+    const u64 sel_c = GS_SETREG_RGBAQ(255, 230, 80, 0x80, 0);
+    gsKit_prim_sprite(gsGlobal, x0 - 6.0f, y0 - 6.0f, x0 + gw + 6.0f, y0 + gh + 6.0f, 16777100, sel_c);
+    gsKit_prim_sprite(gsGlobal, x0 - 4.0f, y0 - 4.0f, x0 + gw + 4.0f, y0 + gh + 4.0f, 16777110, GS_SETREG_RGBAQ(14, 12, 18, 0x80, 0));
+    for (int i = 0; i < NGIVE; i++) {
+        float y = y0 + rowh * (float)i;
+        if (i == give_sel) gsKit_prim_sprite(gsGlobal, x0, y, x0 + gw, y + rowh, 16777120, GS_SETREG_RGBAQ(70, 66, 30, 0x80, 0));
+        draw_text_c(y + rowh * 0.5f - 8.0f, give_names[i], 2, i == give_sel ? sel_c : GS_SETREG_RGBAQ(215, 215, 220, 0x80, 0));
+    }
+    draw_text_c(y0 - 28.0f > 2.0f ? y0 - 28.0f : 2.0f, "OBJETOS", 2, sel_c);
+    draw_text_c(y0 + gh + 12.0f, "X: TOMAR   O: CERRAR", 1, GS_SETREG_RGBAQ(190, 190, 195, 0x80, 0));
+}
 
 static void draw_dance_menu(void)
 {
@@ -82776,8 +82899,12 @@ static void draw_door_hud(void)
     }
     if (inv_open) draw_inventory();
     if (code_door >= 0) draw_code_ui();
-    if (spec_mode) draw_text_c(8.0f, spec_walk ? "MODO ESPECTADOR   ARRIBA: VOLAR   L3: DIA" : "MODO ESPECTADOR   X: SUBIR   CUADRADO: BAJAR   R2: RAPIDO   ARRIBA: CAMINAR   L3: DIA", 1, GS_SETREG_RGBAQ(150, 220, 255, 0x80, 0));
+    if (spec_mode) {
+        draw_text_c(8.0f, spec_walk ? "MODO ESPECTADOR   L3: DIA" : "MODO ESPECTADOR   X: SUBIR   CUADRADO: BAJAR   R2: RAPIDO   L3: DIA", 1, GS_SETREG_RGBAQ(150, 220, 255, 0x80, 0));
+        draw_text_c(19.0f, spec_walk ? "ARRIBA: VOLAR   ABAJO: OBJETOS" : "ARRIBA: CAMINAR   ABAJO: OBJETOS", 1, GS_SETREG_RGBAQ(150, 220, 255, 0x80, 0));
+    }
     if (emoji_open) draw_emoji_menu();
+    if (give_open) draw_give_menu();
     if (dance_open) draw_dance_menu();
 }
 
@@ -82808,6 +82935,7 @@ static void render_game_inner(float t, int moving, int near_ladder, int notes)
             else draw_layer(cur_layer);
             if (cur_layer == 0 && !climbing) draw_trees();
             draw_props(t);
+            draw_garita(t);
             draw_pumps();
             draw_supermarket(t);
             draw_cabin(t);
@@ -83739,7 +83867,7 @@ static unsigned int sim_hash(void)
     }
     for (int i = 0; i < NMK; i++) { HM(mk_open[i]); HM(mk_bd[i]); }
     for (int k = 0; k < NBF; k++) HM(bf_on[k]);
-    HM(lt_on); HM(lt_fuel); HM(cof_hit); HM(cof_open); HM(ham_on); HM(fbits(ham_x)); HM(fbits(ham_z)); for (int k_ = 0; k_ < 4; k_++) { HM(cand_p[k_]); HM(cand_lit[k_]); } HM(pala_on); HM(fbits(pala_x)); HM(fbits(pala_z)); HM(lt_hole); for (int k_ = 0; k_ < NHOLE; k_++) HM(hole_p[k_]); HM(fbits(lt_x)); HM(fbits(lt_z));
+    HM(lt_on); HM(lt_fuel); HM(cof_hit); HM(cof_open); HM(ham_on); HM(fbits(ham_x)); HM(fbits(ham_z)); HM(fbits(ham_y)); for (int k_ = 0; k_ < 4; k_++) { HM(cand_p[k_]); HM(cand_lit[k_]); } HM(pala_on); HM(fbits(pala_x)); HM(fbits(pala_z)); HM(lt_hole); for (int k_ = 0; k_ < NHOLE; k_++) HM(hole_p[k_]); HM(fbits(lt_x)); HM(fbits(lt_z));
     for (int i = 0; i < num_players; i++) { HM(pl_bnd[i]); HM(pl_lt[i]); HM(pl_lt_on[i]); HM(pl_pala[i]); HM(pl_ham[i]); HM(pl_dn[i]); HM((int)(pl_rv[i] * 60.0f)); }
     HM(fbits(sx_)); HM(fbits(sz_)); HM(mlayer); HM(state); HM(mon_target); HM(fbits(mon_face)); HM(mon_has); HM(mon_wp_n); HM((int)(mon_blind_t * 60.0f)); HM((int)(mon_uv_t * 60.0f)); HM((int)(frenzy_t * 60.0f)); HM((int)(frenzy_w * 60.0f));
     for (int i = 0; i < 3; i++) { HM(notes_got[i]); HM(notes_off[i]); HM(notes_used[i]); }
@@ -84471,6 +84599,13 @@ static int ui_input(u32 newp)
         }
         return 1;
     }
+    if (give_open) {                                            // MODO SECRETO: menu de objetos
+        if (newp & PAD_UP)   { if (give_sel > 0) give_sel--; }
+        if (newp & PAD_DOWN) { if (give_sel < NGIVE - 1) give_sel++; }
+        if (newp & PAD_CROSS) { give_item(give_sel); give_open = 0; sfx_play(SFX_POP, 0.9f); }
+        else if (newp & (PAD_CIRCLE | PAD_TRIANGLE | PAD_SQUARE)) give_open = 0;
+        return 1;
+    }
     if (emoji_open) {                                           // menu de emojis (5 columnas x 6 filas)
         int c = emoji_sel % 5, r = emoji_sel / 5;
         if (newp & PAD_LEFT)  { if (c > 0) c--; else emoji_open = 0; }      // izquierda en la primera columna: cierra
@@ -84513,27 +84648,27 @@ static int ui_input(u32 newp)
         } else if (newp & (PAD_CIRCLE | PAD_TRIANGLE)) code_door = -1;      // O / TRIANGULO: salir
         return 1;
     }
-    if ((newp & PAD_R3) && !carry && pl_bnd[pl_cur] > 0 && hide_id < 0 && !map_open && code_door < 0 && !climbing) {   // R3: soltar la venda de la mano
+    if ((newp & PAD_R3) && foot_y < 0.5f && !carry && pl_bnd[pl_cur] > 0 && hide_id < 0 && !map_open && code_door < 0 && !climbing) {   // R3: soltar la venda de la mano
         float dxf = sinf(yaw), dzf = cosf(yaw), nx = px + dxf * 0.8f, nz = pz + dzf * 0.8f;
         if (solid(nx, nz)) { nx = px; nz = pz; }
         for (int k = 0; k < NBF; k++) if (!bf_on[k]) { bf_on[k] = 1; bf_x[k] = nx; bf_z[k] = nz; bf_l[k] = cur_layer; pl_bnd[pl_cur] = 0; sfx_play(SFX_BDDROP, 1.0f); noise_emit(cur_layer, px, pz, 10.0f); break; }
     }
-    if ((newp & PAD_R3) && !carry && pl_bnd[pl_cur] <= 0 && pl_lt[pl_cur] > 0 && hide_id < 0 && !map_open && code_door < 0 && !climbing) {   // R3: soltar el encendedor
+    if ((newp & PAD_R3) && foot_y < 0.5f && !carry && pl_bnd[pl_cur] <= 0 && pl_lt[pl_cur] > 0 && hide_id < 0 && !map_open && code_door < 0 && !climbing) {   // R3: soltar el encendedor
         float dxf = sinf(yaw), dzf = cosf(yaw), nx = px + dxf * 0.8f, nz = pz + dzf * 0.8f;
         if (solid(nx, nz)) { nx = px; nz = pz; }
         lt_on = 1; lt_x = nx; lt_z = nz; lt_l = cur_layer; pl_lt[pl_cur] = 0; pl_lt_on[pl_cur] = 0; sfx_play(SFX_BDDROP, 1.0f); noise_emit(cur_layer, px, pz, 10.0f);
     }
-    if ((newp & PAD_R3) && !carry && pl_bnd[pl_cur] <= 0 && pl_lt[pl_cur] <= 0 && pl_pala[pl_cur] <= 0 && pl_ham[pl_cur] > 0 && hide_id < 0 && !map_open && code_door < 0 && !climbing) {   // R3: soltar el martillo
+    if ((newp & PAD_R3) && foot_y < 0.5f && !carry && pl_bnd[pl_cur] <= 0 && pl_lt[pl_cur] <= 0 && pl_pala[pl_cur] <= 0 && pl_ham[pl_cur] > 0 && hide_id < 0 && !map_open && code_door < 0 && !climbing) {   // R3: soltar el martillo
         float dxf = sinf(yaw), dzf = cosf(yaw), nx = px + dxf * 0.9f, nz = pz + dzf * 0.9f;
         if (solid(nx, nz) || coffin_hit(nx, nz)) { nx = px; nz = pz; }
-        ham_on = 1; ham_x = nx; ham_z = nz; ham_a = yaw; pl_ham[pl_cur] = 0; sfx_play(SFX_BDDROP, 1.0f); noise_emit(cur_layer, px, pz, 10.0f);
+        ham_on = 1; ham_x = nx; ham_z = nz; ham_a = yaw; ham_y = 0.0f; pl_ham[pl_cur] = 0; sfx_play(SFX_BDDROP, 1.0f); noise_emit(cur_layer, px, pz, 10.0f);
     }
-    if ((newp & PAD_R3) && !carry && pl_bnd[pl_cur] <= 0 && pl_lt[pl_cur] <= 0 && pl_pala[pl_cur] > 0 && hide_id < 0 && !map_open && code_door < 0 && !climbing) {   // R3: soltar la pala
+    if ((newp & PAD_R3) && foot_y < 0.5f && !carry && pl_bnd[pl_cur] <= 0 && pl_lt[pl_cur] <= 0 && pl_pala[pl_cur] > 0 && hide_id < 0 && !map_open && code_door < 0 && !climbing) {   // R3: soltar la pala
         float dxf = sinf(yaw), dzf = cosf(yaw), nx = px + dxf * 0.9f, nz = pz + dzf * 0.9f;
         if (solid(nx, nz)) { nx = px; nz = pz; }
         pala_on = 1; pala_x = nx; pala_z = nz; pala_a = yaw; pl_pala[pl_cur] = 0; flash_on = 1; sfx_play(SFX_PALADROP, 0.45f); noise_emit(cur_layer, px, pz, 10.0f);
     }
-    if ((newp & PAD_R3) && carry && hide_id < 0 && !map_open && code_door < 0 && !climbing) {   // CIRCULO: soltar la llave
+    if ((newp & PAD_R3) && foot_y < 0.5f && carry && hide_id < 0 && !map_open && code_door < 0 && !climbing) {   // CIRCULO: soltar la llave
         float dxf = sinf(yaw), dzf = cosf(yaw), nx = px + dxf * 0.9f, nz = pz + dzf * 0.9f;
         if (solid(nx, nz)) { nx = px; nz = pz; }
         if (carry >= 5) { int k = carry - 5; notes_off[k] = 0; notes_pos[k][0] = nx; notes_pos[k][1] = nz; notes_pos[k][3] = (float)cur_layer; }
@@ -84596,9 +84731,10 @@ static int ui_input(u32 newp)
         }
     }
     if ((newp & PAD_TRIANGLE) && has_map && !climbing) { map_open = !map_open; sfx_play(SFX_CLICK, 0.8f); }   // TRIANGULO: mapa
+    if (spec_mode && (newp & PAD_DOWN) && !map_open && code_door < 0 && !climbing && !emoji_open && !dance_open) { give_open = 1; return 1; }   // MODO SECRETO, FLECHA ABAJO: menu de objetos
     if ((newp & PAD_RIGHT) && !map_open && code_door < 0 && !climbing) { emoji_open = 1; emoji_sel = emoji_id >= 0 ? emoji_id : 0; return 1; }   // FLECHA DERECHA: emojis
     if ((newp & PAD_LEFT) && !map_open && code_door < 0 && !climbing && !emoji_open) { dance_open = 1; dance_sel = dance_id >= 0 ? dance_id : 0; return 1; }   // FLECHA IZQUIERDA: bailes
-    return map_open || code_door >= 0 || emoji_open || dance_open;
+    return map_open || code_door >= 0 || emoji_open || dance_open || give_open;
 }
 
 // Caido: te arrastras despacio, sin saltar, correr ni usar nada (solo mirar y la linterna)
@@ -84753,7 +84889,8 @@ static void player_move(float dt, float t, const PadIn *in)
         }
     }
     {   // R2 (mantener 5 s): carga el DETECTOR; al llenarse sube al centro de la camara mientras sigas apretando
-        int hold = (in->pd & PAD_R2) && !map_open && code_door < 0;
+        int busy = carry > 0 || pl_bnd[pl_cur] > 0 || pl_lt[pl_cur] > 0 || pl_pala[pl_cur] > 0 || pl_ham[pl_cur] > 0;   // la otra mano lleva un objeto (la linterna ocupa la primera)
+        int hold = (in->pd & PAD_R2) && !map_open && code_door < 0 && !busy;
         if (hold) { det_t += dt; if (det_t > DET_TIME) det_t = DET_TIME; } else det_t = 0.0f;
         float tgt = (hold && det_t >= DET_TIME) ? 1.0f : 0.0f;
         det_up += (tgt - det_up) * clampf(dt * (tgt > det_up ? 6.0f : 12.0f), 0.0f, 1.0f);
@@ -84830,8 +84967,13 @@ static void player_move(float dt, float t, const PadIn *in)
         vel_x += (tvx - vel_x) * kk; vel_z += (tvz - vel_z) * kk;
         float mx = vel_x * dt, mz = vel_z * dt;
         float ox = px, oz = pz;
-        if (!blocked(px + mx, pz, 0.35f)) px += mx;
-        if (!blocked(px, pz + mz, 0.35f)) pz += mz;
+        if (!pmv_blocked(px + mx, pz)) px += mx;
+        if (!pmv_blocked(px, pz + mz)) pz += mz;
+        if (cur_layer == 0) {                                  // subes / bajas los escalones de la garita
+            float ht_ = gar_h(px, pz);
+            foot_y += (ht_ - foot_y) * clampf(dt * 18.0f, 0.0f, 1.0f);
+            if (fabsf(ht_ - foot_y) < 0.005f) foot_y = ht_;
+        }
         float moved = sqrtf((px - ox) * (px - ox) + (pz - oz) * (pz - oz));
         walk_spd += (moved / dt - walk_spd) * clampf(dt * 8.0f, 0.0f, 1.0f);   // rapidez real, suavizada (no parpadea contra paredes)
         float tgt = 0.0f;                                    // intensidad del balanceo al andar
