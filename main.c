@@ -6036,6 +6036,8 @@ static int   mk_bd[NMK];                          // vendas que quedan dentro de
 static float bf_x[NBF], bf_z[NBF];                   // vendas soltadas en el suelo (se vuelven a agarrar con la mano)
 static int   bf_on[NBF], bf_l[NBF];
 static int   pl_bnd[MAXP];                           // vendas que lleva cada jugador (hace falta 1 para revivir)
+#define LT_FUEL_MAX 10800                              // 3 minutos de llama (cuadros a 60 fps)
+static int   lt_fuel;                                // gasolina del encendedor (se recarga en los surtidores con CUADRADO)
 static int   lt_on, lt_l;                            // encendedor suelto en el suelo (1 = esta en el suelo)
 static float lt_x, lt_z;
 static int   pl_lt_on[MAXP];                         // encendedor abierto y prendido (R1)
@@ -6405,6 +6407,18 @@ static int lt_floor_near(void)
     if (climbing || hide_id >= 0 || !lt_on || lt_l != cur_layer) return -1;
     float ax = lt_x - px, az = lt_z - pz;
     if (ax * ax + az * az < 2.6f && aim_ok(lt_x, 0.05f, lt_z)) return 0;
+    return -1;
+}
+
+// Surtidor de gasolina al alcance y a la vista (recarga el encendedor con CUADRADO), o -1 / 0
+static int pump_near(void)
+{
+    if (climbing || hide_id >= 0 || cur_layer != 0) return -1;
+    static const float pp[2][2] = { { 231.5f, 312.0f }, { 236.5f, 312.0f } };
+    for (int i = 0; i < 2; i++) {
+        float ax = pp[i][0] - px, az = pp[i][1] - pz;
+        if (ax * ax + az * az < 3.2f * 3.2f && aim_ok(pp[i][0], 0.9f, pp[i][1])) return i;
+    }
     return -1;
 }
 
@@ -23974,7 +23988,7 @@ static void place_medkits(void)
     }
     pl_bnd[0] = pl_bnd[1] = 0;
     for (int k = 0; k < NBF; k++) bf_on[k] = 0;
-    lt_on = 1; lt_l = 0; lt_x = 197.0f; lt_z = 359.0f;                  // encendedor: en el camino, cerca del inicio
+    lt_fuel = 0; lt_on = 1; lt_l = 0; lt_x = 197.0f; lt_z = 359.0f;                  // encendedor: en el camino, cerca del inicio
     for (int q_ = 0; q_ < MAXP; q_++) { pl_lt[q_] = 0; pl_lt_on[q_] = 0; }
     cur_layer = sv_l; climbing = sv_c;
 }
@@ -79056,7 +79070,7 @@ static void draw_floor_lighter(void)
 {
     if (!lt_on || lt_l != cur_layer) return;
     if (!in_view(lt_x, lt_z, 0.3f, 12.0f)) return;
-    const float sc = 0.00042f, ca = cosf(0.6f), sa = sinf(0.6f);     // unidades 0.25 mm x 1.7 (mide unos 8 cm)
+    const float sc = 0.00042f * 1.3f, ca = cosf(0.6f), sa = sinf(0.6f);     // unidades 0.25 mm x 1.7 (mide unos 8 cm)
     static V pv[LT_NV];
     float col0[3] = { 150.0f, 150.0f, 150.0f };
     for (int i = 0; i < LT_NV; i++) {
@@ -79091,7 +79105,7 @@ static void draw_lighter_hand(float t)
     if (up[sl] < 0.02f) return;
     float e = up[sl] * up[sl] * (3.0f - 2.0f * up[sl]);
     rd_th = 0.50f + 0.50f * (1.0f - e); rd_ya = 0.30f - 0.30f * (1.0f - e);
-    rd_ox = 0.02f + 0.010f * walk_amp * sinf(walk_ph + 0.5f);
+    rd_ox = (carry > 0 ? -0.35f : -0.18f) - (pl_bnd[pl_cur] > 0 ? 0.12f : 0.0f) + 0.010f * walk_amp * sinf(walk_ph + 0.5f);   // a la izquierda, donde van las llaves y vendas
     rd_oy = -0.21f - 0.45f * (1.0f - e) + 0.008f * walk_amp * sinf(2.0f * walk_ph + 0.4f) - 0.015f * step_imp + sinf(t * 1.3f) * 0.002f;
     rd_oz = 0.40f;
     vm_mode = 1;
@@ -79101,7 +79115,7 @@ static void draw_lighter_hand(float t)
         rd_box(0.046f, -0.018f, 0.000f, 0.011f, 0.030f, 0.016f, sk, sk2);
         rd_box(-0.046f, -0.018f, 0.000f, 0.011f, 0.030f, 0.016f, sk, sk2);
     }
-    const float s = 0.25f * 0.0017f;
+    const float s = 0.25f * 0.0017f * 1.3f;   // modelo 30% mas grande
     static float pt[LT_NV][3];
     for (int i = 0; i < LT_NV; i++) rd_pt((float)lt_v[i][0] * s, (float)lt_v[i][1] * s + 0.004f, -(float)lt_v[i][2] * s, pt[i]);
     {   // tapa: gira hasta 180 grados sobre su bisagra
@@ -79225,6 +79239,10 @@ static void msg_text(int id, char *buf, int n)
     else if (id == 53) snprintf(buf, n, "YA LLEVAS UNA VENDA (R3: SOLTAR)");
     else if (id == 54) snprintf(buf, n, "ENCENDEDOR EN LA MANO (R3: SOLTAR)");
     else if (id == 55) snprintf(buf, n, "YA LLEVAS EL ENCENDEDOR (R3: SOLTAR)");
+    else if (id == 56) snprintf(buf, n, "SIN GASOLINA: RECARGALO EN LA GASOLINERA");
+    else if (id == 57) snprintf(buf, n, "GASOLINA DEL ENCENDEDOR: %d%%", lt_fuel * 100 / LT_FUEL_MAX);
+    else if (id == 58) snprintf(buf, n, "ENCENDEDOR RECARGADO");
+    else if (id == 59) snprintf(buf, n, "EL ENCENDEDOR YA ESTA LLENO");
     else if (id == 52) snprintf(buf, n, "NECESITAS UNA VENDA PARA REVIVIR");
     else if (id == 40) snprintf(buf, n, "LUZ ULTRAVIOLETA");
     else if (id == 41) snprintf(buf, n, "LUZ NORMAL");
@@ -79529,6 +79547,7 @@ static void draw_door_hud(void)
     int dn = (map_open || code_door >= 0) ? -1 : door_near();
     { int mq = (map_open || code_door >= 0) ? -1 : mkit_near(), bq = (map_open || code_door >= 0) ? -1 : mkit_bnd_near();
       if (mq >= 0 && dn < 0) draw_text_c(H - 34.0f, "CUADRADO: ABRIR BOTIQUIN", 2, yc);
+      else if (pl_lt[pl_cur] > 0 && pump_near() >= 0 && dn < 0 && pick_near() < 0) draw_text_c(H - 34.0f, lt_fuel < LT_FUEL_MAX ? "CUADRADO: RECARGAR ENCENDEDOR" : "ENCENDEDOR LLENO", 2, yc);
       else if (lt_floor_near() >= 0 && dn < 0 && pick_near() < 0) draw_text_c(H - 34.0f, pl_lt[pl_cur] > 0 ? "R1: ABRIR / PRENDER ENCENDEDOR   R3: SOLTAR" : "CUADRADO: AGARRAR ENCENDEDOR", 2, yc);
       else if ((bq >= 0 || bnd_floor_near() >= 0) && dn < 0 && pick_near() < 0) draw_text_c(H - 34.0f, pl_bnd[pl_cur] > 0 ? "YA LLEVAS UNA VENDA   R3: SOLTAR" : "CUADRADO: AGARRAR VENDA", 2, yc); }
     if (dn >= 0) draw_text_c(H - 34.0f, doors[dn].type == 1 ? "CUADRADO: PONER CODIGO" : "CUADRADO: ABRIR PUERTA", 2, yc);
@@ -80518,7 +80537,7 @@ static unsigned int sim_hash(void)
     }
     for (int i = 0; i < NMK; i++) { HM(mk_open[i]); HM(mk_bd[i]); }
     for (int k = 0; k < NBF; k++) HM(bf_on[k]);
-    HM(lt_on); HM(fbits(lt_x)); HM(fbits(lt_z));
+    HM(lt_on); HM(lt_fuel); HM(fbits(lt_x)); HM(fbits(lt_z));
     for (int i = 0; i < num_players; i++) { HM(pl_bnd[i]); HM(pl_lt[i]); HM(pl_lt_on[i]); HM(pl_dn[i]); HM((int)(pl_rv[i] * 60.0f)); }
     HM(fbits(sx_)); HM(fbits(sz_)); HM(mlayer); HM(state); HM(mon_target); HM(fbits(mon_face)); HM(mon_has); HM(mon_wp_n); HM((int)(mon_blind_t * 60.0f)); HM((int)(mon_uv_t * 60.0f)); HM((int)(frenzy_t * 60.0f)); HM((int)(frenzy_w * 60.0f));
     for (int i = 0; i < 3; i++) { HM(notes_got[i]); HM(notes_off[i]); HM(notes_used[i]); }
@@ -81319,8 +81338,12 @@ static int ui_input(u32 newp)
         if (items[pk_].kind == 0) { carry = 1 + items[pk_].id; door_msg_id = 20 + items[pk_].id; }
         else { have_code[items[pk_].id] = 1; door_msg_id = 30 + items[pk_].id; }
     } else if (newp & PAD_SQUARE) {                             // CUADRADO: abrir botiquin / tomar el mapa / abrir puerta / poner codigo
-        int di = door_near(), mi = mkit_near(), bi_ = mkit_bnd_near(), bj_ = bnd_floor_near(), lj_ = lt_floor_near();
-        if (lj_ >= 0 && !map_open && pl_lt[pl_cur] > 0) { door_msg = 120; door_msg_id = 55; }
+        int di = door_near(), mi = mkit_near(), bi_ = mkit_bnd_near(), bj_ = bnd_floor_near(), lj_ = lt_floor_near(), pj_ = pl_lt[pl_cur] > 0 ? pump_near() : -1;
+        if (pj_ >= 0 && !map_open) {                                  // surtidor: recargar el encendedor
+            if (lt_fuel >= LT_FUEL_MAX - 60) { door_msg = 100; door_msg_id = 59; }
+            else { lt_fuel = LT_FUEL_MAX; door_msg = 120; door_msg_id = 58; sfx_play(SFX_POP, 0.9f); noise_emit(cur_layer, px, pz, 8.0f); }
+        }
+        else if (lj_ >= 0 && !map_open && pl_lt[pl_cur] > 0) { door_msg = 120; door_msg_id = 55; }
         else if (lj_ >= 0 && !map_open) { lt_on = 0; pl_lt[pl_cur] = 1; pl_lt_on[pl_cur] = 0; door_msg = 120; door_msg_id = 54; sfx_play(SFX_KEY, 0.9f); noise_emit(cur_layer, px, pz, 6.0f); }
         else if (bj_ >= 0 && !map_open && pl_bnd[pl_cur] >= 1) { door_msg = 120; door_msg_id = 53; }
         else if (bj_ >= 0 && !map_open) { bf_on[bj_] = 0; pl_bnd[pl_cur] = 1; door_msg = 100; door_msg_id = 51; sfx_play(SFX_KEY, 0.9f); noise_emit(cur_layer, px, pz, 6.0f); }
@@ -81467,8 +81490,16 @@ static void player_move(float dt, float t, const PadIn *in)
             }
         } else hide_hold = 0.0f;
     }
-    if (pl_lt[pl_cur] > 0 && !map_open && code_door < 0 && !climbing && hide_id < 0 && (in->np & PAD_R1)) {   // R1 con el encendedor en la mano: abrir y prender / cerrar
-        pl_lt_on[pl_cur] ^= 1; sfx_play(SFX_CLICK, 0.9f); if (pl_lt_on[pl_cur]) noise_emit(cur_layer, px, pz, 4.0f);
+    if (pl_lt[pl_cur] > 0) {                                                        // encendedor en la mano
+        if (!map_open && code_door < 0 && !climbing && hide_id < 0 && (in->np & PAD_R1)) {   // R1: abrir y prender / cerrar
+            if (pl_lt_on[pl_cur]) { pl_lt_on[pl_cur] = 0; sfx_play(SFX_CLICK, 0.9f); }
+            else if (lt_fuel > 0) { pl_lt_on[pl_cur] = 1; sfx_play(SFX_CLICK, 0.9f); noise_emit(cur_layer, px, pz, 4.0f); door_msg = 90; door_msg_id = 57; }
+            else { sfx_play(SFX_CLICK, 0.6f); door_msg = 140; door_msg_id = 56; }   // sin gasolina
+        }
+        if (pl_lt_on[pl_cur]) {                                                      // prendido: gasta gasolina
+            if (lt_fuel > 0) lt_fuel--;
+            if (lt_fuel <= 0) { lt_fuel = 0; pl_lt_on[pl_cur] = 0; door_msg = 140; door_msg_id = 56; }
+        }
     }
     inv_open = (pl_lt[pl_cur] > 0) ? 0 : ((in->pd & PAD_R1) ? 1 : 0);                                       // R1 (mantener): ver llaves y codigos
     {   // L2 (mantener 1 s): cambia la linterna a luz ULTRAVIOLETA (morada) y de vuelta a la normal
