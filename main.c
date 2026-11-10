@@ -4337,19 +4337,19 @@ static const char *map1[MH] = {"################################################
 "########################################sssssss##svsvsvsvsv#####################################",
 "########################################sssssss##vsvsvsvsvs#####################################",
 "################################################################################################",
-"################################################################################################",
-"################################################################################################",
-"################################################################################################",
-"################################################################################################",
-"################################################################################################",
-"################################################################################################",
-"################################################################################################",
-"################################################################################################",
-"################################################################################################",
-"################################################################################################",
-"################################################################################################",
-"################################################################################################",
-"################################################################################################",
+"#########xxxxxxxxx#zzzzzzzzzz#yyyyyyyyy#xxxxxxxxx###############################################",
+"#########xlllllllx#zggggggggz#ybbbbbbby#xlllllllx###############################################",
+"#########xlllllllx#zggggggggz#ybbbbbbby#xlllllllxxxxxxxxxx######################################",
+"#########xlllllllx#zggggggggz#ybbbbbbby#xlllllllxllllllllx######################################",
+"#########xlllllllx#zggggggggz#ybbbbbbby#xlllllllxllllllllx######################################",
+"#####xxxxxxxxllxxxxzzzzggzzzzxyyyybbyyyxxxxxllxxxllllllllx######################################",
+"#####xlllllllllllllllllllllllllllllllllllllllllllllllllllx######################################",
+"#####xlllllllllllllllllllllllllllllllllllllllllllllllllllx######################################",
+"#####xlllxxxxxmmxxxxxxxxxxbbxxxxxxxxxggxxxxxxxxxxllllllllx######################################",
+"#####xxxxxmmmmmmmmmy#ybbbbbbbbby#zgggggggz######xllllllllx######################################",
+"#########ymmmmmmmmmy#ybbbbbbbbby#zgggggggz######xllllllllx######################################",
+"#########ymmmmmmmmmy#ybbbbbbbbby#zgggggggz######xxxxxxxxxx######################################",
+"#########yyyyyyyyyyy#yyyyyyyyyyy#zzzzzzzzz######################################################",
 "################################################################################################"};
 typedef struct { float x,z,a,hx,hz,y0,y1; unsigned char r,g,b,type,layer; float emit; } Prop;
 #define NPROP 354
@@ -6044,6 +6044,13 @@ static int   give_open, give_sel;                         // MODO SECRETO: menu 
 static int   cof_hit, cof_open;                             // ataud de piedra de la cripta: golpes de martillo / abierto
 static int   ham_on, pl_ham[MAXP];                          // martillo suelto / en la mano de cada jugador
 static float ham_x, ham_z, ham_a, ham_sw;
+static int   note_on, pl_note[MAXP], note_big;              // nota del puzzle: suelta / en la mano / ampliada
+static float note_x, note_z, note_a;
+#define PZ_N 4
+static int   pz_d[PZ_N], pz_open;                           // puzzle de piedra del cuarto secreto: valor de cada dado (0..5) y puerta abierta
+static float pz_slide;
+static const int pz_code[PZ_N] = { 3, 1, 5, 2 };            // 4 2 6 3 (valor - 1)
+static float pz_dx(int i) { return 55.0f + 2.0f * (float)i; }
 static int   cand_p[4];                                     // velas de la iglesia: progreso de encendido (180 cuadros = 3 s)
 static unsigned char cand_lit[4];                           // 1 = vela encendida
 static int   lt_lighting[MAXP];                             // este jugador esta prendiendo una vela (para la animacion)
@@ -6120,6 +6127,13 @@ static CellInfo cell_info(char ch, int layer)
         switch (ch) {
         case 's': case 'L': ROOM(6.0f, 74, 78, 70, 58, 64, 58) break;
         case 'v':           ROOM(6.0f, 28, 62, 56, 58, 64, 58) break;
+        case 'l':           ROOM(4.4f, 176, 184, 190, 118, 124, 130) break;      // laboratorio: suelo de baldosa blanca
+        case 'm':           ROOM(4.4f, 82, 86, 88, 66, 70, 74) break;            // almacen sucio
+        case 'b':           ROOM(4.4f, 118, 58, 56, 66, 70, 74) break;           // salas manchadas de sangre
+        case 'g':           ROOM(4.4f, 64, 118, 98, 80, 104, 98) break;          // contencion (luz verde)
+        case 'x':           WALL(4.4f, 206, 212, 216) break;
+        case 'y':           WALL(4.4f, 96, 100, 102) break;
+        case 'z':           WALL(4.4f, 120, 176, 156) break;
         default:            WALL(6.0f, 78, 86, 78) break;
         }
         return c;
@@ -6139,7 +6153,7 @@ static CellInfo cell_info(char ch, int layer)
     case 'w': WALL(4.5f, 148, 148, 154) c.win = 2; break;
     case 'Z': ROOM(3.4f, 118, 122, 120, 176, 178, 172) break;      // refugio
     case 'B': WALL(5.5f, 150, 52, 42) break;
-    case 'R': WALL(2.8f, 104, 98, 92) break;
+    case 'R': WALL(2.8f, 92, 84, 76) break;
     case 'M': WALL(3.2f, 118, 124, 130) break;
     case 'H': WALL(3.2f, 206, 194, 166) break;                 // caseta de la antena: paredes crema
     case 'J': WALL(3.2f, 206, 194, 166) c.win = 1; break;      // ... con ventana
@@ -6341,9 +6355,27 @@ static int coffin_hit(float x, float z)                          // el ataud de 
     return cur_layer == 0 && fabsf(x - 58.0f) < 0.74f && fabsf(z - 146.0f) < 1.42f;
 }
 
+static int pz_hit(float x, float z)                              // la estructura de piedra del puzzle (cuarto secreto, capa 1)
+{
+    return cur_layer == 1 && z < 141.65f && x > 53.2f && x < 66.8f;
+}
+
+#define LAB_N 37
+static const float lab_p[37][6] = {{48.00f,338.00f,4.50f,1.00f,1.00f,0.0f},{60.00f,343.00f,4.50f,1.00f,1.00f,0.0f},{44.00f,333.30f,1.40f,0.70f,1.10f,5.0f},{64.00f,333.30f,1.40f,0.70f,1.10f,5.0f},{52.00f,334.00f,0.50f,0.50f,1.40f,7.0f},{86.00f,334.60f,1.30f,1.30f,3.30f,1.0f},{93.00f,334.60f,1.30f,1.30f,3.30f,1.0f},{100.00f,334.60f,1.30f,1.30f,3.30f,1.0f},{107.00f,334.60f,1.30f,1.30f,3.30f,1.0f},{96.00f,343.00f,1.30f,1.30f,3.30f,6.0f},{132.00f,339.00f,1.00f,2.20f,0.90f,4.0f},{144.00f,339.00f,1.00f,2.20f,0.90f,4.0f},{138.00f,333.30f,1.60f,0.70f,1.10f,5.0f},{168.00f,333.30f,1.20f,0.80f,3.20f,2.0f},{173.00f,333.30f,1.20f,0.80f,3.20f,2.0f},{188.00f,333.30f,1.20f,0.80f,3.20f,2.0f},{165.20f,340.00f,0.80f,1.20f,3.20f,2.0f},{190.80f,340.00f,0.80f,1.20f,3.20f,2.0f},{46.00f,370.00f,1.50f,1.50f,1.60f,3.0f},{50.00f,372.50f,1.50f,1.50f,1.60f,3.0f},{53.00f,369.50f,1.50f,1.50f,1.60f,3.0f},{66.00f,368.00f,1.50f,1.50f,1.60f,3.0f},{70.00f,372.00f,1.50f,1.50f,1.60f,3.0f},{94.00f,370.00f,1.00f,2.20f,0.90f,4.0f},{99.00f,370.00f,1.00f,2.20f,0.90f,4.0f},{115.00f,370.00f,1.00f,2.20f,0.90f,4.0f},{119.00f,370.00f,1.00f,2.20f,0.90f,4.0f},{141.00f,371.00f,1.30f,1.30f,3.30f,1.0f},{145.00f,371.00f,1.30f,1.30f,3.30f,1.0f},{155.00f,371.00f,1.30f,1.30f,3.30f,1.0f},{159.00f,371.00f,1.30f,1.30f,3.30f,1.0f},{212.00f,356.00f,3.40f,3.40f,0.25f,8.0f},{200.00f,345.00f,0.80f,0.80f,3.00f,9.0f},{224.00f,345.00f,0.80f,0.80f,3.00f,9.0f},{200.00f,367.00f,0.80f,0.80f,3.00f,9.0f},{224.00f,367.00f,0.80f,0.80f,3.00f,9.0f},{222.00f,356.00f,1.00f,2.50f,1.10f,5.0f}};
+
+static int lab_hit(float x, float z)                              // muebles y tanques del laboratorio (capa 1, z > 328)
+{
+    if (cur_layer != 1 || z < 328.0f) return 0;
+    for (int i = 0; i < LAB_N; i++) {
+        if (lab_p[i][5] == 8.0f) continue;                        // la escotilla de salida es plana
+        if (fabsf(x - lab_p[i][0]) < lab_p[i][2] + 0.25f && fabsf(z - lab_p[i][1]) < lab_p[i][3] + 0.25f) return 1;
+    }
+    return 0;
+}
+
 static int blocked(float x, float z, float r)
 {
-    return coffin_hit(x, z) || solid(x - r, z - r) || solid(x + r, z - r) || solid(x - r, z + r) || solid(x + r, z + r) || tree_hit(x, z) || col_hit(x, z, 0.3f) || board_hit(x, z) || locker_hit(x, z) || door_hit(x, z) || other_block(x, z);
+    return coffin_hit(x, z) || pz_hit(x, z) || lab_hit(x, z) || solid(x - r, z - r) || solid(x + r, z - r) || solid(x - r, z + r) || solid(x + r, z + r) || tree_hit(x, z) || col_hit(x, z, 0.3f) || board_hit(x, z) || locker_hit(x, z) || door_hit(x, z) || other_block(x, z);
 }
 
 // ---------------- Pipeline 3D ----------------
@@ -6866,6 +6898,12 @@ static int in_view(float wx, float wz, float rad, float maxd)
 }
 
 // ---------------- Nivel ----------------
+static void cof_strips(float x0, float z0, float x1, float z1, float y, const float *col, int n)   // celda con un hueco rectangular (escalera del ataud)
+{
+    const float hx0 = 57.45f, hx1 = 58.55f, hz0 = 144.88f, hz1 = 147.12f;
+    hquad(x0, z0, hx0, z1, y, col, n); hquad(hx1, z0, x1, z1, y, col, n);
+    hquad(hx0, z0, hx1, hz0, y, col, 2); hquad(hx0, hz1, hx1, z1, y, col, 2);
+}
 static void draw_layer(int layer)
 {
     const char **m = layer ? map1 : map0;
@@ -6891,12 +6929,15 @@ static void draw_layer(int layer)
             int wet = (layer == 1 && ch == 'v');                 // canal de agua: el fondo esta mas abajo
             float bfy = wet ? fy - WATER_DEPTH : fy;
             if (wet) { fl[0] = 34.0f * k; fl[1] = 44.0f * k; fl[2] = 38.0f * k; }
+            int chole = (cof_open && cx == 14 && cz == 36);        // hueco de la escalera bajo el ataud
             if (layer == 0 && ch == 'O') floor_ring(x0, z0, fy, fl, nfl);
+            else if (chole && layer == 0) cof_strips(x0, z0, x1, z1, bfy, fl, nfl);
             else hquad(x0, z0, x1, z1, bfy, fl, nfl);
             if (ci.kind == 2) continue;
             if (ci.kind == 1) {
                 float ce[3] = { (float)ci.cr, (float)ci.cg, (float)ci.cb };
                 if (layer == 1 && ch == 'L') floor_ring(x0, z0, fy + ci.ceil, ce, nceil);
+                else if (chole && layer == 1) cof_strips(x0, z0, x1, z1, fy + ci.ceil, ce, nceil);
                 else hquad(x0, z0, x1, z1, fy + ci.ceil, ce, nceil);
             }
             for (int d = 0; d < 4; d++) {      // 0 N, 1 S, 2 E, 3 W
@@ -7392,6 +7433,15 @@ static void place_holes(void)
         pala_a = 0.7f; pala_on = 1;
     }
     ham_x = 193.2f; ham_z = 49.3f; ham_a = 0.5f; ham_y = GAR_H; ham_on = 1;   // el martillo: arriba de la garita
+    {   // la nota del puzzle: en el suelo, cerca de la iglesia
+        int fnd = 0; note_x = 63.0f; note_z = 84.0f;
+        for (int r = 0; r < 9 && !fnd; r++)
+            for (int k = 0; k < 16 && !fnd; k++) {
+                float ang = (float)k * (2.0f * PI_F / 16.0f), x = 63.0f + sinf(ang) * (float)r, z = 84.0f + cosf(ang) * (float)r;
+                if (!blocked(x, z, 0.7f)) { note_x = x; note_z = z; fnd = 1; }
+            }
+        note_a = 0.4f; note_on = 1;
+    }
 }
 
 static int hole_near(void)
@@ -7484,6 +7534,194 @@ static void draw_floor_hammer(void)
     box_rot(ham_x, ham_z, ham_a, 0.0f, 0.30f, 0.11f, 0.055f, ham_y, ham_y + 0.10f, iron, 0.25f);
 }
 
+static int note_floor_near(void)
+{
+    if (climbing || hide_id >= 0 || !note_on || cur_layer != 0) return -1;
+    float ax = note_x - px, az = note_z - pz;
+    if (ax * ax + az * az < 2.6f && aim_ok(note_x, 0.05f, note_z)) return 0;
+    return -1;
+}
+
+static void draw_floor_note(void)
+{
+    if (!note_on || cur_layer != 0) return;
+    if (!in_view(note_x, note_z, 0.6f, 14.0f)) return;
+    static const float paper[3] = { 226.f, 214.f, 178.f }, ink[3] = { 60.f, 48.f, 40.f }, blood[3] = { 110.f, 18.f, 16.f };
+    box_rot(note_x, note_z, note_a, 0.0f, 0.0f, 0.16f, 0.22f, 0.0f, 0.012f, paper, 0.30f);
+    for (int i = 0; i < 4; i++) box_rot(note_x, note_z, note_a, 0.0f, -0.13f + 0.085f * (float)i, 0.11f, 0.008f, 0.012f, 0.014f, ink, 0.0f);
+    box_rot(note_x, note_z, note_a, 0.08f, 0.12f, 0.05f, 0.04f, 0.012f, 0.015f, blood, 0.0f);
+}
+
+static int pz_dial_near(void)                                    // dado de piedra al que apuntas (cuarto secreto)
+{
+    if (cur_layer != 1 || climbing || hide_id >= 0) return -1;
+    int bi = -1; float best = 9.0f;
+    for (int i = 0; i < PZ_N; i++) {
+        float ax = pz_dx(i) - px, az = 141.4f - pz, d = ax * ax + az * az;
+        if (d < best && aim_ok(pz_dx(i), 1.65f, 141.4f)) { best = d; bi = i; }
+    }
+    return bi;
+}
+
+
+// ---- LABORATORIO (segundo mapa, tras la puerta final): decoracion; el plano esta en map1, filas 82..93 ----
+static void draw_lab(float t)
+{
+    if (cur_layer != 1 && !climbing) return;
+    if (pz < 322.0f && !climbing) return;
+    if (pz < 300.0f) return;
+    float lim = fminf(draw_lim, (gfx_pd[gfx] * rd_k));
+    const float F = SEWER_Y;
+    static const float steel[3] = { 150.f, 156.f, 162.f }, steelD[3] = { 78.f, 82.f, 88.f }, glass[3] = { 120.f, 210.f, 170.f }, black[3] = { 18.f, 20.f, 22.f };
+    static const float scr[3] = { 90.f, 230.f, 170.f }, blood[3] = { 112.f, 8.f, 10.f }, blood2[3] = { 70.f, 4.f, 6.f }, sheet[3] = { 214.f, 210.f, 200.f };
+    static const float crate[3] = { 108.f, 86.f, 56.f }, warn[3] = { 230.f, 190.f, 30.f }, pipe[3] = { 96.f, 100.f, 104.f }, red[3] = { 220.f, 40.f, 34.f };
+    for (int i = 0; i < LAB_N; i++) {
+        const float *q = lab_p[i];
+        if (!in_view(q[0], q[1], 4.0f, lim)) continue;
+        float x = q[0], z = q[1], hx = q[2], hz = q[3], h = q[4]; int ty = (int)q[5];
+        if (ty == 0) {                                                                         // mesa de laboratorio con matraces
+            box_rot(x, z, 0.0f, 0.0f, 0.0f, hx, hz, F + h - 0.10f, F + h, steel, 0.0f);
+            box_rot(x, z, 0.0f, 0.0f, 0.0f, hx - 0.2f, hz - 0.2f, F, F + h - 0.10f, steelD, 0.0f);
+            for (int k = 0; k < 4; k++) { float c2[3] = { 90.f + 40.f * (float)(k & 1), 220.f - 60.f * (float)(k & 1), 150.f + 60.f * (float)(k & 2) }; box_rot(x - hx + 1.2f + 2.2f * (float)k, z, 0.0f, 0.0f, 0.0f, 0.12f, 0.12f, F + h, F + h + 0.30f, c2, 0.6f); }
+        } else if (ty == 1 || ty == 6) {                                                       // tanque de contencion con liquido verde (6 = roto)
+            box_rot(x, z, 0.0f, 0.0f, 0.0f, hx, hz, F, F + 0.35f, steelD, 0.0f);
+            box_rot(x, z, 0.0f, 0.0f, 0.0f, hx, hz, F + h - 0.35f, F + h, steelD, 0.0f);
+            if (ty == 1) box_rot(x, z, 0.0f, 0.0f, 0.0f, hx - 0.15f, hz - 0.15f, F + 0.35f, F + h - 0.35f, glass, 0.55f + 0.1f * sinf(t * 2.0f + x));
+            else {
+                box_rot(x - hx + 0.15f, z, 0.0f, 0.0f, 0.0f, 0.05f, hz - 0.15f, F + 0.35f, F + h - 0.35f, glass, 0.3f);
+                box_rot(x + 0.5f, z + 1.4f, 0.4f, 0.0f, 0.0f, 1.3f, 0.9f, F, F + 0.03f, glass, 0.4f);        // liquido derramado
+                box_rot(x + 0.9f, z + 1.7f, 1.0f, 0.0f, 0.0f, 0.9f, 0.5f, F + 0.03f, F + 0.05f, blood, 0.0f);
+            }
+            box_rot(x, z, 0.0f, 0.0f, 0.0f, 0.08f, 0.08f, F + h, F + h + 0.9f, black, 0.0f);       // cable al techo
+        } else if (ty == 2) {                                                                   // rack de servidores con LEDs
+            box_rot(x, z, 0.0f, 0.0f, 0.0f, hx, hz, F, F + h, black, 0.0f);
+            for (int k = 0; k < 6; k++) { int on = (((int)(t * 3.0f) + k * 7 + i) & 3) != 0; box_rot(x - hx + 0.3f + 0.4f * (float)k, z + hz + 0.02f, 0.0f, 0.0f, 0.0f, 0.06f, 0.02f, F + 1.0f + 0.3f * (float)(k % 4), F + 1.12f + 0.3f * (float)(k % 4), on ? scr : red, 1.0f); }
+        } else if (ty == 3) {                                                                   // cajas de almacen
+            box_rot(x, z, 0.3f * (float)(i & 3), 0.0f, 0.0f, hx, hz, F, F + h, crate, 0.0f);
+            box_rot(x, z, 0.3f * (float)(i & 3), 0.0f, 0.0f, hx * 0.6f, hz * 0.6f, F + h, F + h + 0.6f, crate, 0.0f);
+            box_rot(x, z, 0.3f * (float)(i & 3), 0.0f, 0.0f, hx + 0.02f, 0.10f, F + 0.4f, F + 0.6f, warn, 0.0f);
+        } else if (ty == 4) {                                                                   // camilla con sabana ensangrentada
+            box_rot(x, z, 0.0f, 0.0f, 0.0f, hx, hz, F + h - 0.12f, F + h, steel, 0.0f);
+            box_rot(x, z, 0.0f, 0.0f, 0.0f, 0.08f, 0.08f, F, F + h - 0.12f, steelD, 0.0f);
+            box_rot(x, z, 0.0f, 0.0f, 0.0f, hx * 0.8f, hz * 0.75f, F + h, F + h + 0.18f, sheet, 0.0f);
+            box_rot(x + 0.1f, z + 0.3f, 0.5f, 0.0f, 0.0f, hx * 0.5f, hz * 0.30f, F + h + 0.18f, F + h + 0.20f, blood, 0.0f);
+            box_rot(x, z, 0.0f, 0.0f, 0.0f, hx + 0.9f, hz + 0.9f, F + 0.004f, F + 0.012f, blood2, 0.0f);   // charco debajo
+        } else if (ty == 5) {                                                                   // consola con pantalla
+            box_rot(x, z, 0.0f, 0.0f, 0.0f, hx, hz, F, F + h, steelD, 0.0f);
+            box_rot(x, z + hz + 0.02f, 0.0f, 0.0f, 0.0f, hx * 0.8f, 0.03f, F + h * 0.55f, F + h * 0.95f, scr, 0.9f + 0.1f * sinf(t * 5.0f + x));
+        } else if (ty == 7) {                                                                   // dispensador de emergencia (luz roja)
+            box_rot(x, z, 0.0f, 0.0f, 0.0f, hx, hz, F, F + h, steelD, 0.0f);
+            box_rot(x, z, 0.0f, 0.0f, 0.0f, 0.15f, 0.15f, F + h, F + h + 0.2f, red, 0.5f + 0.5f * sinf(t * 6.0f));
+        } else if (ty == 8) {                                                                   // escotilla de extraccion: verde brillante
+            box_rot(x, z, 0.0f, 0.0f, 0.0f, hx, hz, F, F + h, steelD, 0.0f);
+            box_rot(x, z, 0.0f, 0.0f, 0.0f, hx - 0.5f, hz - 0.5f, F + h, F + h + 0.04f, scr, 0.8f + 0.2f * sinf(t * 3.0f));
+            for (int k = 0; k < 4; k++) box_rot(x, z, 0.7854f * (float)k, 0.0f, 0.0f, hx, 0.15f, F + h + 0.04f, F + h + 0.06f, warn, 0.4f);
+        } else if (ty == 9) {                                                                   // pilares de la sala de extraccion
+            box_rot(x, z, 0.0f, 0.0f, 0.0f, hx, hz, F, F + 4.4f, steel, 0.0f);
+            box_rot(x, z, 0.0f, 0.0f, 0.0f, hx + 0.05f, hz + 0.05f, F + 0.8f, F + 1.1f, warn, 0.0f);
+        }
+    }
+    // pasillo: tuberias en el techo, franja de peligro y manchas de sangre
+    for (int c = 9; c <= 48; c += 2) {
+        float x = (float)c * 4.0f + 2.0f;
+        if (!in_view(x, 356.0f, 4.0f, lim)) continue;
+        box_rot(x, 352.4f, 0.0f, 0.0f, 0.0f, 4.0f, 0.12f, F + 4.0f, F + 4.25f, pipe, 0.0f);
+        box_rot(x, 359.6f, 0.0f, 0.0f, 0.0f, 4.0f, 0.10f, F + 3.85f, F + 4.05f, pipe, 0.0f);
+        box_rot(x, 356.0f, 0.0f, 0.0f, 0.0f, 0.5f, 3.0f, F + 0.003f, F + 0.010f, ((c / 2) & 1) ? warn : black, 0.0f);
+        unsigned int hh = hash2(c * 7 + 2, 3131);
+        if (hh & 1u) box_rot(x + 1.0f, 354.0f + 3.5f * (float)((hh >> 3) & 255u) / 255.0f, (float)(hh & 7u) * 0.5f, 0.0f, 0.0f, 0.6f + 0.4f * (float)((hh >> 12) & 3u), 0.5f, F + 0.012f, F + 0.020f, blood, 0.0f);
+    }
+    for (int i = 0; i < 10; i++) {                                                  // salpicaduras en las paredes del pasillo
+        unsigned int hh = hash2(i * 19 + 5, 4242);
+        float x = 40.0f + 150.0f * (float)(hh & 1023u) / 1023.0f;
+        if (!in_view(x, 352.0f, 3.0f, lim)) continue;
+        float y0 = 0.5f + 2.0f * (float)((hh >> 10) & 255u) / 255.0f;
+        box_rot(x, (hh & 0x80000u) ? 351.96f : 360.04f, 0.0f, 0.0f, 0.0f, 0.2f + 0.3f * (float)((hh >> 20) & 3u), 0.02f, F + y0, F + y0 + 1.0f, blood2, 0.0f);
+    }
+}
+
+// ---- Cuarto secreto bajo el ataud (x 52..68, z 140..156, capa 1): tierra, sangre y el puzzle de piedra ----
+static void draw_secret_room(float t)
+{
+    (void)t;
+    if (cur_layer != 1 && !climbing) return;
+    if (!cof_open) return;
+    float lim = fminf(draw_lim, (gfx_pd[gfx] * rd_k));
+    if (!in_view(60.0f, 148.0f, 12.0f, lim + 8.0f)) return;
+    pz_slide += ((float)pz_open - pz_slide) * 0.04f;
+    const float F = SEWER_Y;
+    static const float dirt[3] = { 74.f, 54.f, 36.f }, dirt2[3] = { 56.f, 40.f, 28.f }, blood[3] = { 104.f, 10.f, 12.f }, blood2[3] = { 66.f, 6.f, 8.f };
+    static const float bone[3] = { 214.f, 208.f, 188.f }, root[3] = { 52.f, 36.f, 24.f };
+    static const float stoneD[3] = { 78.f, 78.f, 86.f }, stoneL[3] = { 128.f, 126.f, 132.f }, stoneM[3] = { 100.f, 98.f, 106.f }, pip[3] = { 120.f, 12.f, 12.f };
+    // tierra: monticulos bajos y manchones
+    for (int i = 0; i < 16; i++) {
+        unsigned int h = hash2(i * 13 + 7, 5151);
+        float x = 53.2f + 13.6f * (float)(h & 1023u) / 1023.0f, z = 142.6f + 12.8f * (float)((h >> 10) & 1023u) / 1023.0f;
+        if (x > 56.2f && x < 59.8f && z > 144.6f && z < 149.2f) continue;      // bajo la escalera
+        if (x > 59.2f && x < 64.8f && z > 147.2f && z < 152.8f) continue;      // casillero
+        float w = 0.5f + 0.9f * (float)((h >> 20) & 255u) / 255.0f, hh = 0.10f + 0.30f * (float)((h >> 4) & 15u) / 15.0f;
+        box_rot(x, z, (float)(h & 7u) * 0.4f, 0.0f, 0.0f, w, w * 0.7f, F, F + hh, (i & 1) ? dirt : dirt2, 0.0f);
+        box_rot(x + 0.1f, z, 0.5f, 0.0f, 0.0f, w * 0.55f, w * 0.4f, F + hh, F + hh * 1.5f, dirt, 0.0f);
+    }
+    // sangre: charcos en el suelo y un rastro hacia la estructura
+    for (int i = 0; i < 9; i++) {
+        unsigned int h = hash2(i * 29 + 3, 6262);
+        float x = 54.0f + 12.0f * (float)(h & 1023u) / 1023.0f, z = 143.0f + 11.0f * (float)((h >> 10) & 1023u) / 1023.0f;
+        float w = 0.35f + 0.8f * (float)((h >> 20) & 255u) / 255.0f;
+        box_rot(x, z, (float)(h & 15u) * 0.4f, 0.0f, 0.0f, w, w * 0.7f, F + 0.004f, F + 0.012f, blood, 0.0f);
+        box_rot(x + 0.2f, z + 0.15f, 1.0f, 0.0f, 0.0f, w * 0.5f, w * 0.4f, F + 0.012f, F + 0.018f, blood2, 0.0f);
+    }
+    for (int i = 0; i < 8; i++)                                                  // huellas arrastradas desde la escalera hasta la estructura
+        box_rot(58.0f + 0.5f * (float)((i * 5) % 3 - 1), 145.6f - 0.5f * (float)i, 0.1f * (float)i, 0.0f, 0.0f, 0.22f, 0.40f, F + 0.004f, F + 0.012f, blood2, 0.0f);
+    for (int i = 0; i < 10; i++) {                                               // salpicaduras verticales en los muros
+        unsigned int h = hash2(i * 11 + 1, 7373);
+        float u = (float)(h & 1023u) / 1023.0f, y0 = 0.4f + 2.4f * (float)((h >> 10) & 255u) / 255.0f, len = 0.5f + 1.6f * (float)((h >> 18) & 255u) / 255.0f;
+        int wl = (int)((h >> 26) & 3u);
+        if (wl == 0)      box_rot(52.04f, 142.0f + 13.0f * u, 0.0f, 0.0f, 0.0f, 0.02f, 0.18f, F + y0, F + y0 + len, blood, 0.0f);
+        else if (wl == 1) box_rot(67.96f, 142.0f + 13.0f * u, 0.0f, 0.0f, 0.0f, 0.02f, 0.18f, F + y0, F + y0 + len, blood, 0.0f);
+        else              box_rot(53.0f + 13.0f * u, 155.96f, 0.0f, 0.0f, 0.0f, 0.18f, 0.02f, F + y0, F + y0 + len, blood, 0.0f);
+    }
+    for (int i = 0; i < 12; i++) {                                               // raices colgando del techo
+        unsigned int h = hash2(i * 17 + 9, 8484);
+        float x = 53.0f + 14.0f * (float)(h & 1023u) / 1023.0f, z = 142.0f + 13.0f * (float)((h >> 10) & 1023u) / 1023.0f, len = 0.8f + 2.0f * (float)((h >> 20) & 255u) / 255.0f;
+        box_rot(x, z, 0.0f, 0.0f, 0.0f, 0.04f, 0.04f, F + 6.0f - len, F + 6.0f, root, 0.0f);
+    }
+    for (int i = 0; i < 6; i++) {                                                // huesos y calaveras
+        unsigned int h = hash2(i * 23 + 5, 9595);
+        float x = 54.0f + 12.0f * (float)(h & 1023u) / 1023.0f, z = 143.5f + 11.0f * (float)((h >> 10) & 1023u) / 1023.0f;
+        if (x > 59.2f && x < 64.8f && z > 147.2f && z < 152.8f) continue;
+        box_rot(x, z, (float)(h & 7u) * 0.7f, 0.0f, 0.0f, 0.34f, 0.045f, F, F + 0.06f, bone, 0.0f);
+        if (i & 1) { box_rot(x + 0.5f, z + 0.3f, 0.0f, 0.0f, 0.0f, 0.11f, 0.11f, F, F + 0.22f, bone, 0.0f); box_rot(x + 0.5f, z + 0.41f, 0.0f, 0.0f, 0.0f, 0.03f, 0.02f, F + 0.08f, F + 0.14f, blood2, 0.0f); }
+    }
+    // estructura de piedra del puzzle (pegada al muro norte)
+    box_rot(58.4f, 140.425f, 0.0f, 0.0f, 0.0f, 4.9f, 0.425f, F, F + 3.6f, stoneM, 0.0f);          // muro
+    box_rot(66.1f, 140.425f, 0.0f, 0.0f, 0.0f, 0.4f, 0.425f, F, F + 3.6f, stoneM, 0.0f);
+    box_rot(64.5f, 140.425f, 0.0f, 0.0f, 0.0f, 1.2f, 0.425f, F + 3.0f, F + 3.6f, stoneM, 0.0f);   // dintel de la camara sellada
+    box_rot(64.5f, 140.7f, 0.0f, 0.0f, 0.0f, 1.2f, 0.7f, F, F + 0.12f, stoneD, 0.0f);              // suelo de la camara
+    box_rot(60.0f, 140.7f, 0.0f, 0.0f, 0.0f, 6.8f, 0.75f, F + 3.6f, F + 4.1f, stoneL, 0.0f);       // cornisa
+    box_rot(53.9f, 141.1f, 0.0f, 0.0f, 0.0f, 0.55f, 0.55f, F, F + 3.9f, stoneL, 0.0f);             // columnas
+    box_rot(66.1f, 141.1f, 0.0f, 0.0f, 0.0f, 0.55f, 0.55f, F, F + 3.9f, stoneL, 0.0f);
+    box_rot(53.9f, 141.1f, 0.0f, 0.0f, 0.0f, 0.70f, 0.70f, F, F + 0.4f, stoneD, 0.0f);
+    box_rot(66.1f, 141.1f, 0.0f, 0.0f, 0.0f, 0.70f, 0.70f, F, F + 0.4f, stoneD, 0.0f);
+    {   // puerta de piedra de la camara: baja al suelo al resolver el puzzle
+        float yo = -pz_slide * 3.05f;
+        box_rot(64.5f, 141.15f, 0.0f, 0.0f, 0.0f, 1.2f, 0.30f, F + yo, F + 3.0f + yo, stoneL, 0.0f);
+        box_rot(64.5f, 141.46f, 0.0f, 0.0f, 0.0f, 0.12f, 0.02f, F + 0.6f + yo, F + 2.4f + yo, stoneD, 0.0f);   // grabados: cruz
+        box_rot(64.5f, 141.46f, 0.0f, 0.0f, 0.0f, 0.65f, 0.02f, F + 1.6f + yo, F + 1.72f + yo, stoneD, 0.0f);
+        if (pz_slide > 0.2f) box_rot(64.5f, 140.6f, 0.0f, 0.0f, 0.0f, 0.7f, 0.3f, F + 0.12f, F + 0.40f, stoneD, 1.0f);   // altar iluminado dentro
+    }
+    for (int i = 0; i < PZ_N; i++) {                                              // dados de piedra con puntos (como un dado)
+        float x = pz_dx(i);
+        box_rot(x, 141.05f, 0.0f, 0.0f, 0.0f, 0.78f, 0.34f, F + 1.0f, F + 2.3f, stoneD, 0.0f);
+        box_rot(x, 141.13f, 0.0f, 0.0f, 0.0f, 0.62f, 0.30f, F + 1.18f, F + 2.12f, stoneL, 0.0f);
+        int v = pz_d[i] + 1;
+        static const signed char pat[7][7][2] = {{{0,0}},{{0,0}},{{-1,1},{1,-1}},{{-1,1},{0,0},{1,-1}},{{-1,1},{1,1},{-1,-1},{1,-1}},{{-1,1},{1,1},{0,0},{-1,-1},{1,-1}},{{-1,1},{1,1},{-1,0},{1,0},{-1,-1},{1,-1}}};
+        static const int cnt[7] = { 0, 1, 2, 3, 4, 5, 6 };
+        for (int k = 0; k < cnt[v]; k++)
+            box_rot(x + 0.30f * (float)pat[v][k][0], 141.44f, 0.0f, 0.0f, 0.0f, 0.07f, 0.012f, F + 1.65f + 0.30f * (float)pat[v][k][1] - 0.07f, F + 1.65f + 0.30f * (float)pat[v][k][1] + 0.07f, pip, 0.15f);
+    }
+}
+
 // ---- Cripta (la casita de piedra del cementerio, x 52..68, z 140..156): rediseno tenebroso + ataud de piedra ----
 static void draw_crypt(void)
 {
@@ -7529,8 +7767,15 @@ static void draw_crypt(void)
     }
     // interior: altar bajo el ataud, calaveras, telarañas, banderas rotas y huesos
     if (!(px > 51.0f && px < 69.0f && pz > 139.0f && pz < 157.0f)) return;
-    box_rot(58.0f, 146.0f, 0.0f, 0.0f, 0.0f, 1.2f, 1.85f, 0.0f, 0.16f, stoneD, 0.0f);
-    box_rot(58.0f, 146.0f, 0.0f, 0.0f, 0.0f, 1.0f, 1.6f, 0.16f, 0.26f, stoneD, 0.0f);
+    if (!cof_open) {
+        box_rot(58.0f, 146.0f, 0.0f, 0.0f, 0.0f, 1.2f, 1.85f, 0.0f, 0.16f, stoneD, 0.0f);
+        box_rot(58.0f, 146.0f, 0.0f, 0.0f, 0.0f, 1.0f, 1.6f, 0.16f, 0.26f, stoneD, 0.0f);
+    } else {                                                                                       // altar con el hueco de la escalera abierto
+        box_rot(57.07f, 146.0f, 0.0f, 0.0f, 0.0f, 0.27f, 1.85f, 0.0f, 0.26f, stoneD, 0.0f);
+        box_rot(58.93f, 146.0f, 0.0f, 0.0f, 0.0f, 0.27f, 1.85f, 0.0f, 0.26f, stoneD, 0.0f);
+        box_rot(58.0f, 144.405f, 0.0f, 0.0f, 0.0f, 0.66f, 0.255f, 0.0f, 0.26f, stoneD, 0.0f);
+        box_rot(58.0f, 147.595f, 0.0f, 0.0f, 0.0f, 0.66f, 0.255f, 0.0f, 0.26f, stoneD, 0.0f);
+    }
     box_rot(56.1f, 144.15f, 0.0f, 0.0f, 0.0f, 0.12f, 0.12f, 3.0f, 4.45f, web, 0.0f);                // telarañas en las esquinas
     box_rot(63.9f, 144.15f, 0.0f, 0.0f, 0.0f, 0.12f, 0.12f, 3.0f, 4.45f, web, 0.0f);
     box_rot(60.0f, 144.06f, 0.0f, -2.6f, 0.0f, 0.55f, 0.03f, 1.6f, 4.1f, cloth, 0.0f);              // banderas rotas en el muro norte
@@ -7550,6 +7795,15 @@ static void draw_coffin(void)
 {
     float lim = fminf(draw_lim, (gfx_pd[gfx] * rd_k));
     if (cof_open && in_view(58.0f, 146.0f, 3.5f, lim)) draw_ladder_mesh(58.0f, 146.8f);      // la escalera se ve desde arriba y desde el cuarto de abajo
+    if (cof_open && in_view(58.0f, 146.0f, 3.5f, lim)) {                                   // pozo de piedra desde el techo del cuarto hasta el ataud
+        static const float sh[3] = { 70.f, 68.f, 74.f };
+        const float y0 = SEWER_Y + 5.9f, y1 = 0.02f;
+        box_rot(57.45f - 0.06f, 146.0f, 0.0f, 0.0f, 0.0f, 0.06f, 1.12f, y0, y1, sh, 0.0f);
+        box_rot(58.55f + 0.06f, 146.0f, 0.0f, 0.0f, 0.0f, 0.06f, 1.12f, y0, y1, sh, 0.0f);
+        box_rot(58.0f, 144.88f - 0.06f, 0.0f, 0.0f, 0.0f, 1.18f, 0.06f, y0, y1, sh, 0.0f);
+        box_rot(58.0f, 147.12f + 0.06f, 0.0f, 0.0f, 0.0f, 1.18f, 0.06f, y0, y1, sh, 0.0f);
+        if (cur_layer == 0 && !climbing) box_rot(58.0f, 146.0f, 0.0f, 0.0f, 0.0f, 1.1f, 1.1f, SEWER_Y + 0.02f, SEWER_Y + 0.04f, sh, 0.0f);   // fondo visible desde arriba
+    }
     if (cur_layer != 0 && !climbing) return;
     if (!in_view(58.0f, 146.0f, 3.5f, lim)) return;
     static const float stone[3] = { 120.f, 120.f, 128.f }, stoneL[3] = { 140.f, 140.f, 148.f }, dark[3] = { 18.f, 16.f, 20.f }, inner[3] = { 52.f, 48.f, 50.f };
@@ -7564,14 +7818,98 @@ static void draw_coffin(void)
             float a = 0.5f + 0.9f * (float)k;
             box_rot(cx + 0.18f * (float)(k - 2), cz - 0.7f + 0.35f * (float)k, a, 0.0f, 0.0f, 0.34f, 0.015f, 1.02f, 1.045f, dark, 0.0f);
         }
-    } else {                                                                                       // abierto: paredes con el hueco oscuro, tapa partida en el suelo y escalera
-        box_rot(cx - 0.55f, cz, 0.0f, 0.0f, 0.0f, 0.11f, 1.34f, 0.26f, 0.84f, stone, 0.0f);
-        box_rot(cx + 0.55f, cz, 0.0f, 0.0f, 0.0f, 0.11f, 1.34f, 0.26f, 0.84f, stone, 0.0f);
-        box_rot(cx, cz - 1.23f, 0.0f, 0.0f, 0.0f, 0.66f, 0.11f, 0.26f, 0.84f, stone, 0.0f);
-        box_rot(cx, cz + 1.23f, 0.0f, 0.0f, 0.0f, 0.66f, 0.11f, 0.26f, 0.84f, stone, 0.0f);
-        box_rot(cx, cz, 0.0f, 0.0f, 0.0f, 0.44f, 1.12f, 0.0f, 0.02f, inner, 0.0f);
+    } else {                                                                                       // abierto: paredes del ataud hasta el suelo (el hueco baja por la escalera)
+        box_rot(cx - 0.55f, cz, 0.0f, 0.0f, 0.0f, 0.11f, 1.34f, 0.0f, 0.84f, stone, 0.0f);
+        box_rot(cx + 0.55f, cz, 0.0f, 0.0f, 0.0f, 0.11f, 1.34f, 0.0f, 0.84f, stone, 0.0f);
+        box_rot(cx, cz - 1.23f, 0.0f, 0.0f, 0.0f, 0.66f, 0.11f, 0.0f, 0.84f, stone, 0.0f);
+        box_rot(cx, cz + 1.23f, 0.0f, 0.0f, 0.0f, 0.66f, 0.11f, 0.0f, 0.84f, stone, 0.0f);
         box_rot(cx + 1.9f, cz - 0.3f, 0.5f, 0.0f, 0.0f, 0.70f, 0.62f, 0.0f, 0.12f, stoneL, 0.0f);   // trozos de la tapa
         box_rot(cx + 1.2f, cz + 1.6f, -0.7f, 0.0f, 0.0f, 0.55f, 0.40f, 0.0f, 0.09f, stone, 0.0f);
+    }
+}
+
+
+// ---------------- Montana de la cueva (solo el exterior; el laberinto de dentro no cambia) ----------------
+#define CM_X0 280.0f
+#define CM_X1 348.0f
+#define CM_Z0 32.0f
+#define CM_Z1 100.0f
+static float cm_h(int i, int j)                 // altura del vertice (i,j) de la malla de 4 m
+{
+    float x = CM_X0 + 4.0f * (float)i, z = CM_Z0 + 4.0f * (float)j;
+    float u = fminf(fminf(x - CM_X0, CM_X1 - x), fminf(z - CM_Z0, CM_Z1 - z));
+    float t = clampf(u / 34.0f, 0.0f, 1.0f);
+    float n = (float)(hash2(i * 17 + 3, j * 29 + 11) & 1023u) / 511.5f - 1.0f;
+    float ridge = (float)(hash2(i * 5 + 40, j * 7 + 90) & 1023u) / 1023.0f;
+    return 2.72f + 19.0f * powf(t, 0.85f) + (n * 2.4f + ridge * 1.6f) * sqrtf(t) * 1.4f * (t < 0.99f ? 1.0f : 0.5f);
+}
+static void draw_cave_mtn(void)
+{
+    if (cur_layer != 0 && !climbing) return;
+    if (px > CM_X0 - 1.0f && px < CM_X1 + 1.0f && pz > CM_Z0 - 1.0f && pz < CM_Z1 + 1.0f) return;     // dentro no hace falta
+    float lim = fminf(draw_lim, (gfx_pd[gfx] * rd_k));
+    if (!in_view(314.0f, 66.0f, 50.0f, lim + 30.0f)) return;
+    static const float rockA[3] = { 82.f, 74.f, 66.f }, rockB[3] = { 142.f, 134.f, 124.f }, moss[3] = { 58.f, 70.f, 52.f };
+    static const float sun[3] = { 0.45f, 0.78f, 0.43f };
+    for (int j = 0; j < 17; j++)
+        for (int i = 0; i < 17; i++) {
+            float cx = CM_X0 + 4.0f * ((float)i + 0.5f), cz = CM_Z0 + 4.0f * ((float)j + 0.5f);
+            if (!in_view(cx, cz, 4.0f, lim + 30.0f)) continue;
+            float x0 = CM_X0 + 4.0f * (float)i, z0 = CM_Z0 + 4.0f * (float)j, x1 = x0 + 4.0f, z1 = z0 + 4.0f;
+            float h00 = cm_h(i, j), h10 = cm_h(i + 1, j), h01 = cm_h(i, j + 1), h11 = cm_h(i + 1, j + 1);
+            for (int tr = 0; tr < 2; tr++) {
+                float P[3][3];
+                if (((i + j) & 1) == 0) {
+                    if (tr == 0) { float q[3][3] = {{x0,h00,z0},{x1,h10,z0},{x1,h11,z1}}; for (int a = 0; a < 3; a++) for (int b = 0; b < 3; b++) P[a][b] = q[a][b]; }
+                    else         { float q[3][3] = {{x0,h00,z0},{x1,h11,z1},{x0,h01,z1}}; for (int a = 0; a < 3; a++) for (int b = 0; b < 3; b++) P[a][b] = q[a][b]; }
+                } else {
+                    if (tr == 0) { float q[3][3] = {{x0,h00,z0},{x1,h10,z0},{x0,h01,z1}}; for (int a = 0; a < 3; a++) for (int b = 0; b < 3; b++) P[a][b] = q[a][b]; }
+                    else         { float q[3][3] = {{x1,h10,z0},{x1,h11,z1},{x0,h01,z1}}; for (int a = 0; a < 3; a++) for (int b = 0; b < 3; b++) P[a][b] = q[a][b]; }
+                }
+                float ux = P[1][0] - P[0][0], uy = P[1][1] - P[0][1], uz = P[1][2] - P[0][2];
+                float vx = P[2][0] - P[0][0], vy = P[2][1] - P[0][1], vz = P[2][2] - P[0][2];
+                float nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+                float nl = sqrtf(nx * nx + ny * ny + nz * nz); if (nl < 1e-4f) continue;
+                if (ny < 0.0f) { nx = -nx; ny = -ny; nz = -nz; }
+                float k = 0.50f + 0.60f * fmaxf(0.0f, (nx * sun[0] + ny * sun[1] + nz * sun[2]) / nl);
+                float hm = (P[0][1] + P[1][1] + P[2][1]) * (1.0f / 3.0f);
+                float f = clampf((hm - 3.0f) / 19.0f, 0.0f, 1.0f);
+                float jit = 0.88f + 0.24f * (float)(hash2(i * 13 + tr * 7 + 1, j * 19 + 5) & 255u) / 255.0f;
+                float col[3];
+                for (int c = 0; c < 3; c++) col[c] = (rockA[c] + (rockB[c] - rockA[c]) * f) * k * jit;
+                if (hm < 5.6f && ny / nl > 0.6f) for (int c = 0; c < 3; c++) col[c] = col[c] * 0.45f + moss[c] * k * 0.55f;   // musgo en la base
+                V a = mk(P[0][0], P[0][1], P[0][2], col, 0.0f), b = mk(P[1][0], P[1][1], P[1][2], col, 0.0f), c3 = mk(P[2][0], P[2][1], P[2][2], col, 0.0f);
+                tri_cam(a, b, c3);
+            }
+        }
+    // penascos en la base (pegados a los muros) para romper la linea recta
+    for (int s = 0; s < 4; s++)
+        for (int n = 0; n < 17; n++) {
+            float along = 4.0f * ((float)n + 0.5f);
+            unsigned int h = hash2(s * 97 + n * 7 + 1, 2024);
+            float cx, cz, ang;
+            if (s == 0) { cx = CM_X0 + along; cz = CM_Z0 - 0.1f; ang = 0.0f; }
+            else if (s == 1) { cx = CM_X0 + along; cz = CM_Z1 + 0.1f; ang = 0.0f; if (cx > 283.5f && cx < 288.5f) continue; }
+            else if (s == 2) { cx = CM_X0 - 0.1f; cz = CM_Z0 + along; ang = 1.5708f; }
+            else { cx = CM_X1 + 0.1f; cz = CM_Z0 + along; ang = 1.5708f; }
+            if (!in_view(cx, cz, 3.0f, lim)) continue;
+            float hh = 1.4f + 2.0f * (float)(h & 255u) / 255.0f, wd = 1.3f + 0.7f * (float)((h >> 8) & 255u) / 255.0f;
+            float sh = 0.8f + 0.4f * (float)((h >> 16) & 255u) / 255.0f;
+            float col[3] = { 100.f * sh, 92.f * sh, 84.f * sh };
+            box_rot(cx, cz, ang + 0.25f * ((float)((h >> 4) & 15u) / 15.0f - 0.5f), 0.0f, 0.0f, wd, 0.45f, 0.0f, hh, col, 0.0f);
+            if (h & 1024u) box_rot(cx, cz, ang + 0.5f, 0.0f, 0.0f, wd * 0.6f, 0.35f, hh, hh + 0.6f, col, 0.0f);
+        }
+    // boca de la cueva (entrada sur, x 284..288): jambas de roca, dintel y colmillos
+    {
+        static const float rk[3] = { 74.f, 68.f, 62.f }, rk2[3] = { 118.f, 110.f, 100.f };
+        box_rot(282.2f, 100.0f, 0.0f, 0.0f, 0.0f, 1.9f, 0.55f, 0.0f, 4.1f, rk, 0.0f);
+        box_rot(289.8f, 100.0f, 0.0f, 0.0f, 0.0f, 1.9f, 0.55f, 0.0f, 4.1f, rk, 0.0f);
+        box_rot(286.0f, 100.0f, 0.0f, 0.0f, 0.0f, 2.6f, 0.55f, 2.8f, 4.6f, rk2, 0.0f);
+        box_rot(286.0f, 100.0f, 0.0f, 0.0f, 0.0f, 3.4f, 0.45f, 4.6f, 6.0f, rk, 0.0f);
+        for (int q = 0; q < 5; q++) {                                  // estalactitas sobre la entrada
+            float x = 284.6f + 0.7f * (float)q, len = 0.35f + 0.25f * (float)((q * 3) % 4);
+            box_rot(x, 100.1f, 0.0f, 0.0f, 0.0f, 0.12f, 0.12f, 2.8f - len, 2.8f, rk2, 0.0f);
+        }
     }
 }
 
@@ -8217,7 +8555,7 @@ static const unsigned short RK_t[RK_NT][5] = {{3,4,26,0,223},{0,22,26,0,216},{35
 static const short LP_v[LP_NV][3] = {{624,159,-88},{503,159,-380},{503,1943,-380},{624,1943,-88},{-505,159,-380},{-627,159,-88},{-627,1943,-88},{-505,1943,-380},{-627,159,88},{-505,159,380},{-505,1943,380},{-627,1943,88},{503,159,380},{624,159,88},{624,1943,88},{503,1943,380},{901,41,-43},{667,41,-607},{531,81,-476},{712,81,-40},{-1,0,0},{606,41,-668},{42,41,-902},{-1,81,-526},{475,81,-531},{-44,41,-902},{-608,41,-668},{-478,81,-531},{-670,41,-607},{-901,41,-50},{-715,81,-40},{-534,81,-476},{-901,41,50},{-670,41,607},{-534,81,476},{-715,81,40},{-608,41,668},{-44,41,902},{-1,81,526},{-478,81,526},{42,41,902},{606,41,668},{475,81,526},{667,41,607},{901,41,43},{712,81,40},{531,81,476},{712,2021,-40},{712,2021,40},{436,2031,-531},{459,2028,-478},{-534,2021,-476},{-439,2037,-531},{-718,2021,50},{-718,2021,-50},{-439,2037,526},{-534,2021,476},{531,2021,476},{436,2037,526},{660,2021,-592},{885,2021,-49},{-1,2021,-526},{-593,2021,-661},{-51,2021,-886},{-891,2021,-50},{-663,2021,-592},{-663,2021,592},{-891,2021,50},{-1,2021,526},{-51,2021,886},{-593,2021,661},{590,2021,661},{48,2021,886},{885,2021,49},{660,2021,592},{48,2021,-886},{590,2021,-661},{660,2121,-592},{852,2121,-48},{46,2121,-854},{590,2121,-661},{-593,2121,-661},{-49,2121,-854},{-891,2121,-50},{-663,2121,-592},{-663,2121,592},{-857,2121,25},{-49,2121,854},{-593,2121,661},{590,2121,661},{46,2121,854},{852,2121,48},{660,2121,592},{580,2121,-581},{-582,2121,-581},{-582,2121,581},{580,2121,581},{480,2395,-481},{680,2395,0},{-1,2395,-681},{-482,2395,-481},{-682,2395,0},{-482,2395,481},{-1,2395,681},{480,2395,481},{335,2576,-336},{474,2576,0},{-1,2576,-475},{-337,2576,-336},{-477,2576,0},{-337,2576,336},{-1,2576,475},{335,2576,336},{214,2583,-215},{302,2583,0},{-1,2583,-304},{-216,2583,-215},{-305,2583,0},{-216,2583,215},{-1,2583,304},{214,2583,215},{238,2803,-239},{336,2803,0},{-1,2803,-338},{-240,2803,-239},{-339,2803,0},{-240,2803,239},{-1,2803,338},{238,2803,239},{169,2920,-170},{262,2903,0},{-1,2903,-263},{-171,2920,-170},{-264,2903,0},{-171,2920,170},{-1,2903,263},{169,2920,170},{6,2983,7},{216,2937,0},{-1,2937,-217},{0,2982,-1},{-5,2982,9},{-218,2937,0},{-1,2937,217},{-1,81,409},{-478,81,476},{475,81,476},{-438,2036,455},{436,2036,455},{-1,2021,409},{-1,81,-431},{475,81,-488},{-478,81,-489},{-438,2036,-470},{-1,2021,-425},{534,159,-393},{655,159,-101},{534,1943,-393},{655,1943,-101},{-657,159,-101},{-536,159,-393},{-657,1943,-101},{-536,1943,-393},{-536,159,393},{-657,159,101},{-536,1943,393},{-657,1943,101},{655,159,101},{534,159,393},{655,1943,101},{534,1943,393},{5,2775,5},{-1,2775,-2},{-5,2775,7},{-478,2130,499},{475,2130,499},{-478,2130,-508},{475,2130,-508},{397,159,526},{-399,159,526},{475,2130,526},{-478,2130,526},{397,159,501},{-399,159,501},{-399,159,-535},{397,159,-535},{475,2130,-535},{-478,2130,-535},{-399,159,-510},{397,159,-510},{47,853,-57},{6,950,-206},{-74,873,-168},{-38,854,-61},{-114,980,-27},{-100,947,75},{-43,888,72},{65,896,40},{79,954,78},{73,880,-188},{-41,946,-218},{-185,949,-75},{-206,951,54},{201,895,68},{195,886,-26},{197,959,-95},{-184,845,-230},{-216,967,-169},{-42,850,188},{61,956,204},{190,944,57},{207,959,-194},{6,956,-328},{-66,957,-310},{-91,870,-317},{-183,962,161},{-117,947,197},{165,931,185},{83,831,-319},{-160,862,-294},{-277,942,-84},{216,847,158},{277,710,-1},{279,934,-75},{262,971,-146},{181,929,-269},{-279,924,41},{-52,695,239},{280,839,80},{304,195,3},{307,848,-77},{-261,917,-193},{-301,889,-64},{-254,884,119},{-156,874,213},{-55,552,251},{67,892,252},{303,50,31},{283,891,-176},{251,909,-228},{197,877,-289},{126,731,-331},{-267,882,-197},{-292,872,45},{-56,415,258},{27,839,264},{244,770,154},{74,22,-347},{-77,22,-348},{-186,22,-289},{-267,22,-197},{-301,22,-78},{-292,22,45},{-257,23,121},{-169,23,208},{-56,23,258},{27,23,264},{108,23,247},{213,23,182},{316,22,-78},{297,22,-159},{257,22,-232},{199,22,-292},{19,948,-51},{171,3173,14},{74,3358,14},{31,3384,14},{-35,3384,14},{-72,3363,14},{-25,3029,17},{39,3035,17},{136,3088,14},{7,3035,-13},{-4,3036,-13},{624,159,-88},{503,159,-380},{503,1943,-380},{624,1943,-88},{-505,159,-380},{-627,159,-88},{-627,1943,-88},{-505,1943,-380},{-627,159,88},{-505,159,380},{-505,1943,380},{-627,1943,88},{503,159,380},{624,159,88},{624,1943,88},{503,1943,380},{475,81,-523},{-478,81,-523},{-478,81,518},{475,81,518},{-478,2130,518},{475,2130,518},{-478,2130,-522},{475,2130,-522}};
 static const unsigned short LP_t[LP_NT][5] = {{71,74,92,0,211},{58,68,149,0,218},{110,119,118,0,221},{204,222,223,0,238},{272,269,270,0,222},{73,60,78,0,193},{191,212,213,0,224},{52,51,65,0,223},{110,109,101,0,189},{198,203,197,0,140},{35,53,54,0,167},{195,215,216,0,227},{196,198,197,0,146},{93,98,78,0,176},{55,145,147,0,165},{165,11,10,0,219},{193,201,194,0,136},{106,112,104,0,240},{178,58,148,0,165},{66,88,85,0,155},{228,237,229,0,179},{244,234,254,0,183},{270,264,271,0,206},{220,232,226,0,133},{84,83,86,0,219},{24,152,27,0,219},{33,36,39,0,223},{17,21,24,0,211},{142,141,132,0,196},{198,203,210,0,233},{109,108,100,0,148},{65,83,84,0,194},{40,42,38,0,227},{40,41,42,0,236},{51,54,64,0,219},{192,207,201,0,223},{109,100,101,0,148},{211,238,239,0,205},{126,134,133,0,182},{21,22,23,0,212},{53,66,67,0,219},{91,104,96,0,231},{128,135,127,0,252},{20,25,22,0,223},{24,151,152,0,219},{42,145,146,0,219},{49,153,52,0,219},{187,52,184,0,200},{52,153,188,0,168},{79,97,93,0,134},{24,184,185,0,211},{53,35,164,0,152},{74,73,91,0,218},{111,102,103,0,233},{109,118,117,0,219},{88,87,95,0,219},{238,230,259,0,148},{213,219,214,0,198},{71,92,89,0,211},{179,178,182,0,219},{193,196,190,0,197},{68,58,71,0,229},{216,235,227,0,199},{226,233,202,0,224},{231,242,232,0,167},{32,34,35,0,215},{180,42,146,0,166},{185,50,49,0,131},{70,69,87,0,209},{22,25,23,0,210},{212,214,213,0,199},{225,240,241,0,176},{139,140,137,0,205},{190,193,263,0,197},{58,147,148,0,219},{136,143,135,0,254},{87,103,102,0,226},{191,200,192,0,233},{105,106,98,0,198},{48,60,73,0,219},{232,243,226,0,134},{75,82,79,0,174},{187,176,177,0,219},{216,234,235,0,224},{42,178,179,0,206},{125,133,132,0,133},{196,208,209,0,177},{60,59,77,0,133},{16,44,20,0,217},{23,27,152,0,219},{61,52,62,0,206},{113,115,123,0,197},{69,72,90,0,230},{47,50,59,0,220},{25,26,27,0,197},{93,97,98,0,172},{19,44,16,0,225},{135,143,134,0,235},{132,139,131,0,143},{37,40,38,0,227},{80,79,93,0,219},{143,141,134,0,226},{48,57,170,0,157},{266,267,268,0,206},{221,257,258,0,217},{226,243,233,0,148},{234,253,254,0,156},{64,86,83,0,130},{214,218,247,0,203},{119,120,128,0,201},{179,182,183,0,219},{49,61,75,0,218},{58,57,74,0,213},{117,126,125,0,146},{164,9,8,0,219},{124,131,123,0,147},{190,198,197,0,142},{49,75,76,0,216},{155,157,2,0,215},{106,104,98,0,240},{209,236,221,0,248},{234,233,253,0,157},{56,166,165,0,165},{209,217,198,0,228},{187,184,27,0,208},{133,142,132,0,156},{33,39,34,0,224},{56,70,66,0,219},{42,148,146,0,168},{119,128,127,0,201},{67,66,85,0,133},{59,80,77,0,155},{126,133,125,0,174},{219,214,248,0,212},{112,114,120,0,222},{137,172,171,0,146},{118,127,126,0,171},{47,19,156,0,152},{192,206,207,0,131},{270,269,141,0,190},{107,105,97,0,154},{91,98,104,0,233},{134,142,133,0,195},{61,63,75,0,219},{207,231,220,0,147},{190,205,199,0,184},{218,241,247,0,208},{87,90,103,0,243},{244,254,255,0,183},{51,64,65,0,219},{193,194,195,0,211},{20,41,40,0,215},{87,102,95,0,214},{207,220,201,0,230},{193,195,196,0,207},{115,116,124,0,227},{199,211,218,0,155},{81,84,94,0,219},{72,71,89,0,215},{168,13,12,0,219},{200,213,214,0,135},{138,137,136,0,237},{49,24,151,0,168},{211,239,240,0,153},{24,49,186,0,210},{105,115,113,0,217},{231,232,220,0,149},{62,65,84,0,211},{77,80,93,0,219},{106,113,114,0,219},{21,23,24,0,193},{219,248,249,0,214},{204,223,205,0,249},{70,87,88,0,188},{54,51,162,0,224},{125,132,124,0,131},{49,50,153,0,224},{191,213,200,0,224},{107,108,116,0,215},{187,186,49,0,210},{181,55,58,0,206},{32,20,33,0,219},{217,221,246,0,228},{32,29,20,0,221},{200,214,192,0,142},{238,259,260,0,148},{157,158,3,0,219},{199,218,212,0,198},{94,100,99,0,167},{205,223,224,0,249},{269,270,137,0,187},{79,82,99,0,145},{111,110,102,0,233},{42,58,178,0,206},{159,161,6,0,185},{82,81,94,0,219},{107,116,115,0,215},{91,78,98,0,209},{181,58,180,0,206},{47,59,60,0,219},{69,90,87,0,230},{55,68,69,0,221},{242,249,250,0,209},{45,47,48,0,166},{24,27,184,0,211},{20,22,21,0,222},{202,233,215,0,164},{24,23,150,0,219},{55,39,145,0,165},{122,130,136,0,236},{34,55,56,0,179},{187,49,52,0,210},{18,157,155,0,164},{50,158,157,0,170},{20,37,36,0,216},{192,201,193,0,223},{227,235,236,0,201},{52,61,154,0,220},{194,202,195,0,238},{20,40,37,0,215},{137,140,172,0,143},{167,169,14,0,185},{106,105,113,0,219},{114,121,122,0,134},{39,144,145,0,219},{269,137,140,0,159},{131,139,129,0,162},{111,112,120,0,223},{266,268,265,0,206},{76,75,79,0,155},{27,152,176,0,166},{20,44,43,0,216},{265,267,266,0,206},{120,122,128,0,180},{18,49,50,0,136},{156,1,0,0,219},{161,162,7,0,219},{186,151,24,0,166},{265,268,267,0,206},{223,230,211,0,152},{61,62,63,0,219},{65,64,83,0,194},{108,109,117,0,216},{39,174,145,0,166},{232,250,251,0,186},{212,218,214,0,215},{163,165,10,0,215},{141,269,140,0,219},{32,35,30,0,209},{208,227,209,0,205},{50,47,158,0,154},{111,120,119,0,223},{86,100,94,0,149},{19,45,44,0,225},{24,185,49,0,203},{121,129,130,0,186},{46,45,167,0,222},{190,204,205,0,231},{181,175,174,0,219},{76,79,80,0,188},{68,71,72,0,219},{181,179,55,0,206},{272,273,269,0,241},{96,104,103,0,246},{181,39,179,0,206},{20,28,26,0,223},{190,196,197,0,175},{227,236,209,0,182},{169,170,15,0,219},{76,50,49,0,224},{25,27,23,0,210},{54,67,64,0,219},{205,211,199,0,182},{216,227,208,0,236},{42,39,145,0,219},{233,234,215,0,177},{72,89,90,0,238},{39,38,144,0,219},{42,179,39,0,206},{45,19,47,0,166},{168,167,13,0,219},{187,177,186,0,219},{75,63,82,0,174},{217,221,203,0,216},{116,117,125,0,206},{122,136,128,0,236},{192,214,206,0,207},{39,181,174,0,166},{17,24,18,0,211},{162,160,4,0,185},{94,99,82,0,152},{225,241,218,0,171},{241,240,262,0,175},{127,135,134,0,224},{221,228,203,0,247},{194,201,202,0,193},{105,98,97,0,198},{73,78,91,0,193},{230,238,211,0,235},{160,5,4,0,219},{114,113,121,0,134},{273,270,269,0,227},{165,166,11,0,219},{90,89,96,0,219},{84,86,94,0,219},{52,188,184,0,168},{23,152,150,0,219},{20,43,41,0,215},{54,162,161,0,227},{56,53,166,0,170},{113,123,121,0,197},{20,17,16,0,219},{38,146,144,0,219},{209,221,217,0,186},{195,208,196,0,234},{203,210,204,0,177},{115,124,123,0,227},{245,255,256,0,203},{232,242,250,0,184},{120,114,122,0,180},{57,48,73,0,219},{74,91,92,0,190},{245,244,255,0,203},{61,49,50,0,224},{30,161,159,0,210},{178,148,182,0,164},{214,219,206,0,234},{222,230,223,0,227},{238,260,261,0,130},{129,137,138,0,212},{155,2,1,0,215},{203,229,222,0,214},{112,103,104,0,254},{270,141,137,0,182},{130,138,136,0,240},{123,129,121,0,138},{27,52,153,0,165},{61,50,154,0,218},{198,217,203,0,215},{16,17,18,0,218},{20,21,17,0,220},{26,31,27,0,199},{95,101,86,0,175},{78,77,93,0,219},{197,204,190,0,177},{201,220,202,0,214},{166,164,8,0,215},{158,156,0,0,215},{34,56,165,0,164},{221,246,228,0,227},{112,111,103,0,254},{110,111,119,0,221},{139,137,129,0,206},{162,4,7,0,185},{140,173,172,0,197},{190,199,191,0,239},{60,77,78,0,165},{240,238,261,0,142},{58,55,147,0,219},{18,24,49,0,155},{156,155,1,0,219},{57,73,74,0,219},{190,191,192,0,221},{89,92,96,0,219},{124,132,131,0,140},{43,44,45,0,232},{199,212,191,0,222},{51,160,162,0,169},{203,228,229,0,182},{32,30,29,0,209},{52,65,62,0,212},{43,45,46,0,232},{85,88,95,0,219},{158,0,3,0,215},{157,3,2,0,219},{109,110,118,0,219},{64,67,86,0,135},{112,106,114,0,222},{55,69,70,0,224},{86,101,100,0,141},{205,224,211,0,208},{53,56,66,0,219},{241,262,247,0,184},{233,252,253,0,129},{159,6,5,0,185},{68,72,69,0,219},{68,55,147,0,220},{108,99,100,0,133},{96,103,90,0,251},{56,55,70,0,209},{76,59,50,0,218},{52,154,153,0,220},{222,229,230,0,202},{127,134,126,0,229},{31,30,159,0,157},{28,30,31,0,202},{136,141,143,0,238},{246,221,258,0,215},{66,70,88,0,155},{32,33,34,0,215},{35,54,30,0,167},{240,261,262,0,153},{242,219,249,0,211},{68,147,149,0,220},{49,151,50,0,133},{108,117,116,0,216},{243,251,252,0,160},{214,247,248,0,202},{210,203,222,0,210},{51,31,160,0,169},{108,107,99,0,133},{211,225,218,0,162},{24,150,151,0,219},{166,8,11,0,215},{136,137,141,0,241},{55,179,183,0,168},{67,85,86,0,151},{48,170,169,0,157},{123,131,129,0,134},{54,53,67,0,219},{27,176,187,0,166},{57,46,168,0,169},{229,237,230,0,167},{92,91,96,0,219},{236,256,257,0,213},{79,99,97,0,129},{160,159,5,0,219},{210,222,204,0,181},{27,51,52,0,214},{53,164,166,0,163},{228,258,237,0,200},{30,54,161,0,213},{128,136,135,0,253},{42,180,58,0,206},{58,149,148,0,218},{45,169,167,0,210},{47,156,158,0,152},{41,43,46,0,235},{164,163,9,0,219},{206,242,231,0,200},{31,159,160,0,157},{233,243,252,0,128},{140,141,173,0,195},{170,168,12,0,185},{121,130,122,0,185},{141,137,171,0,211},{141,171,173,0,211},{243,232,251,0,160},{235,244,245,0,194},{45,48,169,0,210},{63,81,82,0,183},{29,28,20,0,222},{62,84,81,0,211},{211,240,225,0,161},{228,246,258,0,195},{163,10,9,0,215},{117,118,126,0,146},{235,245,236,0,198},{221,236,257,0,217},{132,141,140,0,196},{27,153,152,0,165},{180,146,175,0,166},{167,14,13,0,185},{206,219,242,0,249},{41,46,42,0,235},{107,97,99,0,154},{184,188,189,0,219},{36,37,38,0,225},{28,29,30,0,202},{38,42,146,0,219},{223,211,224,0,203},{236,245,256,0,214},{169,15,14,0,219},{161,7,6,0,219},{185,189,50,0,163},{36,38,39,0,237},{27,31,51,0,211},{118,119,127,0,171},{234,244,235,0,201},{202,215,195,0,211},{129,138,130,0,202},{116,125,124,0,206},{259,230,229,0,177},{20,26,25,0,223},{86,85,95,0,219},{196,209,198,0,183},{26,28,31,0,199},{59,76,80,0,155},{220,226,202,0,208},{57,168,170,0,169},{55,183,147,0,168},{273,272,270,0,213},{35,34,163,0,154},{184,189,185,0,219},{215,234,216,0,215},{42,58,148,0,168},{19,18,155,0,165},{34,165,163,0,164},{134,141,142,0,220},{35,163,164,0,154},{18,50,157,0,146},{42,57,58,0,216},{206,231,207,0,156},{105,107,115,0,217},{95,102,101,0,161},{195,216,208,0,222},{110,101,102,0,189},{42,46,57,0,212},{19,155,156,0,165},{186,177,151,0,166},{170,12,15,0,185},{259,229,237,0,177},{20,36,33,0,218},{48,47,60,0,219},{190,192,193,0,231},{58,74,71,0,225},{197,203,204,0,211},{239,238,240,0,163},{63,62,81,0,215},{34,39,55,0,161},{46,167,168,0,222},{181,180,175,0,219},{16,18,19,0,218},{132,140,139,0,194},{296,290,291,1,206},{286,288,289,1,194},{274,276,277,1,133},{282,284,285,1,133},{278,279,280,1,194},{282,283,284,1,133},{274,275,276,1,133},{278,280,281,1,194},{294,293,295,1,206},{286,287,288,1,194},{294,292,293,1,206},{296,297,290,1,206}};
 static const float rk_pos[104][7] = {{326.335f,71.184f,0.564f,1.555f,95.0f,90.0f,85.0f},{325.732f,78.564f,0.474f,1.296f,95.0f,90.0f,85.0f},{342.812f,37.001f,0.525f,0.927f,95.0f,90.0f,85.0f},{330.243f,53.954f,0.369f,1.529f,95.0f,90.0f,85.0f},{309.993f,66.275f,0.576f,1.130f,95.0f,90.0f,85.0f},{324.827f,37.522f,0.503f,1.082f,95.0f,90.0f,85.0f},{317.207f,78.974f,0.498f,1.298f,95.0f,90.0f,85.0f},{298.940f,69.585f,0.500f,1.079f,95.0f,90.0f,85.0f},{317.834f,82.734f,0.574f,1.692f,95.0f,90.0f,85.0f},{309.723f,94.199f,0.395f,1.023f,95.0f,90.0f,85.0f},{293.992f,74.809f,0.555f,1.540f,95.0f,90.0f,85.0f},{287.080f,81.464f,0.351f,1.306f,95.0f,90.0f,85.0f},{325.460f,85.314f,0.424f,1.463f,95.0f,90.0f,85.0f},{337.985f,85.557f,0.552f,1.784f,95.0f,90.0f,85.0f},{297.886f,36.979f,0.309f,1.686f,95.0f,90.0f,85.0f},{340.900f,54.501f,0.471f,1.178f,95.0f,90.0f,85.0f},{334.700f,80.846f,0.341f,1.309f,95.0f,90.0f,85.0f},{316.859f,86.791f,0.371f,1.027f,95.0f,90.0f,85.0f},{340.913f,78.310f,0.434f,1.467f,95.0f,90.0f,85.0f},{310.372f,54.738f,0.588f,1.516f,95.0f,90.0f,85.0f},{293.278f,49.940f,0.354f,0.910f,95.0f,90.0f,85.0f},{297.933f,46.514f,0.354f,1.145f,95.0f,90.0f,85.0f},{305.630f,46.474f,0.456f,1.453f,95.0f,90.0f,85.0f},{302.615f,69.744f,0.538f,1.716f,95.0f,90.0f,85.0f},{329.009f,79.038f,0.517f,1.017f,95.0f,90.0f,85.0f},{333.888f,58.301f,0.573f,1.239f,95.0f,90.0f,85.0f},{334.165f,90.910f,0.539f,1.750f,95.0f,90.0f,85.0f},{325.913f,50.363f,0.361f,1.550f,95.0f,90.0f,85.0f},{314.764f,54.340f,0.515f,1.092f,95.0f,90.0f,85.0f},{302.960f,55.153f,0.593f,1.383f,95.0f,90.0f,85.0f},{286.698f,49.569f,0.573f,1.670f,95.0f,90.0f,85.0f},{309.636f,88.999f,0.432f,1.395f,95.0f,90.0f,85.0f},{338.644f,77.970f,0.309f,1.628f,95.0f,90.0f,85.0f},{284.954f,46.720f,0.352f,1.202f,95.0f,90.0f,85.0f},{220.865f,81.169f,0.715f,0.491f,88.0f,88.0f,92.0f},{322.159f,125.333f,0.481f,0.726f,88.0f,88.0f,92.0f},{165.885f,38.117f,0.440f,0.854f,88.0f,88.0f,92.0f},{132.986f,306.685f,0.787f,0.828f,88.0f,88.0f,92.0f},{117.686f,149.486f,0.703f,0.707f,88.0f,88.0f,92.0f},{291.159f,218.762f,0.352f,0.682f,88.0f,88.0f,92.0f},{357.819f,269.252f,0.794f,0.741f,88.0f,88.0f,92.0f},{329.619f,206.035f,0.615f,0.860f,88.0f,88.0f,92.0f},{161.371f,105.627f,0.572f,0.622f,88.0f,88.0f,92.0f},{357.301f,353.354f,0.508f,0.844f,88.0f,88.0f,92.0f},{281.919f,170.331f,0.636f,0.867f,88.0f,88.0f,92.0f},{153.224f,318.286f,0.657f,0.754f,88.0f,88.0f,92.0f},{137.666f,269.843f,0.794f,0.648f,88.0f,88.0f,92.0f},{359.183f,54.258f,0.630f,0.591f,88.0f,88.0f,92.0f},{23.196f,217.745f,0.540f,0.472f,88.0f,88.0f,92.0f},{222.995f,101.844f,0.455f,0.476f,88.0f,88.0f,92.0f},{329.266f,253.655f,0.405f,0.663f,88.0f,88.0f,92.0f},{118.897f,214.979f,0.786f,0.794f,88.0f,88.0f,92.0f},{47.024f,197.053f,0.558f,0.881f,88.0f,88.0f,92.0f},{117.585f,38.443f,0.526f,0.637f,88.0f,88.0f,92.0f},{298.771f,210.281f,0.678f,0.520f,88.0f,88.0f,92.0f},{361.056f,216.882f,0.619f,0.638f,88.0f,88.0f,92.0f},{245.668f,26.530f,0.537f,0.614f,88.0f,88.0f,92.0f},{185.338f,133.180f,0.689f,0.643f,88.0f,88.0f,92.0f},{53.357f,20.939f,0.626f,0.427f,88.0f,88.0f,92.0f},{229.594f,145.754f,0.396f,0.405f,88.0f,88.0f,92.0f},{95.036f,157.431f,0.746f,0.416f,88.0f,88.0f,92.0f},{61.379f,109.957f,0.438f,0.713f,88.0f,88.0f,92.0f},{285.403f,146.583f,0.796f,0.828f,88.0f,88.0f,92.0f},{173.063f,268.905f,0.363f,0.846f,88.0f,88.0f,92.0f},{122.708f,238.213f,0.498f,0.631f,88.0f,88.0f,92.0f},{70.871f,230.131f,0.454f,0.759f,88.0f,88.0f,92.0f},{69.277f,350.600f,0.543f,0.665f,88.0f,88.0f,92.0f},{76.845f,122.751f,0.736f,0.441f,88.0f,88.0f,92.0f},{317.335f,258.298f,0.464f,0.404f,88.0f,88.0f,92.0f},{105.690f,331.009f,0.680f,0.739f,88.0f,88.0f,92.0f},{249.421f,336.824f,0.792f,0.532f,88.0f,88.0f,92.0f},{361.772f,30.653f,0.497f,0.604f,88.0f,88.0f,92.0f},{144.964f,170.810f,0.730f,0.509f,88.0f,88.0f,92.0f},{93.650f,334.698f,0.485f,0.815f,88.0f,88.0f,92.0f},{309.900f,234.199f,0.747f,0.409f,88.0f,88.0f,92.0f},{285.567f,138.050f,0.672f,0.671f,88.0f,88.0f,92.0f},{166.049f,337.685f,0.671f,0.646f,88.0f,88.0f,92.0f},{122.251f,346.613f,0.543f,0.698f,88.0f,88.0f,92.0f},{340.988f,265.652f,0.608f,0.852f,88.0f,88.0f,92.0f},{281.749f,234.829f,0.687f,0.468f,88.0f,88.0f,92.0f},{34.138f,269.526f,0.678f,0.782f,88.0f,88.0f,92.0f},{157.990f,329.210f,0.597f,0.634f,88.0f,88.0f,92.0f},{109.882f,136.847f,0.577f,0.805f,88.0f,88.0f,92.0f},{81.919f,196.842f,0.606f,0.493f,88.0f,88.0f,92.0f},{226.053f,257.337f,0.696f,0.544f,88.0f,88.0f,92.0f},{26.692f,329.987f,0.538f,0.718f,88.0f,88.0f,92.0f},{214.189f,261.949f,0.558f,0.815f,88.0f,88.0f,92.0f},{325.679f,205.280f,0.388f,0.832f,88.0f,88.0f,92.0f},{34.945f,302.973f,0.588f,0.693f,88.0f,88.0f,92.0f},{240.966f,265.490f,0.636f,0.475f,88.0f,88.0f,92.0f},{17.848f,365.648f,0.755f,0.486f,88.0f,88.0f,92.0f},{74.965f,348.816f,0.412f,0.634f,88.0f,88.0f,92.0f},{354.015f,136.960f,0.609f,0.850f,88.0f,88.0f,92.0f},{16.851f,346.128f,0.751f,0.692f,88.0f,88.0f,92.0f},{113.777f,234.426f,0.582f,0.542f,88.0f,88.0f,92.0f},{85.300f,93.444f,0.455f,0.801f,88.0f,88.0f,92.0f},{237.830f,109.475f,0.714f,0.726f,88.0f,88.0f,92.0f},{134.093f,242.686f,0.384f,0.898f,88.0f,88.0f,92.0f},{152.985f,50.435f,0.708f,0.727f,88.0f,88.0f,92.0f},{89.172f,351.065f,0.506f,0.721f,88.0f,88.0f,92.0f},{38.056f,310.287f,0.778f,0.851f,88.0f,88.0f,92.0f},{338.968f,254.614f,0.451f,0.567f,88.0f,88.0f,92.0f},{226.574f,94.393f,0.769f,0.626f,88.0f,88.0f,92.0f},{134.641f,75.162f,0.621f,0.729f,88.0f,88.0f,92.0f}};
-static const float lp_pos[7][5] = {{60.000f,148.000f,255.0f,110.0f,70.0f},{139.000f,192.600f,255.0f,200.0f,90.0f},{291.000f,256.600f,255.0f,200.0f,90.0f},{174.000f,310.000f,120.0f,255.0f,160.0f},{242.000f,282.000f,120.0f,255.0f,160.0f},{138.000f,242.000f,120.0f,255.0f,160.0f},{242.000f,154.000f,120.0f,255.0f,160.0f}};
+static const float lp_pos[22][5] = {{60.000f,148.000f,255.0f,110.0f,70.0f},{139.000f,192.600f,255.0f,200.0f,90.0f},{291.000f,256.600f,255.0f,200.0f,90.0f},{174.000f,310.000f,120.0f,255.0f,160.0f},{242.000f,282.000f,120.0f,255.0f,160.0f},{138.000f,242.000f,120.0f,255.0f,160.0f},{242.000f,154.000f,120.0f,255.0f,160.0f},{50.0f,356.0f,200.0f,230.0f,255.0f},{82.0f,356.0f,200.0f,230.0f,255.0f},{114.0f,356.0f,200.0f,230.0f,255.0f},{146.0f,356.0f,200.0f,230.0f,255.0f},{178.0f,356.0f,200.0f,230.0f,255.0f},{30.0f,358.0f,200.0f,230.0f,255.0f},{54.0f,340.0f,215.0f,235.0f,255.0f},{96.0f,340.0f,90.0f,255.0f,160.0f},{140.0f,340.0f,255.0f,70.0f,56.0f},{180.0f,340.0f,200.0f,230.0f,255.0f},{60.0f,370.0f,200.0f,230.0f,255.0f},{108.0f,370.0f,255.0f,70.0f,56.0f},{152.0f,370.0f,90.0f,255.0f,160.0f},{210.0f,356.0f,160.0f,255.0f,200.0f},{210.0f,340.0f,160.0f,255.0f,200.0f}};
 
 // rocas y farolas (modelos OBJ)
 static void draw_rocks(void)
@@ -23897,8 +24235,8 @@ static void lights_prepare(void)
     }
     lamp_n = 0; lamp_at_me = 0.0f;
     if (cur_layer == 1 || climbing) {
-        static const float lpx[7][5] = {{60.0f,148.0f,255.0f,110.0f,70.0f},{139.0f,192.6f,255.0f,200.0f,90.0f},{291.0f,256.6f,255.0f,200.0f,90.0f},{174.0f,310.0f,120.0f,255.0f,160.0f},{242.0f,282.0f,120.0f,255.0f,160.0f},{138.0f,242.0f,120.0f,255.0f,160.0f},{242.0f,154.0f,120.0f,255.0f,160.0f}};
-        for (int n = 0; n < 7; n++) {
+        static const float lpx[22][5] = {{60.0f,148.0f,255.0f,110.0f,70.0f},{139.0f,192.6f,255.0f,200.0f,90.0f},{291.0f,256.6f,255.0f,200.0f,90.0f},{174.0f,310.0f,120.0f,255.0f,160.0f},{242.0f,282.0f,120.0f,255.0f,160.0f},{138.0f,242.0f,120.0f,255.0f,160.0f},{242.0f,154.0f,120.0f,255.0f,160.0f},{50.0f,356.0f,200.0f,230.0f,255.0f},{82.0f,356.0f,200.0f,230.0f,255.0f},{114.0f,356.0f,200.0f,230.0f,255.0f},{146.0f,356.0f,200.0f,230.0f,255.0f},{178.0f,356.0f,200.0f,230.0f,255.0f},{30.0f,358.0f,200.0f,230.0f,255.0f},{54.0f,340.0f,215.0f,235.0f,255.0f},{96.0f,340.0f,90.0f,255.0f,160.0f},{140.0f,340.0f,255.0f,70.0f,56.0f},{180.0f,340.0f,200.0f,230.0f,255.0f},{60.0f,370.0f,200.0f,230.0f,255.0f},{108.0f,370.0f,255.0f,70.0f,56.0f},{152.0f,370.0f,90.0f,255.0f,160.0f},{210.0f,356.0f,160.0f,255.0f,200.0f},{210.0f,340.0f,160.0f,255.0f,200.0f}};
+        for (int n = 0; n < 22; n++) {
             float dx = lpx[n][0] - px, dz = lpx[n][1] - pz;
             float lim = LAMP_R + 24.0f;
             if (dx * dx + dz * dz > lim * lim || lamp_n >= 4) continue;
@@ -24364,7 +24702,7 @@ static void place_medkits(void)
     for (int k = 0; k < NBF; k++) bf_on[k] = 0;
     for (int k_ = 0; k_ < 4; k_++) { cand_p[k_] = 0; cand_lit[k_] = 0; }
     for (int k_ = 0; k_ < MAXP; k_++) { lt_lighting[k_] = 0; lt_reach[k_] = 0.0f; }
-    lt_fuel = 0; lt_on = 0; lt_l = 0; lt_x = 197.0f; lt_z = 359.0f; cof_hit = 0; cof_open = 0; for (int q_ = 0; q_ < MAXP; q_++) pl_ham[q_] = 0;
+    lt_fuel = 0; lt_on = 0; lt_l = 0; lt_x = 197.0f; lt_z = 359.0f; cof_hit = 0; cof_open = 0; for (int q_ = 0; q_ < MAXP; q_++) { pl_ham[q_] = 0; pl_note[q_] = 0; } note_big = 0; pz_open = 0; pz_slide = 0.0f; for (int q_ = 0; q_ < PZ_N; q_++) pz_d[q_] = 0;
     place_holes(); for (int q_ = 0; q_ < MAXP; q_++) pl_pala[q_] = 0;   // el encendedor esta enterrado en un hoyo del cementerio
                      // encendedor: en el camino, cerca del inicio
     for (int q_ = 0; q_ < MAXP; q_++) { pl_lt[q_] = 0; pl_lt_on[q_] = 0; }
@@ -82306,6 +82644,8 @@ static void draw_floor_lighter(void)
     }
 }
 
+static int hands_full(void) { return carry > 0 || pl_bnd[pl_cur] > 0 || pl_lt[pl_cur] > 0 || pl_pala[pl_cur] > 0 || pl_ham[pl_cur] > 0 || pl_note[pl_cur] > 0; }   // la mano libre ya lleva algo
+
 // Pala en las dos manos (mango en diagonal, hoja hacia delante y abajo); se agita al cavar
 static void draw_pala_hand(float t)
 {
@@ -82316,25 +82656,58 @@ static void draw_pala_hand(float t)
     if (up[sl] < 0.02f) return;
     float e = up[sl] * up[sl] * (3.0f - 2.0f * up[sl]);
     rd_sc = 0.80f;
-    rd_th = 0.50f + 0.60f * (1.0f - e) + 0.45f * pala_sw; rd_ya = 0.12f;
-    rd_ox = 0.02f + 0.010f * walk_amp * sinf(walk_ph + 0.5f);
-    rd_oy = -0.27f - 0.45f * (1.0f - e) + 0.008f * walk_amp * sinf(2.0f * walk_ph + 0.4f) - 0.015f * step_imp - 0.10f * pala_sw + sinf(t * 1.3f) * 0.002f;
-    rd_oz = 0.52f;
+    rd_th = -0.45f + 0.60f * (1.0f - e) + 0.75f * pala_sw; rd_ya = 0.10f;      // punta hacia delante y arriba: la hoja queda a la vista
+    rd_ox = 0.06f + 0.010f * walk_amp * sinf(walk_ph + 0.5f);
+    rd_oy = -0.30f - 0.45f * (1.0f - e) + 0.008f * walk_amp * sinf(2.0f * walk_ph + 0.4f) - 0.015f * step_imp - 0.08f * pala_sw + sinf(t * 1.3f) * 0.002f;
+    rd_oz = 0.50f;
     vm_mode = 1;
     {
-        static const float wood[3] = { 128.f, 90.f, 54.f }, wood2[3] = { 100.f, 70.f, 42.f }, metal[3] = { 168.f, 172.f, 178.f }, metal2[3] = { 120.f, 124.f, 130.f };
+        static const float wood[3] = { 128.f, 90.f, 54.f }, wood2[3] = { 100.f, 70.f, 42.f }, metal[3] = { 190.f, 194.f, 200.f }, metal2[3] = { 120.f, 124.f, 130.f }, rim[3] = { 92.f, 96.f, 104.f };
         float sk[3] = { hand_col[4][0], hand_col[4][1], hand_col[4][2] }, sk2[3] = { hand_col[2][0], hand_col[2][1], hand_col[2][2] };
-        rd_box(0.0f, 0.0f, 0.06f, 0.011f, 0.011f, 0.34f, wood, wood2);          // mango
-        rd_box(0.0f, 0.0f, -0.30f, 0.050f, 0.010f, 0.010f, wood, wood2);        // empunadura en T
-        rd_box(0.0f, -0.002f, 0.44f, 0.014f, 0.010f, 0.06f, metal2, metal2);    // cuello de la hoja
-        rd_box(0.0f, -0.006f, 0.56f, 0.075f, 0.008f, 0.085f, metal, metal2);    // hoja
-        rd_box(0.0f, -0.006f, 0.64f, 0.050f, 0.008f, 0.020f, metal2, metal2);   // punta
-        rd_box(0.040f, 0.0f, -0.12f, 0.034f, 0.030f, 0.036f, sk, sk2);          // mano derecha (atras)
-        rd_box(0.040f, -0.045f, -0.20f, 0.030f, 0.026f, 0.110f, sk, sk2);       // antebrazo derecho
-        rd_box(-0.040f, 0.0f, 0.20f, 0.034f, 0.030f, 0.036f, sk, sk2);          // mano izquierda (delante)
+        rd_box(0.0f, 0.0f, 0.10f, 0.013f, 0.013f, 0.40f, wood, wood2);          // mango largo
+        rd_box(0.0f, 0.0f, -0.30f, 0.055f, 0.012f, 0.012f, wood, wood2);        // empunadura en T
+        rd_box(0.0f, 0.0f, 0.50f, 0.026f, 0.016f, 0.030f, metal2, metal2);      // cuello de la hoja
+        {   // hoja: placa inclinada hacia la camara (se ve la cara de metal)
+            const float sb = 0.565f, cb = 0.825f, L = 0.26f, wb = 0.050f, wt = 0.115f, z0 = 0.52f;
+            const float a[3] = { -wb, 0.0f, z0 }, b[3] = { wb, 0.0f, z0 }, c[3] = { wt, sb * L, z0 + cb * L }, d[3] = { -wt, sb * L, z0 + cb * L };
+            rd_quad(a, b, c, d, metal);
+            const float a2[3] = { -wb * 0.4f, sb * 0.02f, z0 + cb * 0.02f }, b2[3] = { wb * 0.4f, sb * 0.02f, z0 + cb * 0.02f }, c2[3] = { wt * 0.4f, sb * L * 0.9f, z0 + cb * L * 0.9f }, d2[3] = { -wt * 0.4f, sb * L * 0.9f, z0 + cb * L * 0.9f };
+            rd_quad(a2, b2, c2, d2, metal2);                                     // nervadura central
+            const float a3[3] = { -wt, sb * L, z0 + cb * L }, b3[3] = { wt, sb * L, z0 + cb * L }, c3[3] = { wt, sb * L * 1.04f, z0 + cb * L * 1.04f }, d3[3] = { -wt, sb * L * 1.04f, z0 + cb * L * 1.04f };
+            rd_quad(a3, b3, c3, d3, rim);                                        // borde del filo
+        }
+        rd_box(0.040f, 0.0f, -0.10f, 0.034f, 0.030f, 0.036f, sk, sk2);          // mano derecha (atras)
+        rd_box(0.040f, -0.045f, -0.18f, 0.030f, 0.026f, 0.110f, sk, sk2);       // antebrazo derecho
+        rd_box(-0.040f, 0.0f, 0.18f, 0.034f, 0.030f, 0.036f, sk, sk2);          // mano izquierda (delante)
         rd_box(-0.040f, -0.050f, 0.04f, 0.030f, 0.026f, 0.110f, sk, sk2);       // antebrazo izquierdo
     }
     vm_mode = 0; rd_sc = 1.0f;
+}
+
+// Nota en la segunda mano (a la izquierda, donde van llaves y vendas)
+static void draw_note_hand(float t)
+{
+    static float up[MAXP];
+    int sl = pl_cur, tgt = pl_note[pl_cur] > 0 && !note_big;
+    up[sl] += ((float)tgt - up[sl]) * 0.16f;
+    if (up[sl] < 0.02f) return;
+    float e = up[sl] * up[sl] * (3.0f - 2.0f * up[sl]);
+    rd_sc = 1.0f; rd_th = 0.22f + 0.50f * (1.0f - e); rd_ya = 0.22f - 0.22f * (1.0f - e);
+    rd_ox = -0.19f + 0.010f * walk_amp * sinf(walk_ph + 0.5f);
+    rd_oy = -0.15f - 0.45f * (1.0f - e) + 0.008f * walk_amp * sinf(2.0f * walk_ph + 0.4f) - 0.015f * step_imp + sinf(t * 1.3f) * 0.002f;
+    rd_oz = 0.34f;
+    vm_mode = 1;
+    {
+        static const float paper[3] = { 226.f, 214.f, 178.f }, ink[3] = { 70.f, 56.f, 46.f }, blood[3] = { 120.f, 20.f, 18.f };
+        float sk[3] = { hand_col[4][0], hand_col[4][1], hand_col[4][2] }, sk2[3] = { hand_col[2][0], hand_col[2][1], hand_col[2][2] };
+        rd_rect(-0.062f, -0.080f, 0.062f, 0.080f, 0.0f, paper);
+        for (int i = 0; i < 7; i++) rd_rect(-0.048f, 0.060f - 0.017f * (float)i, 0.048f - (i == 3 ? 0.03f : 0.0f), 0.054f - 0.017f * (float)i, -0.001f, ink);
+        rd_rect(0.020f, -0.070f, 0.056f, -0.040f, -0.002f, blood);
+        rd_box(-0.062f, -0.084f, 0.012f, 0.014f, 0.016f, 0.020f, sk, sk2);        // dedos que sujetan el papel
+        rd_box(0.062f, -0.084f, 0.012f, 0.014f, 0.016f, 0.020f, sk, sk2);
+        rd_box(0.0f, -0.120f, 0.040f, 0.050f, 0.026f, 0.060f, sk, sk2);           // mano y antebrazo
+    }
+    vm_mode = 0;
 }
 
 // Martillo en una mano (izquierda del centro); se levanta y baja al golpear
@@ -82346,20 +82719,28 @@ static void draw_ham_hand(float t)
     ham_sw *= 0.88f;
     if (up[sl] < 0.02f) return;
     float e = up[sl] * up[sl] * (3.0f - 2.0f * up[sl]);
-    rd_sc = 0.85f;
-    rd_th = -0.30f + 0.90f * (1.0f - e) + 1.25f * ham_sw; rd_ya = -0.10f;
-    rd_ox = -0.04f + 0.010f * walk_amp * sinf(walk_ph + 0.5f);
-    rd_oy = -0.24f - 0.45f * (1.0f - e) + 0.008f * walk_amp * sinf(2.0f * walk_ph + 0.4f) - 0.015f * step_imp + sinf(t * 1.3f) * 0.002f;
-    rd_oz = 0.50f;
+    rd_sc = 0.90f;
+    rd_th = -0.50f + 0.90f * (1.0f - e) + 1.25f * ham_sw; rd_ya = -0.10f;       // bien parado: la cabeza arriba, el mango en el puño
+    rd_ox = -0.05f + 0.010f * walk_amp * sinf(walk_ph + 0.5f);
+    rd_oy = -0.30f - 0.45f * (1.0f - e) + 0.008f * walk_amp * sinf(2.0f * walk_ph + 0.4f) - 0.015f * step_imp + sinf(t * 1.3f) * 0.002f;
+    rd_oz = 0.48f;
     vm_mode = 1;
     {
-        static const float wood[3] = { 128.f, 90.f, 54.f }, wood2[3] = { 100.f, 70.f, 42.f }, iron[3] = { 118.f, 120.f, 128.f }, iron2[3] = { 84.f, 86.f, 92.f };
+        static const float wood[3] = { 140.f, 98.f, 58.f }, wood2[3] = { 104.f, 72.f, 42.f }, iron[3] = { 150.f, 152.f, 160.f }, iron2[3] = { 96.f, 98.f, 106.f }, leather[3] = { 52.f, 34.f, 24.f }, leather2[3] = { 38.f, 24.f, 18.f };
         float sk[3] = { hand_col[4][0], hand_col[4][1], hand_col[4][2] }, sk2[3] = { hand_col[2][0], hand_col[2][1], hand_col[2][2] };
-        rd_box(0.0f, 0.0f, 0.10f, 0.014f, 0.014f, 0.24f, wood, wood2);          // mango
-        rd_box(0.0f, 0.0f, 0.36f, 0.050f, 0.040f, 0.075f, iron, iron2);         // cabeza (masa)
-        rd_box(0.0f, 0.0f, 0.36f, 0.056f, 0.020f, 0.030f, iron2, iron2);        // banda
-        rd_box(0.0f, -0.030f, 0.00f, 0.036f, 0.030f, 0.040f, sk, sk2);          // mano
-        rd_box(0.0f, -0.060f, -0.14f, 0.030f, 0.026f, 0.110f, sk, sk2);         // antebrazo
+        rd_box(0.0f, 0.0f, 0.14f, 0.017f, 0.017f, 0.27f, wood, wood2);          // mango grueso
+        rd_box(0.0f, 0.0f, 0.00f, 0.021f, 0.021f, 0.085f, leather, leather2);   // empunadura forrada
+        rd_box(0.0f, 0.0f, -0.135f, 0.024f, 0.024f, 0.012f, iron2, iron2);      // tope del mango
+        rd_box(0.0f, 0.0f, 0.405f, 0.026f, 0.026f, 0.016f, iron2, iron2);       // collar bajo la cabeza
+        rd_box(0.0f, 0.0f, 0.450f, 0.070f, 0.036f, 0.038f, iron, iron2);        // cabeza de acero
+        rd_box(0.088f, 0.0f, 0.450f, 0.022f, 0.044f, 0.046f, iron, iron2);      // cara de golpe
+        rd_box(-0.088f, 0.0f, 0.450f, 0.026f, 0.026f, 0.030f, iron, iron2);     // pico (lado opuesto)
+        rd_box(-0.124f, 0.0f, 0.450f, 0.014f, 0.016f, 0.020f, iron2, iron2);
+        rd_box(0.0f, 0.040f, 0.450f, 0.058f, 0.006f, 0.030f, iron2, iron2);     // brillo / faja superior
+        rd_box(0.0f, -0.030f, -0.01f, 0.036f, 0.020f, 0.040f, sk, sk2);         // palma bajo el mango
+        rd_box(0.0f, 0.026f, -0.01f, 0.034f, 0.010f, 0.040f, sk, sk2);          // dedos por encima
+        rd_box(0.032f, 0.0f, 0.040f, 0.010f, 0.014f, 0.016f, sk, sk2);          // pulgar
+        rd_box(0.0f, -0.060f, -0.15f, 0.030f, 0.026f, 0.110f, sk, sk2);         // antebrazo
     }
     vm_mode = 0; rd_sc = 1.0f;
 }
@@ -82525,6 +82906,9 @@ static void msg_text(int id, char *buf, int n)
     else if (id == 67) snprintf(buf, n, "GOLPEANDO EL ATAUD...");
     else if (id == 68) snprintf(buf, n, "MARTILLO EN LA MANO (R3: SOLTAR)");
     else if (id == 69) snprintf(buf, n, "YA LLEVAS EL MARTILLO (R3: SOLTAR)");
+    else if (id == 70) snprintf(buf, n, "TIENES LA MANO OCUPADA (R3: SOLTAR)");
+    else if (id == 71) snprintf(buf, n, "NOTA EN LA MANO (CUADRADO: LEER / R3: SOLTAR)");
+    else if (id == 72) snprintf(buf, n, "LABORATORIO: BUSCA LA ESCOTILLA DE EXTRACCION");
     else if (id == 60) snprintf(buf, n, "CAVANDO...");
     else if (id == 61) snprintf(buf, n, "HAY ALGO ENTERRADO: EL ENCENDEDOR");
     else if (id == 62) snprintf(buf, n, "NO HAY NADA AQUI");
@@ -82664,6 +83048,26 @@ static void give_item(int i)
     else if (i == 9) { pl_pala[pl_cur] = 1; pl_ham[pl_cur] = 0; flash_on = 0; }
     else if (i == 10) { pl_ham[pl_cur] = 1; pl_pala[pl_cur] = 0; }
     else if (i == 11) has_map = 1;
+}
+
+// La nota ampliada: el acertijo del puzzle del cuarto secreto
+static void draw_note_big(void)
+{
+    static const char *ln[] = {
+        "EN LA TIERRA DUERMEN CUATRO HERMANOS.", "CADA UNO MUESTRA SUS PUNTOS.", "NINGUNO PASA DE SEIS.", "",
+        "JUNTOS SUMAN QUINCE.", "EL PRIMERO ES EL DOBLE DEL SEGUNDO.", "EL TERCERO NACIO MAYOR QUE TODOS.", "EL ULTIMO NO TIENE PAREJA.", "",
+        "DESPIERTALOS DE IZQUIERDA A DERECHA.", "LA TIERRA CUENTA DE UNO EN UNO." };
+    const int nl = (int)(sizeof ln / sizeof ln[0]);
+    gsKit_prim_sprite(gsGlobal, 0.0f, 0.0f, W, H, 16777100, GS_SETREG_RGBAQ(0, 0, 0, 0xB0, 0));
+    float pw = W * 0.86f, ph = H * 0.86f, x0 = (W - pw) * 0.5f, y0 = (H - ph) * 0.5f;
+    gsKit_prim_sprite(gsGlobal, x0 - 3.0f, y0 - 3.0f, x0 + pw + 3.0f, y0 + ph + 3.0f, 16777101, GS_SETREG_RGBAQ(70, 50, 30, 0x80, 0));
+    gsKit_prim_sprite(gsGlobal, x0, y0, x0 + pw, y0 + ph, 16777102, GS_SETREG_RGBAQ(222, 208, 170, 0x80, 0));
+    gsKit_prim_sprite(gsGlobal, x0 + pw * 0.70f, y0 + ph * 0.62f, x0 + pw * 0.93f, y0 + ph * 0.80f, 16777103, GS_SETREG_RGBAQ(130, 22, 20, 0x50, 0));   // mancha de sangre
+    gsKit_prim_sprite(gsGlobal, x0, y0, x0 + 26.0f, y0 + 20.0f, 16777103, GS_SETREG_RGBAQ(0, 0, 0, 0xB0, 0));                                          // esquina rota
+    int sc = (W >= 600.0f) ? 2 : 1;
+    float lh = 8.0f * (float)sc + 10.0f * (float)sc, ty = y0 + (ph - lh * (float)nl) * 0.5f;
+    for (int i = 0; i < nl; i++) if (ln[i][0]) draw_text((W - text_w(ln[i], sc)) * 0.5f, ty + lh * (float)i, ln[i], sc, GS_SETREG_RGBAQ(50, 36, 28, 0x80, 0));
+    draw_text_c(y0 + ph - 18.0f, "CUADRADO: CERRAR", 1, GS_SETREG_RGBAQ(90, 60, 40, 0x80, 0));
 }
 
 static void draw_give_menu(void)
@@ -82867,13 +83271,14 @@ static void draw_door_hud(void)
     int dn = (map_open || code_door >= 0) ? -1 : door_near();
     { int mq = (map_open || code_door >= 0) ? -1 : mkit_near(), bq = (map_open || code_door >= 0) ? -1 : mkit_bnd_near();
       if (mq >= 0 && dn < 0) draw_text_c(H - 34.0f, "CUADRADO: ABRIR BOTIQUIN", 2, yc);
-      else if (ham_floor_near() >= 0 && dn < 0 && pick_near() < 0) draw_text_c(H - 34.0f, pl_ham[pl_cur] > 0 ? "YA LLEVAS EL MARTILLO   R3: SOLTAR" : "CUADRADO: AGARRAR MARTILLO", 2, yc);
+      else if (note_floor_near() >= 0 && dn < 0 && pick_near() < 0) draw_text_c(H - 34.0f, pl_note[pl_cur] > 0 ? "YA LLEVAS LA NOTA   R3: SOLTAR" : (hands_full() ? "MANO OCUPADA   R3: SOLTAR" : "CUADRADO: AGARRAR NOTA"), 2, yc);
+      else if (ham_floor_near() >= 0 && dn < 0 && pick_near() < 0) draw_text_c(H - 34.0f, pl_ham[pl_cur] > 0 ? "YA LLEVAS EL MARTILLO   R3: SOLTAR" : (hands_full() ? "MANO OCUPADA   R3: SOLTAR" : "CUADRADO: AGARRAR MARTILLO"), 2, yc);
       else if (pl_lt[pl_cur] > 0 && candle_near() >= 0 && dn < 0 && pick_near() < 0) draw_text_c(H - 34.0f, pl_lt_on[pl_cur] ? "MANTEN CUADRADO: PRENDER VELA" : "R1: PRENDE EL ENCENDEDOR", 2, yc);
       else if (pl_pala[pl_cur] > 0 && hole_near() >= 0 && dn < 0 && pick_near() < 0) draw_text_c(H - 34.0f, "CUADRADO: CAVAR", 2, yc);
-      else if (pala_floor_near() >= 0 && dn < 0 && pick_near() < 0) draw_text_c(H - 34.0f, pl_pala[pl_cur] > 0 ? "YA LLEVAS LA PALA   R3: SOLTAR" : "CUADRADO: AGARRAR PALA", 2, yc);
+      else if (pala_floor_near() >= 0 && dn < 0 && pick_near() < 0) draw_text_c(H - 34.0f, pl_pala[pl_cur] > 0 ? "YA LLEVAS LA PALA   R3: SOLTAR" : (hands_full() ? "MANO OCUPADA   R3: SOLTAR" : "CUADRADO: AGARRAR PALA"), 2, yc);
       else if (pl_lt[pl_cur] > 0 && pump_near() >= 0 && dn < 0 && pick_near() < 0) draw_text_c(H - 34.0f, lt_fuel < LT_FUEL_MAX ? "CUADRADO: RECARGAR ENCENDEDOR" : "ENCENDEDOR LLENO", 2, yc);
-      else if (lt_floor_near() >= 0 && dn < 0 && pick_near() < 0) draw_text_c(H - 34.0f, pl_lt[pl_cur] > 0 ? "R1: ABRIR / PRENDER ENCENDEDOR   R3: SOLTAR" : "CUADRADO: AGARRAR ENCENDEDOR", 2, yc);
-      else if ((bq >= 0 || bnd_floor_near() >= 0) && dn < 0 && pick_near() < 0) draw_text_c(H - 34.0f, pl_bnd[pl_cur] > 0 ? "YA LLEVAS UNA VENDA   R3: SOLTAR" : "CUADRADO: AGARRAR VENDA", 2, yc); }
+      else if (lt_floor_near() >= 0 && dn < 0 && pick_near() < 0) draw_text_c(H - 34.0f, pl_lt[pl_cur] > 0 ? "R1: ABRIR / PRENDER ENCENDEDOR   R3: SOLTAR" : (hands_full() ? "MANO OCUPADA   R3: SOLTAR" : "CUADRADO: AGARRAR ENCENDEDOR"), 2, yc);
+      else if ((bq >= 0 || bnd_floor_near() >= 0) && dn < 0 && pick_near() < 0) draw_text_c(H - 34.0f, pl_bnd[pl_cur] > 0 ? "YA LLEVAS UNA VENDA   R3: SOLTAR" : (hands_full() ? "MANO OCUPADA   R3: SOLTAR" : "CUADRADO: AGARRAR VENDA"), 2, yc); }
     if (dn >= 0) draw_text_c(H - 34.0f, doors[dn].type == 1 ? "CUADRADO: PONER CODIGO" : "CUADRADO: ABRIR PUERTA", 2, yc);
     if (door_msg > 0 && door_msg_id) {
         char b[48];
@@ -82905,6 +83310,7 @@ static void draw_door_hud(void)
     }
     if (emoji_open) draw_emoji_menu();
     if (give_open) draw_give_menu();
+    if (note_big && pl_note[pl_cur] > 0) draw_note_big();
     if (dance_open) draw_dance_menu();
 }
 
@@ -82936,6 +83342,7 @@ static void render_game_inner(float t, int moving, int near_ladder, int notes)
             if (cur_layer == 0 && !climbing) draw_trees();
             draw_props(t);
             draw_garita(t);
+            draw_cave_mtn();
             draw_pumps();
             draw_supermarket(t);
             draw_cabin(t);
@@ -82946,7 +83353,7 @@ static void render_game_inner(float t, int moving, int near_ladder, int notes)
             draw_church();
             draw_candles();
             draw_christ();
-            draw_crypt(); draw_coffin();
+            draw_crypt(); draw_coffin(); draw_secret_room(t); draw_lab(t);
             draw_chimney();
             draw_rocks();
             draw_lamps();
@@ -82956,7 +83363,7 @@ static void render_game_inner(float t, int moving, int near_ladder, int notes)
             draw_items(t);
             draw_medkits();
             draw_floor_bandages();
-            draw_floor_lighter(); draw_floor_pala(); draw_floor_hammer();
+            draw_floor_lighter(); draw_floor_pala(); draw_floor_hammer(); draw_floor_note();
             draw_shafts();
 
             for (int i = 0; i < 3; i++) {
@@ -82980,7 +83387,7 @@ static void render_game_inner(float t, int moving, int near_ladder, int notes)
 
             if (!dance_cam && rv_on[pl_cur] && rv_tgt[pl_cur] >= 0 && pl_dn[rv_tgt[pl_cur]]) draw_revive_anim(t);
             else if (!dance_cam) { if (pl_pala[pl_cur] <= 0) draw_flashlight(t, moving);
-            draw_detector(t); draw_key_hand(t); draw_bandage_hand(t); draw_lighter_hand(t); draw_pala_hand(t); draw_ham_hand(t); }                           // el radio que marca la distancia al monstruo
+            draw_detector(t); draw_key_hand(t); draw_bandage_hand(t); draw_lighter_hand(t); draw_pala_hand(t); draw_ham_hand(t); draw_note_hand(t); }                           // el radio que marca la distancia al monstruo
 
             if (!dance_cam && pl_view_alt < 0 && state == 0 && !map_open && code_door < 0 && !emoji_open && !dance_open && !inv_open) {
                 int tgt = (pick_near() >= 0 || mkit_near() >= 0 || mkit_bnd_near() >= 0 || bnd_floor_near() >= 0);
@@ -83867,8 +84274,8 @@ static unsigned int sim_hash(void)
     }
     for (int i = 0; i < NMK; i++) { HM(mk_open[i]); HM(mk_bd[i]); }
     for (int k = 0; k < NBF; k++) HM(bf_on[k]);
-    HM(lt_on); HM(lt_fuel); HM(cof_hit); HM(cof_open); HM(ham_on); HM(fbits(ham_x)); HM(fbits(ham_z)); HM(fbits(ham_y)); for (int k_ = 0; k_ < 4; k_++) { HM(cand_p[k_]); HM(cand_lit[k_]); } HM(pala_on); HM(fbits(pala_x)); HM(fbits(pala_z)); HM(lt_hole); for (int k_ = 0; k_ < NHOLE; k_++) HM(hole_p[k_]); HM(fbits(lt_x)); HM(fbits(lt_z));
-    for (int i = 0; i < num_players; i++) { HM(pl_bnd[i]); HM(pl_lt[i]); HM(pl_lt_on[i]); HM(pl_pala[i]); HM(pl_ham[i]); HM(pl_dn[i]); HM((int)(pl_rv[i] * 60.0f)); }
+    HM(lt_on); HM(lt_fuel); HM(cof_hit); HM(cof_open); HM(ham_on); HM(fbits(ham_x)); HM(fbits(ham_z)); HM(fbits(ham_y)); for (int k_ = 0; k_ < 4; k_++) { HM(cand_p[k_]); HM(cand_lit[k_]); } HM(note_on); HM(fbits(note_x)); HM(fbits(note_z)); HM(pz_open); for (int k_ = 0; k_ < PZ_N; k_++) HM(pz_d[k_]); HM(pala_on); HM(fbits(pala_x)); HM(fbits(pala_z)); HM(lt_hole); for (int k_ = 0; k_ < NHOLE; k_++) HM(hole_p[k_]); HM(fbits(lt_x)); HM(fbits(lt_z));
+    for (int i = 0; i < num_players; i++) { HM(pl_bnd[i]); HM(pl_lt[i]); HM(pl_lt_on[i]); HM(pl_pala[i]); HM(pl_ham[i]); HM(pl_note[i]); HM(pl_dn[i]); HM((int)(pl_rv[i] * 60.0f)); }
     HM(fbits(sx_)); HM(fbits(sz_)); HM(mlayer); HM(state); HM(mon_target); HM(fbits(mon_face)); HM(mon_has); HM(mon_wp_n); HM((int)(mon_blind_t * 60.0f)); HM((int)(mon_uv_t * 60.0f)); HM((int)(frenzy_t * 60.0f)); HM((int)(frenzy_w * 60.0f));
     for (int i = 0; i < 3; i++) { HM(notes_got[i]); HM(notes_off[i]); HM(notes_used[i]); }
     for (int i = 0; i < ND; i++) HM(door_open[i]);
@@ -84583,6 +84990,7 @@ static void pad_sticks(PadIn *p, int lhb, int lvb, int rhb, int rvb)      // sti
 // Mapa, puertas y candados. Devuelve 1 si hay una ventana abierta (mapa o candado): en ese caso no te mueves.
 static int ui_input(u32 newp)
 {
+    if (note_big) { if (pl_note[pl_cur] <= 0 || (newp & (PAD_SQUARE | PAD_CIRCLE | PAD_CROSS | PAD_TRIANGLE))) note_big = 0; return 1; }
     if (map_msg > 0) map_msg--;
     if (door_msg > 0) door_msg--;
     if (dance_id >= 0) {
@@ -84663,6 +85071,11 @@ static int ui_input(u32 newp)
         if (solid(nx, nz) || coffin_hit(nx, nz)) { nx = px; nz = pz; }
         ham_on = 1; ham_x = nx; ham_z = nz; ham_a = yaw; ham_y = 0.0f; pl_ham[pl_cur] = 0; sfx_play(SFX_BDDROP, 1.0f); noise_emit(cur_layer, px, pz, 10.0f);
     }
+    if ((newp & PAD_R3) && cur_layer == 0 && foot_y < 0.5f && !carry && pl_bnd[pl_cur] <= 0 && pl_lt[pl_cur] <= 0 && pl_pala[pl_cur] <= 0 && pl_ham[pl_cur] <= 0 && pl_note[pl_cur] > 0 && hide_id < 0 && !map_open && code_door < 0 && !climbing) {   // R3: soltar la nota
+        float dxf = sinf(yaw), dzf = cosf(yaw), nx = px + dxf * 0.9f, nz = pz + dzf * 0.9f;
+        if (solid(nx, nz) || coffin_hit(nx, nz)) { nx = px; nz = pz; }
+        note_on = 1; note_x = nx; note_z = nz; note_a = yaw; pl_note[pl_cur] = 0; sfx_play(SFX_BDDROP, 1.0f); noise_emit(cur_layer, px, pz, 6.0f);
+    }
     if ((newp & PAD_R3) && foot_y < 0.5f && !carry && pl_bnd[pl_cur] <= 0 && pl_lt[pl_cur] <= 0 && pl_pala[pl_cur] > 0 && hide_id < 0 && !map_open && code_door < 0 && !climbing) {   // R3: soltar la pala
         float dxf = sinf(yaw), dzf = cosf(yaw), nx = px + dxf * 0.9f, nz = pz + dzf * 0.9f;
         if (solid(nx, nz)) { nx = px; nz = pz; }
@@ -84676,7 +85089,8 @@ static int ui_input(u32 newp)
         carry = 0; sfx_play(SFX_KEYDROP, 1.0f); noise_emit(cur_layer, px, pz, 100.0f);   // tirar la llave: se oye a 100 m
     }
     int pk_ = (newp & PAD_SQUARE) && !map_open && code_door < 0 ? pick_near() : -1;
-    if (pk_ >= 100) {                                           // CUADRADO: agarrar llave final (queda en tu mano)
+    if (pk_ >= 0 && (pk_ >= 100 || items[pk_].kind == 0) && hands_full()) { door_msg = 120; door_msg_id = (carry > 0) ? 17 : 70; pk_ = -1; }   // mano ocupada: no se puede agarrar otra llave
+    else if (pk_ >= 100) {                                           // CUADRADO: agarrar llave final (queda en tu mano)
         int i = pk_ - 100;
         notes_off[i] = 1; carry = 5 + i; door_msg = 200; door_msg_id = 15; sfx_play(SFX_KEY, 1.0f); noise_emit(cur_layer, px, pz, 12.0f);
         if (!notes_frz[i]) { notes_frz[i] = 1; notes_got[i] = 1; frenzy_start(); sfx_play(SFX_ROAR, 1.0f); }
@@ -84686,13 +85100,27 @@ static int ui_input(u32 newp)
         else { have_code[items[pk_].id] = 1; door_msg_id = 30 + items[pk_].id; }
     } else if (newp & PAD_SQUARE) {                             // CUADRADO: abrir botiquin / tomar el mapa / abrir puerta / poner codigo
         int di = door_near(), mi = mkit_near(), bi_ = mkit_bnd_near(), bj_ = bnd_floor_near(), lj_ = lt_floor_near(), pj_ = pl_lt[pl_cur] > 0 ? pump_near() : -1, hj_ = pl_pala[pl_cur] > 0 ? hole_near() : -1, pa_ = pala_floor_near(), cj_ = (pl_lt_on[pl_cur] > 0) ? candle_near() : -1, ak_ = coffin_near(), hf_ = ham_floor_near();
+        int pzd_ = pz_dial_near(), nf_ = note_floor_near();
         if (cj_ >= 0) { /* se mantiene CUADRADO para prender la vela */ }
+        else if (pzd_ >= 0 && !map_open) {                                 // dado de piedra del puzzle: gira al siguiente valor
+            if (!pz_open) {
+                pz_d[pzd_] = (pz_d[pzd_] + 1) % 6; sfx_play(SFX_HARD, 0.7f); noise_emit(cur_layer, px, pz, 8.0f);
+                int okc = 1; for (int q = 0; q < PZ_N; q++) if (pz_d[q] != pz_code[q]) okc = 0;
+                if (okc) {
+                    pz_open = 1; sfx_play(SFX_DOOR, 1.0f); noise_emit(cur_layer, px, pz, 40.0f);
+                    for (int q = 0, n_ = 0; q < NBF && n_ < 3; q++) if (!bf_on[q]) { bf_on[q] = 1; bf_x[q] = 63.9f + 0.55f * (float)n_; bf_z[q] = 141.0f; bf_l[q] = 1; n_++; }
+                }
+            }
+        }
         else if (ak_ && pl_ham[pl_cur] > 0 && !map_open) {                // golpear el ataud con el martillo (5 golpes)
             cof_hit++; ham_sw = 1.0f; sfx_play(SFX_HARD, 1.0f); noise_emit(cur_layer, px, pz, 18.0f);
             if (cof_hit >= 5) { cof_open = 1; sfx_play(SFX_DOOR, 1.0f); door_msg = 0; }
         }
         else if (hf_ >= 0 && !map_open && (pl_ham[pl_cur] > 0)) { door_msg = 120; door_msg_id = 69; }
         else if (hf_ >= 0 && !map_open && pl_pala[pl_cur] > 0) { door_msg = 120; door_msg_id = 66; }
+        else if (nf_ >= 0 && !map_open && hands_full()) { door_msg = 120; door_msg_id = 70; }
+        else if (nf_ >= 0 && !map_open) { note_on = 0; pl_note[pl_cur] = 1; door_msg = 120; door_msg_id = 71; sfx_play(SFX_KEY, 0.9f); noise_emit(cur_layer, px, pz, 6.0f); }
+        else if (hf_ >= 0 && !map_open && hands_full()) { door_msg = 120; door_msg_id = 70; }
         else if (hf_ >= 0 && !map_open) { ham_on = 0; pl_ham[pl_cur] = 1; door_msg = 120; door_msg_id = 68; sfx_play(SFX_KEY, 0.9f); noise_emit(cur_layer, px, pz, 6.0f); }
         else if (hj_ >= 0 && !map_open) {                                  // cavar un hoyo con la pala (4 golpes)
             hole_p[hj_]++; pala_sw = 1.0f; sfx_play(SFX_CAVAR, 1.0f); noise_emit(cur_layer, px, pz, 14.0f);
@@ -84703,17 +85131,21 @@ static int ui_input(u32 newp)
         }
         else if (pa_ >= 0 && !map_open && pl_pala[pl_cur] > 0) { door_msg = 120; door_msg_id = 64; }
         else if (pa_ >= 0 && !map_open && pl_ham[pl_cur] > 0) { door_msg = 120; door_msg_id = 66; }
+        else if (pa_ >= 0 && !map_open && hands_full()) { door_msg = 120; door_msg_id = 70; }
         else if (pa_ >= 0 && !map_open) { pala_on = 0; pl_pala[pl_cur] = 1; flash_on = 0; door_msg = 120; door_msg_id = 63; sfx_play(SFX_KEY, 0.9f); noise_emit(cur_layer, px, pz, 6.0f); }
         else if (pj_ >= 0 && !map_open) {                                  // surtidor: recargar el encendedor
             if (lt_fuel >= LT_FUEL_MAX - 60) { door_msg = 100; door_msg_id = 59; }
             else { lt_fuel = LT_FUEL_MAX; door_msg = 120; door_msg_id = 58; sfx_play(SFX_POP, 0.9f); noise_emit(cur_layer, px, pz, 8.0f); }
         }
         else if (lj_ >= 0 && !map_open && pl_lt[pl_cur] > 0) { door_msg = 120; door_msg_id = 55; }
+        else if (lj_ >= 0 && !map_open && hands_full()) { door_msg = 120; door_msg_id = 70; }
         else if (lj_ >= 0 && !map_open) { lt_on = 0; pl_lt[pl_cur] = 1; pl_lt_on[pl_cur] = 0; door_msg = 120; door_msg_id = 54; sfx_play(SFX_KEY, 0.9f); noise_emit(cur_layer, px, pz, 6.0f); }
         else if (bj_ >= 0 && !map_open && pl_bnd[pl_cur] >= 1) { door_msg = 120; door_msg_id = 53; }
+        else if (bj_ >= 0 && !map_open && hands_full()) { door_msg = 120; door_msg_id = 70; }
         else if (bj_ >= 0 && !map_open) { bf_on[bj_] = 0; pl_bnd[pl_cur] = 1; door_msg = 100; door_msg_id = 51; sfx_play(SFX_KEY, 0.9f); noise_emit(cur_layer, px, pz, 6.0f); }
         else if (mi >= 0 && !map_open) { mk_open[mi] = 1; door_msg = 100; door_msg_id = 50; sfx_play(SFX_CLICK, 1.0f); noise_emit(cur_layer, mk_x[mi], mk_z[mi], 12.0f); }
         else if (bi_ >= 0 && !map_open && pl_bnd[pl_cur] >= 1) { door_msg = 120; door_msg_id = 53; }
+        else if (bi_ >= 0 && !map_open && hands_full()) { door_msg = 120; door_msg_id = 70; }
         else if (bi_ >= 0 && !map_open) { mk_bd[bi_]--; pl_bnd[pl_cur] = 1; door_msg = 140; door_msg_id = 51; sfx_play(SFX_KEY, 0.9f); noise_emit(cur_layer, px, pz, 6.0f); }
         else if (!has_map && board_near()) { has_map = 1; map_msg = 240; sfx_play(SFX_CLICK, 1.0f); }
         else if (di >= 0 && !map_open) {
@@ -84729,6 +85161,7 @@ static int ui_input(u32 newp)
                 else { door_msg = 150; door_msg_id = 1 + d->id; }
             } else { code_door = di; code_val = 0; code_pos = 0; }
         }
+        else if (pl_note[pl_cur] > 0 && !map_open) { note_big = 1; sfx_play(SFX_CLICK, 0.6f); }          // CUADRADO con la nota en la mano: leerla grande
     }
     if ((newp & PAD_TRIANGLE) && has_map && !climbing) { map_open = !map_open; sfx_play(SFX_CLICK, 0.8f); }   // TRIANGULO: mapa
     if (spec_mode && (newp & PAD_DOWN) && !map_open && code_door < 0 && !climbing && !emoji_open && !dance_open) { give_open = 1; return 1; }   // MODO SECRETO, FLECHA ABAJO: menu de objetos
@@ -84889,7 +85322,7 @@ static void player_move(float dt, float t, const PadIn *in)
         }
     }
     {   // R2 (mantener 5 s): carga el DETECTOR; al llenarse sube al centro de la camara mientras sigas apretando
-        int busy = carry > 0 || pl_bnd[pl_cur] > 0 || pl_lt[pl_cur] > 0 || pl_pala[pl_cur] > 0 || pl_ham[pl_cur] > 0;   // la otra mano lleva un objeto (la linterna ocupa la primera)
+        int busy = carry > 0 || pl_bnd[pl_cur] > 0 || pl_lt[pl_cur] > 0 || pl_pala[pl_cur] > 0 || pl_ham[pl_cur] > 0 || pl_note[pl_cur] > 0;   // la otra mano lleva un objeto (la linterna ocupa la primera)
         int hold = (in->pd & PAD_R2) && !map_open && code_door < 0 && !busy;
         if (hold) { det_t += dt; if (det_t > DET_TIME) det_t = DET_TIME; } else det_t = 0.0f;
         float tgt = (hold && det_t >= DET_TIME) ? 1.0f : 0.0f;
@@ -85059,7 +85492,10 @@ static void player_post(int notes)
     float ddx = sx_ - px, ddz = sz_ - pz;
     float catch_r2 = hide_id >= 0 ? (hide_exp ? 7.8f : -1.0f) : 3.6f;      // escondido: solo te alcanza si te vio entrar
     if (mon_blind_t <= 0.0f && mlayer == cur_layer && !climbing && ddx * ddx + ddz * ddz < catch_r2) { js_begin(); return; }   // alcance de sus garras (1.9 m)
-    if (cur_layer == 1 && !climbing && door_open[DOOR_FINAL] && px > doors[DOOR_FINAL].x + 3.0f) { state = 2; state_timer = 600; }   // cruzaste la puerta final: FIN
+    if (cur_layer == 1 && !climbing && door_open[DOOR_FINAL] && pz < 330.0f && px > doors[DOOR_FINAL].x + 3.0f) {   // cruzaste la puerta final: pasas al LABORATORIO (segundo mapa)
+        px = 30.0f; pz = 358.0f; yaw = 1.5708f; foot_y = SEWER_Y; door_msg = 300; door_msg_id = 72; sfx_play(SFX_DOOR, 1.0f);
+    }
+    if (cur_layer == 1 && !climbing && pz > 330.0f && fabsf(px - 212.0f) < 4.0f && fabsf(pz - 356.0f) < 4.0f) { state = 2; state_timer = 600; }   // la escotilla de extraccion: FIN
 }
 
 // Camara final del frame, con el balanceo del andar (cada paso se siente) y las pisadas del monstruo
