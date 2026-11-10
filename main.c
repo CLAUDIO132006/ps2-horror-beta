@@ -24744,8 +24744,10 @@ static void reset_game(void)
         cam_y = EYE; amb_r = 22.0f; light_flick = 1.0f;
         has_map = 0; map_open = 0; map_msg = 0; uv_on = 0; uv_hold = 0.0f;
         door_msg = 0; door_msg_id = 0; code_door = -1; code_val = 0; code_pos = 0; inv_open = 0;
+        if (solo_map == 1) { cur_layer = 1; px = 30.0f + 1.6f * (float)i; pz = 358.0f; yaw = PI_F * 0.5f; foot_y = SEWER_Y; fx = sinf(yaw); fz = cosf(yaw); rx = cosf(yaw); rz = -sinf(yaw); door_msg = 300; door_msg_id = 72; }   // mapa LABORATORIO: empiezas en la esclusa
         player_save(i);
     }
+    if (solo_map == 1) { sx_ = 140.0f; sz_ = 356.0f; mlayer = 1; mon_face = -PI_F * 0.5f; }
     player_load(0);
 }
 
@@ -83481,8 +83483,15 @@ static void setup_ui(const char *title, int sel, int diff, int diff_locked, cons
         gsKit_prim_sprite(gsGlobal, mx - 3.0f, my + mh, mx + mw + 3.0f, my + mh + 3.0f, 16776990, fc);
         gsKit_prim_sprite(gsGlobal, mx - 3.0f, my, mx, my + mh, 16776990, fc);
         gsKit_prim_sprite(gsGlobal, mx + mw, my, mx + mw + 3.0f, my + mh, 16776990, fc);
-        prev_draw(mx, my, mw, mh);
-        draw_text(mx, my - 16.0f, "MAPA: PUEBLO", 1, arr);
+        if (solo_map == 1) {   // vista previa del laboratorio (esquema)
+            gsKit_prim_sprite(gsGlobal, mx, my, mx + mw, my + mh, 16777000, GS_SETREG_RGBAQ(18, 26, 30, 0x80, 0));
+            for (int k = 0; k < 4; k++) { gsKit_prim_sprite(gsGlobal, mx + 14.0f + k * 52.0f, my + 14.0f, mx + 56.0f + k * 52.0f, my + 44.0f, 16777001, k == 1 ? GS_SETREG_RGBAQ(60, 150, 120, 0x80, 0) : (k == 2 ? GS_SETREG_RGBAQ(150, 50, 50, 0x80, 0) : GS_SETREG_RGBAQ(170, 180, 186, 0x80, 0))); }
+            gsKit_prim_sprite(gsGlobal, mx + 14.0f, my + 52.0f, mx + 160.0f, my + 64.0f, 16777001, GS_SETREG_RGBAQ(130, 138, 144, 0x80, 0));
+            for (int k = 0; k < 3; k++) gsKit_prim_sprite(gsGlobal, mx + 14.0f + k * 56.0f, my + 72.0f, mx + 56.0f + k * 56.0f, my + 102.0f, 16777001, k == 1 ? GS_SETREG_RGBAQ(150, 50, 50, 0x80, 0) : GS_SETREG_RGBAQ(110, 114, 116, 0x80, 0));
+            gsKit_prim_sprite(gsGlobal, mx + 170.0f, my + 40.0f, mx + 222.0f, my + 100.0f, 16777001, GS_SETREG_RGBAQ(60, 220, 150, 0x80, 0));
+        } else prev_draw(mx, my, mw, mh);
+        draw_text(mx, my - 16.0f, solo_map == 1 ? "MAPA: LABORATORIO" : "MAPA: PUEBLO", 1, arr);
+        if (sel == 2 && solo_mode != 3) draw_text(mx, my + mh + 6.0f, "IZQ/DER: CAMBIAR MAPA", 1, arr);
     }
     {   // boton verde
         float bx = 28.0f, by = H - 70.0f, bw = 250.0f, bh = 46.0f;
@@ -84395,9 +84404,10 @@ static void menu_frame(u32 newp, float lv, int frame)
         if (back) screen = SC_MAIN;
         else if (*sel == 0 && d) solo_diff = (solo_diff + 3 + d) % 3;
         else if (*sel == 1 && d) map_ind = !map_ind;
-        else if (*sel == 2 && d) solo_map = 0;                // por ahora solo hay un mapa
+        else if (*sel == 2 && d) solo_map = (solo_mode == 3) ? 0 : (solo_map + 1) % 2;      // mapa: 0 pueblo / 1 laboratorio (el online usa el pueblo)
         else if (ok && *sel == 3) {
             diff_mul = solo_diff == 0 ? 0.8f : (solo_diff == 2 ? 1.2f : 1.0f);
+            if (solo_mode == 3) solo_map = 0;
             if (solo_mode == 1) start_game(1);
             else if (solo_mode == 2) { if (pad2_ready()) start_game(2); else pad2_warn = 150; }
 #ifdef HAVE_NET
@@ -85492,10 +85502,8 @@ static void player_post(int notes)
     float ddx = sx_ - px, ddz = sz_ - pz;
     float catch_r2 = hide_id >= 0 ? (hide_exp ? 7.8f : -1.0f) : 3.6f;      // escondido: solo te alcanza si te vio entrar
     if (mon_blind_t <= 0.0f && mlayer == cur_layer && !climbing && ddx * ddx + ddz * ddz < catch_r2) { js_begin(); return; }   // alcance de sus garras (1.9 m)
-    if (cur_layer == 1 && !climbing && door_open[DOOR_FINAL] && pz < 330.0f && px > doors[DOOR_FINAL].x + 3.0f) {   // cruzaste la puerta final: pasas al LABORATORIO (segundo mapa)
-        px = 30.0f; pz = 358.0f; yaw = 1.5708f; foot_y = SEWER_Y; door_msg = 300; door_msg_id = 72; sfx_play(SFX_DOOR, 1.0f);
-    }
-    if (cur_layer == 1 && !climbing && pz > 330.0f && fabsf(px - 212.0f) < 4.0f && fabsf(pz - 356.0f) < 4.0f) { state = 2; state_timer = 600; }   // la escotilla de extraccion: FIN
+    if (solo_map == 0 && cur_layer == 1 && !climbing && door_open[DOOR_FINAL] && px > doors[DOOR_FINAL].x + 3.0f) { state = 2; state_timer = 600; }   // cruzaste la puerta final: FIN
+    if (solo_map == 1 && cur_layer == 1 && !climbing && fabsf(px - 212.0f) < 4.0f && fabsf(pz - 356.0f) < 4.0f) { state = 2; state_timer = 600; }   // mapa LABORATORIO: la escotilla de extraccion es el FIN
 }
 
 // Camara final del frame, con el balanceo del andar (cada paso se siente) y las pisadas del monstruo
