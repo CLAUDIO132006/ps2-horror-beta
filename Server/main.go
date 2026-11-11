@@ -1,8 +1,7 @@
-// HORROR BETA - SERVIDOR DEDICADO (version Windows / Go). Mismo protocolo que horror_server.py (2 a 4 jugadores).
-//   - Lista de salas por internet (PARTIDAS PUBLICAS).
-//   - Relay UDP entre TODOS los jugadores de la sala (funciona entre emuladores y detras de routers).
+// HORROR BETA - SERVIDOR DEDICADO (version Windows / Go).
+// Mismo protocolo que horror_server.py (2 a 4 jugadores, relay a todos los de la sala).
 //
-// Uso: horror_server.exe [-port 7778] [-max-rooms 200] [-quiet]
+// Uso: horror_server.exe [-port 7778] [-max-rooms 200] [-quiet] [-debug]
 package main
 
 import (
@@ -19,30 +18,37 @@ import (
 )
 
 const (
-	srvMagic  = 0x56535248 // 'HRSV'
-	gameMagic = 0x52524F48 // 'HORR'
+	srvMagic  = 0x56535248 // 'HRSV' (mensajes jugador <-> servidor)
+	gameMagic = 0x52524F48 // 'HORR' (paquetes del juego: se reenvian tal cual)
 
-	svCreate, svList, svJoin, svKeep, svLeave  = 1, 2, 3, 4, 5
-	svRoom, svListRes, svJoined, svErr, svPong = 16, 17, 18, 19, 20
-	errNotFound, errFull, errServerFull        = 1, 2, 3
+	svCreate = 1
+	svList   = 2
+	svJoin   = 3
+	svKeep   = 4
+	svLeave  = 5
 
+	svRoom    = 16
+	svListRes = 17
+	svJoined  = 18
+	svErr     = 19
+	svPong    = 20
+
+	errNotFound   = 1
+	errFull       = 2
+	errServerFull = 3
+
+	maxPlayers   = 4
+	listMax      = 6
 	roomTimeout  = 15 * time.Second
 	guestTimeout = 6 * time.Second
-	listMax      = 6
-	maxPlayers   = 4
 )
-
-type peer struct {
-	key  string
-	addr *net.UDPAddr
-	seen time.Time
-}
 
 type room struct {
 	id      uint32
 	name    string
 	maxp    int
-	slots   map[int]*peer // 0 = anfitrion
+	slots   map[int]*net.UDPAddr // 0 = anfitrion
+	seen    map[int]time.Time
 	created time.Time
 }
 
@@ -67,10 +73,11 @@ type server struct {
 	conn     *net.UDPConn
 	rooms    map[uint32]*room
 	byAddr   map[string]member
-	seenIP   map[string]bool
+	heard    map[string]bool
 	nextID   uint32
 	maxRooms int
 	quiet    bool
+	debug    bool
 	rx, tx   uint64
 }
 
@@ -85,23 +92,24 @@ func (s *server) send(b []byte, a *net.UDPAddr) {
 	s.conn.WriteToUDP(b, a)
 }
 
-func (s *server) dropAddr(key string) {
+func (s *server) dropAddr(key string, why string) {
 	m, ok := s.byAddr[key]
 	if !ok {
 		return
 	}
 	delete(s.byAddr, key)
 	if m.slot == 0 { // se va el anfitrion: la sala se cierra
-		for k, p := range m.r.slots {
+		for k, a := range m.r.slots {
 			if k != 0 {
-				delete(s.byAddr, p.key)
+				delete(s.byAddr, a.String())
 			}
 		}
 		delete(s.rooms, m.r.id)
-		s.logf("sala %d cerrada (%s)", m.r.id, m.r.name)
+		s.logf("sala %d cerrada (%s) motivo: %s", m.r.id, m.r.name, why)
 	} else {
 		delete(m.r.slots, m.slot)
-		s.logf("sala %d: el jugador %d salio", m.r.id, m.slot+1)
+		delete(m.r.seen, m.slot)
+		s.logf("sala %d: el jugador %d salio (motivo: %s)", m.r.id, m.slot+1, why)
 	}
 }
 
@@ -112,18 +120,18 @@ func (s *server) sendErr(a *net.UDPAddr, code byte) {
 	s.send(b, a)
 }
 
-func (s *server) sendRoom(a *net.UDPAddr, r *room) {
+func (s *server) sendRoom(a *net.UDPAddr, maxp int, id uint32) {
 	b := make([]byte, 12)
 	binary.LittleEndian.PutUint32(b, srvMagic)
-	b[4], b[5] = svRoom, byte(r.maxp)
-	binary.LittleEndian.PutUint32(b[8:], r.id)
+	b[4], b[5] = svRoom, byte(maxp)
+	binary.LittleEndian.PutUint32(b[8:], id)
 	s.send(b, a)
 }
 
-func (s *server) sendJoined(a *net.UDPAddr, slot int, r *room) {
+func (s *server) sendJoined(a *net.UDPAddr, slot, maxp, players int) {
 	b := make([]byte, 8)
 	binary.LittleEndian.PutUint32(b, srvMagic)
-	b[4], b[5], b[6], b[7] = svJoined, byte(slot), byte(r.maxp), byte(r.players())
+	b[4], b[5], b[6], b[7] = svJoined, byte(slot), byte(maxp), byte(players)
 	s.send(b, a)
 }
 
@@ -131,36 +139,41 @@ func (s *server) handle(d []byte, a *net.UDPAddr) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.rx++
-	ip := a.IP.String()
-	if !s.seenIP[ip] { // primera vez que llega algo de esta IP: sirve para comprobar que el router/firewall dejan pasar
-		s.seenIP[ip] = true
-		s.logf("LLEGO UN PAQUETE de %s  (la conexion con esa IP funciona)", ip)
+	key := a.String()
+	if s.debug {
+		s.logf("RX %s  %d bytes", key, len(d))
+	}
+	ipStr := a.IP.String()
+	if !s.heard[ipStr] {
+		s.heard[ipStr] = true
+		s.logf("LLEGO UN PAQUETE de %s", ipStr)
 	}
 	if len(d) < 5 {
 		return
 	}
 	magic := binary.LittleEndian.Uint32(d)
 	now := time.Now()
-	key := a.String()
 
 	if magic == gameMagic { // paquete del juego: reenviar a TODOS los demas de la sala
 		m, ok := s.byAddr[key]
 		if !ok {
 			return
 		}
-		if p := m.r.slots[m.slot]; p != nil {
-			p.seen = now
-		}
-		for k, p := range m.r.slots {
+		m.r.seen[m.slot] = now
+		for k, addr := range m.r.slots {
 			if k != m.slot {
-				s.send(d, p.addr)
+				s.send(d, addr)
 			}
 		}
 		return
 	}
 	if magic != srvMagic {
+		if s.debug {
+			s.logf("paquete ignorado de %s (magic desconocido %08x)", key, magic)
+		}
 		return
 	}
+
 	switch d[4] {
 	case svCreate:
 		maxp := 2
@@ -175,19 +188,23 @@ func (s *server) handle(d []byte, a *net.UDPAddr) {
 		}
 		if old, ok := s.byAddr[key]; ok {
 			if old.slot == 0 { // CREATE repetido (se perdio la respuesta): misma sala
-				old.r.slots[0].seen = now
-				s.sendRoom(a, old.r)
+				old.r.seen[0] = now
+				s.sendRoom(a, old.r.maxp, old.r.id)
 				return
 			}
-			s.dropAddr(key)
+			s.dropAddr(key, "el mismo cliente creo otra sala")
 		}
 		if len(s.rooms) >= s.maxRooms {
 			s.sendErr(a, errServerFull)
 			return
 		}
 		name := "SALA"
-		if len(d) >= 32 {
-			raw := d[8:32]
+		if len(d) > 8 {
+			end := 32
+			if len(d) < end {
+				end = len(d)
+			}
+			raw := d[8:end]
 			if i := indexZero(raw); i >= 0 {
 				raw = raw[:i]
 			}
@@ -198,37 +215,43 @@ func (s *server) handle(d []byte, a *net.UDPAddr) {
 		if len(name) > 23 {
 			name = name[:23]
 		}
-		r := &room{id: s.nextID, name: name, maxp: maxp, slots: map[int]*peer{0: {key, a, now}}, created: now}
+		r := &room{id: s.nextID, name: name, maxp: maxp,
+			slots: map[int]*net.UDPAddr{0: a}, seen: map[int]time.Time{0: now}, created: now}
 		s.nextID = s.nextID%0x7FFFFFFF + 1
 		s.rooms[r.id] = r
 		s.byAddr[key] = member{r, 0}
-		s.sendRoom(a, r)
+		s.sendRoom(a, maxp, r.id)
 		s.logf("sala %d creada: %s  para %d jugadores (%s)", r.id, name, maxp, key)
 
 	case svList:
-		avail := make([]*room, 0, len(s.rooms))
+		var all []*room
 		for _, r := range s.rooms {
-			avail = append(avail, r)
+			all = append(all, r)
 		}
-		sort.Slice(avail, func(i, j int) bool { // libres primero, mas nuevas primero
-			fi, fj := avail[i].players() >= avail[i].maxp, avail[j].players() >= avail[j].maxp
+		sort.Slice(all, func(i, j int) bool { return all[i].created.Before(all[j].created) })
+		if len(all) > listMax {
+			all = all[len(all)-listMax:]
+		}
+		sort.SliceStable(all, func(i, j int) bool { // libres primero, mas nuevas primero
+			fi, fj := all[i].players() >= all[i].maxp, all[j].players() >= all[j].maxp
 			if fi != fj {
 				return !fi
 			}
-			return avail[i].created.After(avail[j].created)
+			return all[i].created.After(all[j].created)
 		})
-		if len(avail) > listMax {
-			avail = avail[:listMax]
-		}
-		out := make([]byte, 8+32*len(avail))
+		out := make([]byte, 8+32*len(all))
 		binary.LittleEndian.PutUint32(out, srvMagic)
-		out[4], out[5] = svListRes, byte(len(avail))
-		for i, r := range avail {
+		out[4], out[5] = svListRes, byte(len(all))
+		for i, r := range all {
 			o := 8 + i*32
 			binary.LittleEndian.PutUint32(out[o:], r.id)
 			out[o+4] = byte(r.players())
-			copy(out[o+5:o+28], []byte(r.name))
-			out[o+31] = byte(r.maxp)
+			nm := []byte(r.name)
+			if len(nm) > 23 {
+				nm = nm[:23]
+			}
+			copy(out[o+5:o+31], nm)
+			out[o+31] = byte(r.maxp) // ultimo byte de la entrada = capacidad de la sala
 		}
 		s.send(out, a)
 
@@ -237,9 +260,9 @@ func (s *server) handle(d []byte, a *net.UDPAddr) {
 			return
 		}
 		rid := binary.LittleEndian.Uint32(d[8:])
-		if old, ok := s.byAddr[key]; ok && old.slot != 0 && old.r.id == rid { // JOIN repetido: ya esta dentro
-			old.r.slots[old.slot].seen = now
-			s.sendJoined(a, old.slot, old.r)
+		if old, ok := s.byAddr[key]; ok && old.slot != 0 && old.r.id == rid { // JOIN repetido
+			old.r.seen[old.slot] = now
+			s.sendJoined(a, old.slot, old.r.maxp, old.r.players())
 			return
 		}
 		r, ok := s.rooms[rid]
@@ -248,34 +271,34 @@ func (s *server) handle(d []byte, a *net.UDPAddr) {
 			return
 		}
 		if _, ok := s.byAddr[key]; ok {
-			s.dropAddr(key)
-			if r2, ok2 := s.rooms[rid]; ok2 {
-				r = r2
-			} else {
-				s.sendErr(a, errNotFound)
-				return
-			}
+			s.dropAddr(key, "el mismo cliente entro a otra sala")
 		}
 		slot := r.freeSlot()
 		if slot < 0 {
 			s.sendErr(a, errFull)
 			return
 		}
-		r.slots[slot] = &peer{key, a, now}
+		r.slots[slot] = a
+		r.seen[slot] = now
 		s.byAddr[key] = member{r, slot}
-		s.sendJoined(a, slot, r)
+		s.sendJoined(a, slot, r.maxp, r.players())
 		s.logf("sala %d: entro el jugador %d (%s)", r.id, slot+1, key)
 
 	case svKeep:
 		if m, ok := s.byAddr[key]; ok {
-			m.r.slots[m.slot].seen = now
-			if m.slot == 0 && len(d) > 5 && d[5] >= 2 && d[5] <= maxPlayers && int(d[5]) >= m.r.players() && m.r.maxp != int(d[5]) {
-				m.r.maxp = int(d[5]) // el anfitrion cambio los jugadores de la sala
-				s.logf("sala %d: ahora para %d jugadores", m.r.id, m.r.maxp)
+			m.r.seen[m.slot] = now
+			if m.slot == 0 && len(d) > 5 {
+				n := int(d[5])
+				if n >= 2 && n <= maxPlayers && n >= m.r.players() && m.r.maxp != n {
+					m.r.maxp = n
+					s.logf("sala %d: ahora para %d jugadores", m.r.id, n)
+				}
 			}
 		}
+
 	case svLeave:
-		s.dropAddr(key)
+		s.dropAddr(key, "el cliente mando LEAVE")
+
 	case svPong:
 		s.send(d, a)
 	}
@@ -308,15 +331,13 @@ func (s *server) janitor() {
 		s.mu.Lock()
 		now := time.Now()
 		for _, r := range s.rooms {
-			if h := r.slots[0]; h == nil || now.Sub(h.seen) > roomTimeout {
-				if h != nil {
-					s.dropAddr(h.key)
-				}
+			if now.Sub(r.seen[0]) > roomTimeout {
+				s.dropAddr(r.slots[0].String(), fmt.Sprintf("el anfitrion no manda senales hace %ds (timeout)", int(roomTimeout.Seconds())))
 				continue
 			}
-			for k, p := range r.slots {
-				if k != 0 && now.Sub(p.seen) > guestTimeout {
-					s.dropAddr(p.key)
+			for k, a := range r.slots {
+				if k != 0 && now.Sub(r.seen[k]) > guestTimeout {
+					s.dropAddr(a.String(), "invitado sin senales (timeout)")
 				}
 			}
 		}
@@ -343,6 +364,7 @@ func main() {
 	port := flag.Int("port", 7778, "puerto UDP")
 	maxRooms := flag.Int("max-rooms", 200, "maximo de salas")
 	quiet := flag.Bool("quiet", false, "sin mensajes en pantalla")
+	debug := flag.Bool("debug", false, "muestra cada paquete recibido")
 	flag.Parse()
 
 	addr, err := net.ResolveUDPAddr("udp4", fmt.Sprintf("0.0.0.0:%d", *port))
@@ -350,21 +372,21 @@ func main() {
 		var conn *net.UDPConn
 		conn, err = net.ListenUDP("udp4", addr)
 		if err == nil {
-			s := &server{conn: conn, rooms: map[uint32]*room{}, byAddr: map[string]member{}, seenIP: map[string]bool{}, nextID: 1, maxRooms: *maxRooms, quiet: *quiet}
+			s := &server{conn: conn, rooms: map[uint32]*room{}, byAddr: map[string]member{},
+				heard: map[string]bool{}, nextID: 1, maxRooms: *maxRooms, quiet: *quiet, debug: *debug}
 			fmt.Println("==============================================================")
-			fmt.Println(" HORROR BETA - SERVIDOR DEDICADO (2 a 4 jugadores)")
+			fmt.Println(" HORROR BETA - SERVIDOR DEDICADO")
 			fmt.Printf(" Escuchando en UDP puerto %d\n", *port)
 			ips := localIPs()
 			if len(ips) > 0 {
-				fmt.Println(" Escribe UNA de estas IP en el juego (ONLINE > IP SERVIDOR)")
-				fmt.Println(" si juegan en la misma red WiFi (el mismo PC: 127.0.0.1):")
+				fmt.Println(" IPs de este equipo (si juegan en la misma WiFi usa la 192.168...):")
 				for _, ip := range ips {
 					fmt.Println("     " + ip)
 				}
+				fmt.Println(" Si hay Hamachi/Radmin/VPN, desactivalo para probar.")
 			}
 			fmt.Println(" Por internet: abre el puerto UDP en tu router y usa tu IP publica.")
-			fmt.Println(" Cuando un jugador consiga conectar veras aqui: LLEGO UN PAQUETE de <su IP>.")
-			fmt.Println(" Si nunca aparece esa linea, el router o el firewall lo estan bloqueando.")
+			fmt.Println(" Cuando un jugador conecte veras: LLEGO UN PAQUETE de <su IP>")
 			fmt.Println(" Cierra esta ventana (o Ctrl+C) para apagar el servidor.")
 			fmt.Println("==============================================================")
 			go s.janitor()
