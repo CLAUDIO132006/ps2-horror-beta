@@ -6044,6 +6044,7 @@ static int   give_open, give_sel;                         // MODO SECRETO: menu 
 static int   cof_hit, cof_open;                             // ataud de piedra de la cripta: golpes de martillo / abierto
 static int   ham_on, pl_ham[MAXP];                          // martillo suelto / en la mano de cada jugador
 static float ham_x, ham_z, ham_a, ham_sw;
+static int   pl_pap[MAXP];                                   // papel con codigo en la mano (1 + indice del objeto)
 static int   see_down;                                     // 1 = miras hacia el cuarto secreto desde arriba (se dibuja tambien la capa 1)
 static int   note_on, note_l, pl_note[MAXP], note_big;              // nota del puzzle: suelta / en la mano / ampliada
 static float note_x, note_z, note_a;
@@ -7634,7 +7635,7 @@ static void draw_crypt(void)
     float lim = fminf(draw_lim, (gfx_pd[gfx] * rd_k));
     if (!in_view(60.0f, 148.0f, 11.0f, lim)) return;
     static const float slate[3] = { 44.f, 44.f, 54.f }, stoneD[3] = { 84.f, 84.f, 92.f }, moss[3] = { 38.f, 60.f, 40.f }, vine[3] = { 28.f, 42.f, 30.f };
-    static const float bone[3] = { 224.f, 218.f, 198.f }, dark[3] = { 14.f, 12.f, 16.f }, cloth[3] = { 92.f, 22.f, 28.f }, web[3] = { 190.f, 190.f, 196.f };
+    static const float bone[3] = { 224.f, 218.f, 198.f }, dark[3] = { 14.f, 12.f, 16.f }, crack[3] = { 40.f, 40.f, 48.f }, cloth[3] = { 92.f, 22.f, 28.f }, web[3] = { 190.f, 190.f, 196.f };
     roof_rot(60.0f, 148.0f, 0.0f, 8.8f, 8.8f, 4.5f, 8.4f, slate);                                  // tejado a dos aguas, oscuro
     box_rot(60.0f, 148.0f, 0.0f, 0.0f, 0.0f, 0.18f, 8.8f, 8.2f, 8.5f, stoneD, 0.0f);                // cumbrera
     box_rot(60.0f, 148.0f, 0.0f, 0.0f, -8.9f, 0.10f, 0.10f, 8.5f, 10.6f, stoneD, 0.0f);             // cruz de piedra sobre el frente (y atras)
@@ -7658,8 +7659,8 @@ static void draw_crypt(void)
     for (int i = 0; i < 18; i++) {                                                                    // musgo y grietas oscuras en los muros
         unsigned int h = hash2(i * 31 + 5, 4141);
         int face = (int)(h & 3u); float u = (float)((h >> 3) & 1023u) / 1023.0f, v = (float)((h >> 13) & 1023u) / 1023.0f;
-        float w = 0.4f + 0.9f * v, hh = 0.5f + 1.6f * u, y0 = 0.1f + 3.2f * (1.0f - u) * v;
-        const float *col = (i & 1) ? moss : dark;
+        float w = (i & 1) ? 0.25f + 0.45f * v : 0.03f + 0.04f * v, hh = (i & 1) ? 0.3f + 0.7f * u : 0.7f + 1.3f * u, y0 = 0.1f + 3.0f * (1.0f - u) * v;   // musgo en parches chicos / grietas finas (antes eran bloques negros)
+        const float *col = (i & 1) ? moss : crack;
         if (face == 0) { float x = 52.5f + 15.0f * u; if (x > 59.0f && x < 65.0f) x -= 4.0f; box_rot(x, 156.04f, 0.0f, 0.0f, 0.0f, w, 0.03f, y0, y0 + hh, col, 0.0f); }
         else if (face == 1) box_rot(52.5f + 15.0f * u, 139.96f, 0.0f, 0.0f, 0.0f, w, 0.03f, y0, y0 + hh, col, 0.0f);
         else if (face == 2) box_rot(51.96f, 140.5f + 15.0f * u, 0.0f, 0.0f, 0.0f, 0.03f, w, y0, y0 + hh, col, 0.0f);
@@ -24606,7 +24607,7 @@ static void place_medkits(void)
     for (int k = 0; k < NBF; k++) bf_on[k] = 0;
     for (int k_ = 0; k_ < 4; k_++) { cand_p[k_] = 0; cand_lit[k_] = 0; }
     for (int k_ = 0; k_ < MAXP; k_++) { lt_lighting[k_] = 0; lt_reach[k_] = 0.0f; }
-    lt_fuel = 0; lt_on = 0; lt_l = 0; lt_x = 197.0f; lt_z = 359.0f; cof_hit = 0; cof_open = 0; for (int q_ = 0; q_ < MAXP; q_++) { pl_ham[q_] = 0; pl_note[q_] = 0; } note_big = 0; pz_open = 0; pz_slide = 0.0f; for (int q_ = 0; q_ < PZ_N; q_++) pz_d[q_] = 0;
+    lt_fuel = 0; lt_on = 0; lt_l = 0; lt_x = 197.0f; lt_z = 359.0f; cof_hit = 0; cof_open = 0; for (int q_ = 0; q_ < MAXP; q_++) { pl_ham[q_] = 0; pl_note[q_] = 0; pl_pap[q_] = 0; } note_big = 0; pz_open = 0; pz_slide = 0.0f; for (int q_ = 0; q_ < PZ_N; q_++) pz_d[q_] = 0;
     place_holes(); for (int q_ = 0; q_ < MAXP; q_++) pl_pala[q_] = 0;   // el encendedor esta enterrado en un hoyo del cementerio
                      // encendedor: en el camino, cerca del inicio
     for (int q_ = 0; q_ < MAXP; q_++) { pl_lt[q_] = 0; pl_lt_on[q_] = 0; }
@@ -82548,7 +82549,7 @@ static void draw_floor_lighter(void)
     }
 }
 
-static int hands_full(void) { return carry > 0 || pl_bnd[pl_cur] > 0 || pl_lt[pl_cur] > 0 || pl_pala[pl_cur] > 0 || pl_ham[pl_cur] > 0 || pl_note[pl_cur] > 0; }   // la mano libre ya lleva algo
+static int hands_full(void) { return carry > 0 || pl_bnd[pl_cur] > 0 || pl_lt[pl_cur] > 0 || pl_pala[pl_cur] > 0 || pl_ham[pl_cur] > 0 || pl_note[pl_cur] > 0 || pl_pap[pl_cur] > 0; }   // la mano libre ya lleva algo
 
 // Pala en las dos manos (mango en diagonal, hoja hacia delante y abajo); se agita al cavar
 static void draw_pala_hand(float t)
@@ -82610,6 +82611,45 @@ static void draw_note_hand(float t)
         rd_box(-0.062f, -0.084f, 0.012f, 0.014f, 0.016f, 0.020f, sk, sk2);        // dedos que sujetan el papel
         rd_box(0.062f, -0.084f, 0.012f, 0.014f, 0.016f, 0.020f, sk, sk2);
         rd_box(0.0f, -0.120f, 0.040f, 0.050f, 0.026f, 0.060f, sk, sk2);           // mano y antebrazo
+    }
+    vm_mode = 0;
+}
+
+// Papel con codigo en la segunda mano: el codigo va escrito en el papel (display de 7 segmentos)
+static void draw_pap_hand(float t)
+{
+    static float up[MAXP];
+    int sl = pl_cur, tgt = pl_pap[pl_cur] > 0;
+    up[sl] += ((float)tgt - up[sl]) * 0.16f;
+    if (up[sl] < 0.02f) return;
+    int id = (pl_pap[pl_cur] > 0) ? items[pl_pap[pl_cur] - 1].id : 0;
+    float e = up[sl] * up[sl] * (3.0f - 2.0f * up[sl]);
+    rd_sc = 1.0f; rd_th = 0.22f + 0.50f * (1.0f - e); rd_ya = 0.22f - 0.22f * (1.0f - e);
+    rd_ox = -0.19f + 0.010f * walk_amp * sinf(walk_ph + 0.5f);
+    rd_oy = -0.15f - 0.45f * (1.0f - e) + 0.008f * walk_amp * sinf(2.0f * walk_ph + 0.4f) - 0.015f * step_imp + sinf(t * 1.3f) * 0.002f;
+    rd_oz = 0.34f;
+    vm_mode = 1;
+    {
+        static const float paper[2][3] = { { 226.f, 214.f, 178.f }, { 200.f, 218.f, 226.f } }, ink[3] = { 40.f, 30.f, 28.f }, band[2][3] = { { 150.f, 60.f, 40.f }, { 50.f, 90.f, 150.f } };
+        static const unsigned char seg[10] = { 0x3F, 0x06, 0x5B, 0x4F, 0x66, 0x6D, 0x7D, 0x07, 0x7F, 0x6F };   // a b c d e f g = bits 0..6
+        float sk[3] = { hand_col[4][0], hand_col[4][1], hand_col[4][2] }, sk2[3] = { hand_col[2][0], hand_col[2][1], hand_col[2][2] };
+        rd_rect(-0.062f, -0.080f, 0.062f, 0.080f, 0.0f, paper[id & 1]);
+        rd_rect(-0.062f, 0.058f, 0.062f, 0.080f, -0.001f, band[id & 1]);                         // franja de color del papel
+        int num = code_num[id & 1], dig[4] = { (num / 1000) % 10, (num / 100) % 10, (num / 10) % 10, num % 10 };
+        const float dw = 0.024f, dh = 0.052f, th = 0.0045f, gap = 0.004f, x00 = -0.5f * (4.0f * dw + 3.0f * gap), y0 = -0.040f;
+        for (int d = 0; d < 4; d++) {
+            float x = x00 + (float)d * (dw + gap); int m = seg[dig[d]];
+            if (m & 1)  rd_rect(x + th, y0 + dh - th, x + dw - th, y0 + dh, -0.002f, ink);
+            if (m & 2)  rd_rect(x + dw - th, y0 + dh * 0.5f, x + dw, y0 + dh, -0.002f, ink);
+            if (m & 4)  rd_rect(x + dw - th, y0, x + dw, y0 + dh * 0.5f, -0.002f, ink);
+            if (m & 8)  rd_rect(x + th, y0, x + dw - th, y0 + th, -0.002f, ink);
+            if (m & 16) rd_rect(x, y0, x + th, y0 + dh * 0.5f, -0.002f, ink);
+            if (m & 32) rd_rect(x, y0 + dh * 0.5f, x + th, y0 + dh, -0.002f, ink);
+            if (m & 64) rd_rect(x + th, y0 + dh * 0.5f - th * 0.5f, x + dw - th, y0 + dh * 0.5f + th * 0.5f, -0.002f, ink);
+        }
+        rd_box(-0.062f, -0.084f, 0.012f, 0.014f, 0.016f, 0.020f, sk, sk2);
+        rd_box(0.062f, -0.084f, 0.012f, 0.014f, 0.016f, 0.020f, sk, sk2);
+        rd_box(0.0f, -0.120f, 0.040f, 0.050f, 0.026f, 0.060f, sk, sk2);
     }
     vm_mode = 0;
 }
@@ -82812,6 +82852,7 @@ static void msg_text(int id, char *buf, int n)
     else if (id == 69) snprintf(buf, n, "YA LLEVAS EL MARTILLO (R3: SOLTAR)");
     else if (id == 70) snprintf(buf, n, "TIENES LA MANO OCUPADA (R3: SOLTAR)");
     else if (id == 71) snprintf(buf, n, "NOTA EN LA MANO (CUADRADO: LEER / R3: SOLTAR)");
+    else if (id == 73) snprintf(buf, n, "PAPEL EN LA MANO (R3: SOLTAR)");
     else if (id == 60) snprintf(buf, n, "CAVANDO...");
     else if (id == 61) snprintf(buf, n, "HAY ALGO ENTERRADO: EL ENCENDEDOR");
     else if (id == 62) snprintf(buf, n, "NO HAY NADA AQUI");
@@ -82965,10 +83006,10 @@ static void draw_note_big(void)
     float pw = W * 0.86f, ph = H * 0.86f, x0 = (W - pw) * 0.5f, y0 = (H - ph) * 0.5f;
     gsKit_prim_sprite(gsGlobal, x0 - 3.0f, y0 - 3.0f, x0 + pw + 3.0f, y0 + ph + 3.0f, 16777101, GS_SETREG_RGBAQ(70, 50, 30, 0x80, 0));
     gsKit_prim_sprite(gsGlobal, x0, y0, x0 + pw, y0 + ph, 16777102, GS_SETREG_RGBAQ(222, 208, 170, 0x80, 0));
-    gsKit_prim_sprite(gsGlobal, x0 + pw * 0.70f, y0 + ph * 0.62f, x0 + pw * 0.93f, y0 + ph * 0.80f, 16777103, GS_SETREG_RGBAQ(130, 22, 20, 0x50, 0));   // mancha de sangre
     gsKit_prim_sprite(gsGlobal, x0, y0, x0 + 26.0f, y0 + 20.0f, 16777103, GS_SETREG_RGBAQ(0, 0, 0, 0xB0, 0));                                          // esquina rota
     int sc = (W >= 600.0f) ? 2 : 1;
-    float lh = 8.0f * (float)sc + 10.0f * (float)sc, ty = y0 + (ph - lh * (float)nl) * 0.5f;
+    float lh = 14.0f * (float)sc, ty = y0 + (ph - lh * (float)nl) * 0.5f;
+    gsKit_prim_sprite(gsGlobal, x0 + pw * 0.74f, ty + lh * 3.0f + 2.0f, x0 + pw * 0.94f, ty + lh * 3.0f + lh * 0.8f, 16777102, GS_SETREG_RGBAQ(130, 22, 20, 0x80, 0));   // mancha de sangre (en el renglon vacio, no tapa el texto)
     for (int i = 0; i < nl; i++) if (ln[i][0]) draw_text((W - text_w(ln[i], sc)) * 0.5f, ty + lh * (float)i, ln[i], sc, GS_SETREG_RGBAQ(50, 36, 28, 0x80, 0));
     draw_text_c(y0 + ph - 18.0f, "CUADRADO: CERRAR", 1, GS_SETREG_RGBAQ(90, 60, 40, 0x80, 0));
 }
@@ -83170,7 +83211,7 @@ static void draw_door_hud(void)
         gsKit_prim_sprite(gsGlobal, 19.0f + i * 20.0f, 79.0f, 35.0f + i * 20.0f, 89.0f, 16777000, BLACK);
         gsKit_prim_sprite(gsGlobal, 20.0f + i * 20.0f, 80.0f, 34.0f + i * 20.0f, 88.0f, 16777010, c);
     }
-    draw_text(20.0f, 94.0f, "R1: NOTAS", 1, gc);
+    if (pl_pap[pl_cur] > 0) draw_text(20.0f, 94.0f, code_name[items[pl_pap[pl_cur] - 1].id], 1, gc);
     int dn = (map_open || code_door >= 0) ? -1 : door_near();
     { int mq = (map_open || code_door >= 0) ? -1 : mkit_near(), bq = (map_open || code_door >= 0) ? -1 : mkit_bnd_near();
       if (mq >= 0 && dn < 0) draw_text_c(H - 34.0f, "CUADRADO: ABRIR BOTIQUIN", 2, yc);
@@ -83187,7 +83228,6 @@ static void draw_door_hud(void)
         char b[48];
         msg_text(door_msg_id, b, (int)sizeof b);
         draw_text_c(H - 62.0f, b, 2, (door_msg_id <= 4 || door_msg_id == 10 || door_msg_id == 13) ? rc : yc);
-        if (door_msg_id >= 20 && door_msg_id < 40) draw_text_c(H - 44.0f, "R1: VER NOTAS", 1, gc);
     }
     {   // luz UV: aviso fijo y barra de carga mientras mantienes L2
         u64 uc = GS_SETREG_RGBAQ(190, 110, 255, 0x80, 0);
@@ -83290,8 +83330,8 @@ static void render_game_inner(float t, int moving, int near_ladder, int notes)
             gsGlobal->PrimAlphaEnable = GS_SETTING_OFF;
 
             if (!dance_cam && rv_on[pl_cur] && rv_tgt[pl_cur] >= 0 && pl_dn[rv_tgt[pl_cur]]) draw_revive_anim(t);
-            else if (!dance_cam) { if (pl_pala[pl_cur] <= 0) draw_flashlight(t, moving);
-            draw_detector(t); draw_key_hand(t); draw_bandage_hand(t); draw_lighter_hand(t); draw_pala_hand(t); draw_ham_hand(t); draw_note_hand(t); }                           // el radio que marca la distancia al monstruo
+            else if (!dance_cam && !(note_big && pl_note[pl_cur] > 0)) { if (pl_pala[pl_cur] <= 0) draw_flashlight(t, moving);
+            draw_detector(t); draw_key_hand(t); draw_bandage_hand(t); draw_lighter_hand(t); draw_pala_hand(t); draw_ham_hand(t); draw_note_hand(t); draw_pap_hand(t); }                           // el radio que marca la distancia al monstruo
 
             if (!dance_cam && pl_view_alt < 0 && state == 0 && !map_open && code_door < 0 && !emoji_open && !dance_open && !inv_open) {
                 int tgt = (pick_near() >= 0 || mkit_near() >= 0 || mkit_bnd_near() >= 0 || bnd_floor_near() >= 0);
@@ -84179,7 +84219,7 @@ static unsigned int sim_hash(void)
     for (int i = 0; i < NMK; i++) { HM(mk_open[i]); HM(mk_bd[i]); }
     for (int k = 0; k < NBF; k++) HM(bf_on[k]);
     HM(lt_on); HM(lt_fuel); HM(cof_hit); HM(cof_open); HM(ham_on); HM(fbits(ham_x)); HM(fbits(ham_z)); HM(fbits(ham_y)); for (int k_ = 0; k_ < 4; k_++) { HM(cand_p[k_]); HM(cand_lit[k_]); } HM(note_on); HM(note_l); HM(fbits(note_x)); HM(fbits(note_z)); HM(pz_open); for (int k_ = 0; k_ < PZ_N; k_++) HM(pz_d[k_]); HM(pala_on); HM(fbits(pala_x)); HM(fbits(pala_z)); HM(lt_hole); for (int k_ = 0; k_ < NHOLE; k_++) HM(hole_p[k_]); HM(fbits(lt_x)); HM(fbits(lt_z));
-    for (int i = 0; i < num_players; i++) { HM(pl_bnd[i]); HM(pl_lt[i]); HM(pl_lt_on[i]); HM(pl_pala[i]); HM(pl_ham[i]); HM(pl_note[i]); HM(pl_dn[i]); HM((int)(pl_rv[i] * 60.0f)); }
+    for (int i = 0; i < num_players; i++) { HM(pl_bnd[i]); HM(pl_lt[i]); HM(pl_lt_on[i]); HM(pl_pala[i]); HM(pl_ham[i]); HM(pl_note[i]); HM(pl_pap[i]); HM(pl_dn[i]); HM((int)(pl_rv[i] * 60.0f)); }
     HM(fbits(sx_)); HM(fbits(sz_)); HM(mlayer); HM(state); HM(mon_target); HM(fbits(mon_face)); HM(mon_has); HM(mon_wp_n); HM((int)(mon_blind_t * 60.0f)); HM((int)(mon_uv_t * 60.0f)); HM((int)(frenzy_t * 60.0f)); HM((int)(frenzy_w * 60.0f));
     for (int i = 0; i < 3; i++) { HM(notes_got[i]); HM(notes_off[i]); HM(notes_used[i]); }
     for (int i = 0; i < ND; i++) HM(door_open[i]);
@@ -84980,6 +85020,11 @@ static int ui_input(u32 newp)
         if (blocked(nx, nz, 0.25f)) { nx = px; nz = pz; }
         note_on = 1; note_l = cur_layer; note_x = nx; note_z = nz; note_a = yaw; pl_note[pl_cur] = 0; sfx_play(SFX_BDDROP, 1.0f); noise_emit(cur_layer, px, pz, 6.0f);
     }
+    if ((newp & PAD_R3) && cur_layer == 0 && foot_y < 0.5f && !carry && pl_bnd[pl_cur] <= 0 && pl_lt[pl_cur] <= 0 && pl_pala[pl_cur] <= 0 && pl_ham[pl_cur] <= 0 && pl_note[pl_cur] <= 0 && pl_pap[pl_cur] > 0 && hide_id < 0 && !map_open && code_door < 0 && !climbing) {   // R3: soltar el papel
+        float dxf = sinf(yaw), dzf = cosf(yaw), nx = px + dxf * 0.9f, nz = pz + dzf * 0.9f;
+        if (blocked(nx, nz, 0.25f)) { nx = px; nz = pz; }
+        int k = pl_pap[pl_cur] - 1; item_got[k] = 0; items[k].x = nx; items[k].z = nz; pl_pap[pl_cur] = 0; sfx_play(SFX_BDDROP, 0.8f); noise_emit(cur_layer, px, pz, 6.0f);
+    }
     if ((newp & PAD_R3) && foot_y < 0.5f && !carry && pl_bnd[pl_cur] <= 0 && pl_lt[pl_cur] <= 0 && pl_pala[pl_cur] > 0 && hide_id < 0 && !map_open && code_door < 0 && !climbing) {   // R3: soltar la pala
         float dxf = sinf(yaw), dzf = cosf(yaw), nx = px + dxf * 0.9f, nz = pz + dzf * 0.9f;
         if (solid(nx, nz)) { nx = px; nz = pz; }
@@ -84993,7 +85038,7 @@ static int ui_input(u32 newp)
         carry = 0; sfx_play(SFX_KEYDROP, 1.0f); noise_emit(cur_layer, px, pz, 100.0f);   // tirar la llave: se oye a 100 m
     }
     int pk_ = (newp & PAD_SQUARE) && !map_open && code_door < 0 ? pick_near() : -1;
-    if (pk_ >= 0 && (pk_ >= 100 || items[pk_].kind == 0) && hands_full()) { door_msg = 120; door_msg_id = (carry > 0) ? 17 : 70; pk_ = -1; }   // mano ocupada: no se puede agarrar otra llave
+    if (pk_ >= 0 && hands_full()) { door_msg = 120; door_msg_id = (carry > 0 && pk_ < 100 && items[pk_].kind == 0) ? 17 : 70; pk_ = -1; }   // mano ocupada: no se puede agarrar otra llave
     else if (pk_ >= 100) {                                           // CUADRADO: agarrar llave final (queda en tu mano)
         int i = pk_ - 100;
         notes_off[i] = 1; carry = 5 + i; door_msg = 200; door_msg_id = 15; sfx_play(SFX_KEY, 1.0f); noise_emit(cur_layer, px, pz, 12.0f);
@@ -85001,7 +85046,7 @@ static int ui_input(u32 newp)
     } else if (pk_ >= 0) {                                      // CUADRADO: agarrar llave de color (mano) / papel con codigo
         item_got[pk_] = 1; door_msg = 200; sfx_play(SFX_KEY, 1.0f); noise_emit(cur_layer, px, pz, 12.0f);
         if (items[pk_].kind == 0) { carry = 1 + items[pk_].id; door_msg_id = 20 + items[pk_].id; }
-        else { have_code[items[pk_].id] = 1; door_msg_id = 30 + items[pk_].id; }
+        else { pl_pap[pl_cur] = pk_ + 1; door_msg_id = 73; }                  // el papel se lleva en la mano con su codigo escrito
     } else if (newp & PAD_SQUARE) {                             // CUADRADO: abrir botiquin / tomar el mapa / abrir puerta / poner codigo
         int di = door_near(), mi = mkit_near(), bi_ = mkit_bnd_near(), bj_ = bnd_floor_near(), lj_ = lt_floor_near(), pj_ = pl_lt[pl_cur] > 0 ? pump_near() : -1, hj_ = pl_pala[pl_cur] > 0 ? hole_near() : -1, pa_ = pala_floor_near(), cj_ = (pl_lt_on[pl_cur] > 0) ? candle_near() : -1, ak_ = coffin_near(), hf_ = ham_floor_near();
         int pzd_ = pz_dial_near(), nf_ = note_floor_near();
@@ -85065,7 +85110,7 @@ static int ui_input(u32 newp)
                 else { door_msg = 150; door_msg_id = 1 + d->id; }
             } else { code_door = di; code_val = 0; code_pos = 0; }
         }
-        else if (pl_note[pl_cur] > 0 && !map_open) { note_big = 1; sfx_play(SFX_CLICK, 0.6f); }          // CUADRADO con la nota en la mano: leerla grande
+        else if (pl_note[pl_cur] > 0 && !map_open) { note_big = 1; door_msg = 0; sfx_play(SFX_CLICK, 0.6f); }          // CUADRADO con la nota en la mano: leerla grande
     }
     if ((newp & PAD_TRIANGLE) && has_map && !climbing) { map_open = !map_open; sfx_play(SFX_CLICK, 0.8f); }   // TRIANGULO: mapa
     if (spec_mode && (newp & PAD_DOWN) && !map_open && code_door < 0 && !climbing && !emoji_open && !dance_open) { give_open = 1; return 1; }   // MODO SECRETO, FLECHA ABAJO: menu de objetos
@@ -85213,7 +85258,7 @@ static void player_move(float dt, float t, const PadIn *in)
             if (++cand_p[ci] >= 180) { cand_lit[ci] = 1; sfx_play(SFX_CLICK, 0.8f); }
         }
     }
-    inv_open = (pl_lt[pl_cur] > 0) ? 0 : ((in->pd & PAD_R1) ? 1 : 0);                                       // R1 (mantener): ver llaves y codigos
+    inv_open = 0;                                       // R1 (mantener): ver llaves y codigos
     {   // L2 (mantener 1 s): cambia la linterna a luz ULTRAVIOLETA (morada) y de vuelta a la normal
         int hold = (in->pd & PAD_L2) && flash_on && !map_open && code_door < 0;
         if (!hold) uv_hold = 0.0f;
@@ -85226,7 +85271,7 @@ static void player_move(float dt, float t, const PadIn *in)
         }
     }
     {   // R2 (mantener 5 s): carga el DETECTOR; al llenarse sube al centro de la camara mientras sigas apretando
-        int busy = carry > 0 || pl_bnd[pl_cur] > 0 || pl_lt[pl_cur] > 0 || pl_pala[pl_cur] > 0 || pl_ham[pl_cur] > 0 || pl_note[pl_cur] > 0;   // la otra mano lleva un objeto (la linterna ocupa la primera)
+        int busy = carry > 0 || pl_bnd[pl_cur] > 0 || pl_lt[pl_cur] > 0 || pl_pala[pl_cur] > 0 || pl_ham[pl_cur] > 0 || pl_note[pl_cur] > 0 || pl_pap[pl_cur] > 0;   // la otra mano lleva un objeto (la linterna ocupa la primera)
         int hold = (in->pd & PAD_R2) && !map_open && code_door < 0 && !busy;
         if (hold) { det_t += dt; if (det_t > DET_TIME) det_t = DET_TIME; } else det_t = 0.0f;
         float tgt = (hold && det_t >= DET_TIME) ? 1.0f : 0.0f;
