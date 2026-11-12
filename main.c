@@ -4329,13 +4329,13 @@ static const char *map1[MH] = {"################################################
 "#################################sssssssssssssssssssssssssssssssssssss##########################",
 "#################################svvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv##########################",
 "#########################################sv#####################################################",
-"########################################sssssss##vsvsvsvsvs#####################################",
-"########################################sssssss##svsvsvsvsv#####################################",
-"########################################sssssss##vsvsvsvsvs#####################################",
-"########################################ssssssssssvsvsvsvsv#####################################",
-"########################################sssssss##vsvsvsvsvs#####################################",
-"########################################sssssss##svsvsvsvsv#####################################",
-"########################################sssssss##vsvsvsvsvs#####################################",
+"########################################sssssss##v##############################################",
+"########################################sssssss##s##############################################",
+"########################################sssssss##v##############################################",
+"########################################sssssssssssssssssss#####################################",
+"########################################sssssss##v##############################################",
+"########################################sssssss##s##############################################",
+"########################################sssssss##v##############################################",
 "################################################################################################",
 "################################################################################################",
 "################################################################################################",
@@ -6059,6 +6059,10 @@ static int   cand_p[4];                                     // velas de la igles
 static unsigned char cand_lit[4];                           // 1 = vela encendida
 static int egg_ph, cine_t;                                  // final secreto: 0 nada, 1 esperando (campanas + 3 s + todos en la iglesia), 2 el monstruo corre al altar, 3 cinematica (state 3)
 static float egg_t, cine_li;
+#define END_X 230.0f                                        // circulo verde al final del pasillo tras la puerta final (alcantarilla)
+#define END_Z 310.0f
+static int run_deaths;                                      // muertes (atrapado por el monstruo) desde que empezaste hasta lograr un final
+static float run_secs;                                      // tiempo jugado en ese tiempo
 static int end_alt;                                         // 1 = final secreto (el de la luz del Santo Grial) en vez del final normal
 static int egg_done;                                        // el easter egg ya se activo (una sola vez por partida)
 // El easter egg necesita DOS cosas: el Santo Grial en el altar Y las 4 velas encendidas con el encendedor
@@ -81988,7 +81992,7 @@ static void cine_step(void)
     {   static const float cue[4] = { 3.2f, 5.6f, 8.0f, 10.2f };
         for (int k = 0; k < 4; k++) if (cine_t == (int)(cue[k] * 60.0f)) sfx_play3(k & 1 ? SFX_ROAR : SFX_SCREAM, 1.0f, sx_, sz_, 0, 200.0f);
     }
-    if (ct >= 12.6f) { state = 2; state_timer = 720; end_alt = 1; mon_y = 0.0f; }
+    if (ct >= 12.6f) { state = 2; state_timer = 900; end_alt = 1; mon_y = 0.0f; }
 }
 
 // ---------------- Jumpscare ----------------
@@ -82003,6 +82007,7 @@ static float js_rand(void)
 
 static void js_begin(void)
 {
+    run_deaths++;
     float dx = sx_ - px, dz = sz_ - pz, len = sqrtf(dx * dx + dz * dz);
     if (len < 0.01f) { dx = 0.0f; dz = 1.0f; len = 1.0f; }
     js_dx = dx / len; js_dz = dz / len; js_yaw = atan2f(js_dx, js_dz);
@@ -83849,6 +83854,31 @@ static void draw_door_hud(void)
     if (dance_open) draw_dance_menu();
 }
 
+// Pasillo final: circulo verde en el piso; al entrar termina la partida
+static void draw_end_circle(float t)
+{
+    if (cur_layer != 1 && !((climbing || see_down) && 0)) return;
+    if (!in_view(END_X, END_Z, 3.0f, 40.0f)) return;
+    static const float g1[3] = { 30.f, 255.f, 80.f }, g2[3] = { 10.f, 110.f, 40.f };
+    float y = SEWER_Y + 0.03f, pul = 0.75f + 0.25f * sinf(t * 3.0f);
+    for (int k = 0; k < 4; k++) box_rot(END_X, END_Z, 0.3927f * (float)k, 0.0f, 0.0f, 1.55f, 1.55f, y, y + 0.012f, g2, 0.45f);     // aro oscuro (16 lados)
+    for (int k = 0; k < 4; k++) box_rot(END_X, END_Z, 0.3927f * (float)k + 0.1f, 0.0f, 0.0f, 1.20f, 1.20f, y + 0.012f, y + 0.026f, g1, pul);   // disco brillante
+    box_rot(END_X, END_Z, t * 0.8f, 0.0f, 0.0f, 0.04f, 0.04f, y, y + 3.6f, g1, 1.0f);                                              // columna de luz
+    box_rot(END_X, END_Z, t * 0.8f + 1.5708f, 0.0f, 0.0f, 0.04f, 0.04f, y, y + 3.6f, g1, 1.0f);
+}
+
+// Muertes, tiempo y final conseguido (pantalla final)
+static void draw_end_stats(float y, int secret, unsigned long long col)
+{
+    char b[48];
+    int tm = (int)run_secs;
+    snprintf(b, sizeof b, "MUERTES: %d", run_deaths);
+    draw_text_c(y, b, 2, col);
+    snprintf(b, sizeof b, "TIEMPO: %02d:%02d", tm / 60, tm % 60);
+    draw_text_c(y + 24.0f, b, 2, col);
+    draw_text_c(y + 48.0f, secret ? "FINAL CONSEGUIDO: SECRETO" : "FINAL CONSEGUIDO: NORMAL", 2, col);
+}
+
 // Llamas sobre el monstruo mientras la luz del altar lo quema (cinematica)
 static void draw_mon_fire(float t)
 {
@@ -83877,7 +83907,7 @@ static void render_game_inner(float t, int moving, int near_ladder, int notes)
             if (js_t < 100) draw_monster(t);
         }
         else if (state == 2 && end_alt) {                  // FINAL SECRETO: la luz del Santo Grial
-            int a = 720 - state_timer; if (a > 180) a = 180;
+            int a = 900 - state_timer; if (a > 180) a = 180;
             int g = 255 * a / 180;
             { float f_ = (float)a / 180.0f; gsKit_clear(gsGlobal, GS_SETREG_RGBAQ((int)(255.0f - 102.0f * f_), (int)(246.0f - 124.0f * f_), (int)(215.0f - 164.0f * f_), 0x80, 0)); (void)g; }
             u64 fc = GS_SETREG_RGBAQ(255, 236, 170, 0x80, 0), sc = GS_SETREG_RGBAQ(255, 255, 255, 0x80, 0);
@@ -83885,17 +83915,17 @@ static void render_game_inner(float t, int moving, int near_ladder, int notes)
             if (a > 100) draw_text_c(H * 0.20f + 62.0f, "LA LUZ TE RECIBE...", 2, sc);
             if (a > 130) { draw_text_c(H * 0.20f + 92.0f, "A NINGUN DIOS SE LE NIEGA", 2, sc); draw_text_c(H * 0.20f + 112.0f, "BEBER ANTES DE MORIR", 2, sc); }
             if (a >= 180) { draw_text_c(H * 0.20f + 150.0f, "BEBISTE DEL SANTO GRIAL", 2, fc); draw_text_c(H * 0.20f + 170.0f, "Y LA MALDICION DEL BOSQUE SE ROMPE", 2, fc); }
-            if (a >= 180) draw_text_c(H * 0.20f + 214.0f, "GRACIAS POR JUGAR", 2, fc);
+            if (a >= 180) { draw_end_stats(H * 0.20f + 214.0f, 1, sc); draw_text_c(H * 0.20f + 290.0f, "GRACIAS POR JUGAR", 2, fc); }
         }
         else if (state == 2) {                             // FIN
             gsKit_clear(gsGlobal, BLACK);
-            int a = 600 - state_timer; if (a > 120) a = 120;
+            int a = 900 - state_timer; if (a > 120) a = 120;
             int g = 255 * a / 120;
             u64 fc = GS_SETREG_RGBAQ(g, g, g, 0x80, 0), sc = GS_SETREG_RGBAQ(g * 3 / 4, g, g * 3 / 4, 0x80, 0);
-            draw_text_c(H * 0.28f, "FIN", 8, fc);
-            draw_text_c(H * 0.28f + 80.0f, "LA PUERTA SE CIERRA DETRAS DE TI...", 2, sc);
-            draw_text_c(H * 0.28f + 104.0f, "ESCAPASTE DEL BOSQUE", 2, sc);
-            draw_text_c(H * 0.28f + 150.0f, "GRACIAS POR JUGAR", 2, fc);
+            draw_text_c(H * 0.18f, "FIN", 8, fc);
+            draw_text_c(H * 0.18f + 80.0f, "ESCAPASTE DEL BOSQUE", 2, sc);
+            draw_end_stats(H * 0.18f + 130.0f, 0, sc);
+            draw_text_c(H * 0.18f + 220.0f, "GRACIAS POR JUGAR", 2, fc);
         }
         else if (map_open) draw_map_screen();                 // mapa abierto: solo se ve el mapa
         else {
@@ -83929,7 +83959,7 @@ static void render_game_inner(float t, int moving, int near_ladder, int notes)
             draw_items(t);
             draw_medkits();
             draw_floor_bandages();
-            draw_floor_lighter(); draw_floor_pala(); draw_floor_hammer(); draw_floor_note(); draw_lore_papers(); draw_floor_grail(t); draw_grail_altar(t);
+            draw_floor_lighter(); draw_floor_pala(); draw_floor_hammer(); draw_floor_note(); draw_end_circle(t); draw_lore_papers(); draw_floor_grail(t); draw_grail_altar(t);
             draw_shafts();
 
             for (int i = 0; i < 3; i++) {
@@ -85880,7 +85910,7 @@ static void player_move(float dt, float t, const PadIn *in)
         }
     }
     {   // CUADRADO (mantener 1 s) frente a un casillero: te escondes dentro
-        int ln = (!spec_mode && !rv_busy && hide_id < 0 && (in->pd & PAD_SQUARE) && !map_open && code_door < 0 && !emoji_open && !dance_open && jump_h <= 0.0f) ? locker_near() : -1;
+        int ln = ((!spec_mode || spec_walk) && !rv_busy && hide_id < 0 && (in->pd & PAD_SQUARE) && !map_open && code_door < 0 && !emoji_open && !dance_open && jump_h <= 0.0f) ? locker_near() : -1;
         if (ln >= 0 && door_near() < 0 && !board_near()) {
             hide_hold += dt;
             if (hide_hold >= 1.0f) {
@@ -86098,7 +86128,7 @@ static void player_post(int notes)
     float ddx = sx_ - px, ddz = sz_ - pz;
     float catch_r2 = hide_id >= 0 ? (hide_exp ? 7.8f : -1.0f) : 3.6f;      // escondido: solo te alcanza si te vio entrar
     if (mon_blind_t <= 0.0f && mlayer == cur_layer && !climbing && ddx * ddx + ddz * ddz < catch_r2) { js_begin(); return; }   // alcance de sus garras (1.9 m)
-    if (cur_layer == 1 && !climbing && door_open[DOOR_FINAL] && px > doors[DOOR_FINAL].x + 3.0f) { state = 2; state_timer = 600; end_alt = 0; }   // cruzaste la puerta final: FIN
+    if (cur_layer == 1 && !climbing && door_open[DOOR_FINAL] && (px - END_X) * (px - END_X) + (pz - END_Z) * (pz - END_Z) < 1.7f) { state = 2; state_timer = 900; end_alt = 0; }   // te metiste en el circulo verde del pasillo final: FIN
 }
 
 // Camara final del frame, con el balanceo del andar (cada paso se siente) y las pisadas del monstruo
@@ -86362,6 +86392,7 @@ int main(void)
                     if (state == 0 && frame_no % 1800 == 600) sfx_play(SFX_WIND, 0.35f);                       // viento de fondo
                 }
                 if (frenzy_msg > 0) frenzy_msg--;
+                run_secs += dt;                                  // reloj de la partida
                 egg_update(dt);                                  // final secreto
                 int tg = pick_target();                          // el monstruo va a por uno
                 if (sg >= 0) { tg = sg; mon_target = sg; }       // ... y si ve a alguien, va a por ese
@@ -86379,7 +86410,7 @@ int main(void)
                 player_load(js_victim); js_update(); player_save(js_victim);
                 if (--state_timer <= 0) js_finish();
             } else if (state == 3) { cine_step();            // cinematica del final secreto
-            } else if (--state_timer <= 0) reset_game();
+            } else if (--state_timer <= 0) { run_deaths = 0; run_secs = 0.0f; reset_game(); }
 
             if (!stalled) for (int i = 0; i < num_players; i++) {   // camara de cada jugador
                 player_load(i);
