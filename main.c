@@ -24849,7 +24849,7 @@ static void update_monster(float dt, int notes)
         tx = mon_wpx; tz = mon_wpz;
     }
     int rush = (egg_ph == 2 && !mon_seen);                           // final secreto: corre al altar (si te ve, te persigue como siempre)
-    if (rush) { tx = GRAIL_AX; tz = GRAIL_AZ + 4.0f; chase = 1; mon_has = 1; mon_lx = tx; mon_lz = tz; mon_ll = 0; mon_look_t = 0.0f; }
+    if (rush) { tx = GRAIL_AX; tz = GRAIL_AZ + 3.0f; chase = 1; mon_has = 1; mon_lx = tx; mon_lz = tz; mon_ll = 0; mon_look_t = 0.0f; }
     if (chase != mon_last_chase) { need_flow = 1; mon_last_chase = chase; }
 
     int mcx = (int)(sx_ / CS), mcz = (int)(sz_ / CS);
@@ -81963,7 +81963,7 @@ static void egg_update(float dt)
     // egg_ph == 2: llega al altar sin haber visto a nadie
     egg_t += dt;
     float dx = sx_ - GRAIL_AX, dz = sz_ - GRAIL_AZ;
-    if (mlayer == 0 && !mon_seen && dx * dx + dz * dz < 12.0f) {
+    if (mlayer == 0 && !mon_seen && dx * dx + dz * dz < 22.0f) {       // llego frente al altar (se detiene a 3 m de el)
         egg_ph = 3; state = 3; cine_t = 0; cine_li = 0.0f;
         sx_ = 58.0f; sz_ = 61.8f; mon_face = PI_F; mon_spd = 0.0f; mon_runf = 0.0f; mon_blind_t = 0.0f; mon_y = 0.0f;
         sfx_play3(SFX_UV, 1.0f, sx_, sz_, 0, 80.0f);
