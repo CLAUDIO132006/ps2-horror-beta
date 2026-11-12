@@ -24776,6 +24776,7 @@ static void mon_uv_update(float dt)
 static int mon_vision(void)
 {
     if (mon_blind_t > 0.0f) return -1;                        // ciego
+    if (spec_mode && egg_ph >= 2) return -1;                  // modo secreto: durante el final del Santo Grial no te ve (para poder probar la cinematica)
     float hx = sinf(mon_face), hz = cosf(mon_face);
     int best = -1;
     float bd = 1e9f;
@@ -83558,9 +83559,9 @@ static void draw_emoji_menu(void)                                       // menu 
 static const char *dance_names[30] = { "FLAIR", "BREAKDANCE 1990", "TWERK", "GANGNAM STYLE", "ORANGE JUSTICE", 0 };
 
 // ---- MODO SECRETO: menu de objetos (flecha abajo) ----
-#define NGIVE 12
+#define NGIVE 14
 static const char *give_names[NGIVE] = { "LLAVE ROJA", "LLAVE AZUL", "LLAVE AMARILLA", "LLAVE VERDE", "LLAVE FINAL 1", "LLAVE FINAL 2", "LLAVE FINAL 3",
-                                         "VENDA", "ENCENDEDOR (CON GASOLINA)", "PALA", "MARTILLO", "MAPA" };
+                                         "VENDA", "ENCENDEDOR (CON GASOLINA)", "PALA", "MARTILLO", "MAPA", "SANTO GRIAL", "INICIAR FINAL SECRETO" };
 
 static void give_item(int i)
 {
@@ -83571,6 +83572,8 @@ static void give_item(int i)
     else if (i == 9) { pl_pala[pl_cur] = 1; pl_ham[pl_cur] = 0; flash_on = 0; }
     else if (i == 10) { pl_ham[pl_cur] = 1; pl_pala[pl_cur] = 0; }
     else if (i == 11) has_map = 1;
+    else if (i == 12) { pl_grail[pl_cur] = 1; grail_on = 0; }                                  // el Santo Grial en la mano (ponlo en el altar)
+    else if (i == 13) { grail_placed = 1; grail_on = 0; pl_grail[pl_cur] = 0; for (int q = 0; q < 4; q++) cand_lit[q] = 1; egg_check(); }   // prueba: grial puesto + velas encendidas: arranca todo (campanas, 3 s, monstruo, cinematica)
 }
 
 // La nota ampliada: el acertijo del puzzle del cuarto secreto
@@ -86115,7 +86118,10 @@ static void player_move(float dt, float t, const PadIn *in)
 // Despues de mover al monstruo: pisadas, garras, notas y salida (por jugador)
 static void player_post(int notes)
 {
-    if (spec_mode) return;                                  // espectador: el monstruo no te toca
+    if (spec_mode) {                                        // espectador: el monstruo no te toca (pero si puedes terminar la partida en el circulo verde)
+        if (cur_layer == 1 && !climbing && (px - END_X) * (px - END_X) + (pz - END_Z) * (pz - END_Z) < 1.7f) { state = 2; state_timer = 900; end_alt = 0; }
+        return;
+    }
     if (mon_foot_event) {                                   // cada apoyo del monstruo sacude la camara si esta cerca
         float tdx = sx_ - px, tdz = sz_ - pz;
         float td = sqrtf(tdx * tdx + tdz * tdz);
