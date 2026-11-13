@@ -5316,7 +5316,6 @@ static int   walk_step;                     // numero de paso (para sincronizar 
 static float mon_thud;                      // sacudida de camara por las pisadas del monstruo
 static float cam_rc = 1.0f, cam_rs = 0.0f;  // balanceo (roll) de la camara: cos / sin
 static int   crouched, blend_flip;
-static int   opt_cull, optz_sel;                           // OPTIMIZACION > CULLING (caras traseras / fuera de camara / ocultos tras paredes)
 static int   opt_on;                                       // OPCIONES > OPTIMIZACION: arboles mas ligeros (solo dibujo)
 static int   cable_sel;                    // menu 2 JUGADORES POR CABLE
 
@@ -5360,7 +5359,7 @@ static const int   gfx_c2[3]    = { 1, 2, 2 };           // "media distancia" = 
 static const int   gfx_seg[3]   = { 16, 20, 24 };          // suavidad del circulo de luz (ALTO: 32 lados bastan, el borde es difuso)
 static const int   gfx_steps[3] = { 3, 4, 4 };
 static const float gfx_reach[3] = { 0.85f, 1.0f, 1.2f };   // alcance de la luz
-enum { SC_MAIN, SC_OPT, SC_PLAY, SC_PAUSE, SC_CTRL, SC_NET, SC_NETIP, SC_NETWAIT, SC_LOBBY, SC_NETLIST, SC_NAME, SC_SKIN, SC_SOLO, SC_SECRET, SC_CABLE, SC_NETCAP, SC_SND, SC_OPTZ };
+enum { SC_MAIN, SC_OPT, SC_PLAY, SC_PAUSE, SC_CTRL, SC_NET, SC_NETIP, SC_NETWAIT, SC_LOBBY, SC_NETLIST, SC_NAME, SC_SKIN, SC_SOLO, SC_SECRET, SC_CABLE, SC_NETCAP, SC_SND };
 static int net_online;                  // 1 = partida online en curso (los dos juegos simulan lo mismo)
 static unsigned int game_seed;          // semilla de la partida (los codigos de los candados salen de ella)
 static int net_sel;                     // menu ONLINE
@@ -6825,57 +6824,6 @@ static void wall_face(float x0, float z0, float x1, float z1, float y0, float h,
 }
 
 // Caja rotada alrededor de Y. (lx,lz) = desplazamiento local.
-// ---- Oclusion: una tabla de 360 sectores alrededor de la camara. Las paredes altas (de suelo a >= 2.5 m) apuntan en que sectores tapan la vista y a que distancia; los
-// objetos que quedan por completo detras de ellas (y mas bajos) ya no se dibujan. Solo se usa con OPTIMIZACION > CULLING. Es conservador: ante la duda se dibuja.
-static int in_view(float wx, float wz, float rad, float maxd);
-#define OCC_N 360
-static float occ_d[OCC_N], occ_top[OCC_N];
-static void occ_reset(void) { for (int i = 0; i < OCC_N; i++) { occ_d[i] = 1.0e9f; occ_top[i] = 0.0f; } }
-static float pang(float dx, float dz)                    // pseudo-angulo 0..4 (barato: sin atan2)
-{
-    float a = fabsf(dx) + fabsf(dz);
-    if (a < 1.0e-6f) return 0.0f;
-    float p = dx / a;
-    return dz < 0.0f ? 3.0f + p : 1.0f - p;
-}
-static int occ_span(const float *X, const float *Z, int n, int *lo, int *cnt)
-{
-    float a0 = pang(X[0] - px, Z[0] - pz), mn = 0.0f, mx = 0.0f;
-    for (int i = 1; i < n; i++) {
-        float a = pang(X[i] - px, Z[i] - pz) - a0;
-        if (a > 2.0f) a -= 4.0f; else if (a < -2.0f) a += 4.0f;
-        if (a < mn) mn = a;
-        if (a > mx) mx = a;
-    }
-    if (mx - mn > 1.6f) return 0;
-    float st = a0 + mn;
-    if (st < 0.0f) st += 4.0f;
-    if (st >= 4.0f) st -= 4.0f;
-    *lo = (int)(st * 90.0f); *cnt = (int)((mx - mn) * 90.0f) + 1;
-    return 1;
-}
-static int occ_hidden(const float *X, const float *Z, int n, float dmin, float top)    // todo el objeto queda detras de una pared mas alta?
-{
-    int lo, cnt;
-    if (top > 2.4f || !occ_span(X, Z, n, &lo, &cnt)) return 0;
-    for (int k = -1; k <= cnt + 1; k++) {
-        int b = (lo + k + OCC_N * 2) % OCC_N;
-        if (!(occ_d[b] < dmin - 0.2f && top < occ_top[b] - 0.05f && cam_y < occ_top[b] - 0.2f)) return 0;
-    }
-    return 1;
-}
-static void occ_add(const float *X, const float *Z, int n, float top)
-{
-    int lo, cnt;
-    if (cam_y > top - 0.2f || !occ_span(X, Z, n, &lo, &cnt) || cnt < 3) return;
-    float dmax = 0.0f;
-    for (int i = 0; i < n; i++) { float dx = X[i] - px, dz = Z[i] - pz, d = sqrtf(dx * dx + dz * dz); if (d > dmax) dmax = d; }
-    for (int k = 1; k <= cnt - 2; k++) {
-        int b = (lo + k) % OCC_N;
-        if (dmax < occ_d[b]) { occ_d[b] = dmax; occ_top[b] = top; }
-    }
-}
-
 static void box_rot(float cx, float cz, float a, float lx, float lz, float hx, float hz,
                     float y0, float y1, const float *col, float emit)
 {
@@ -6890,21 +6838,6 @@ static void box_rot(float cx, float cz, float a, float lx, float lz, float hx, f
     float q[4][3];
     float bx = (X[0] + X[2]) * 0.5f, bz = (Z[0] + Z[2]) * 0.5f;
     int far_box = ((bx - px) * (bx - px) + (bz - pz) * (bz - pz)) > 36.0f;     // a mas de 6 m no se dibujan las caras que dan la espalda (no cambia lo que se ve)
-    if (opt_cull) {
-        float rad = sqrtf(hx * hx + hz * hz);
-        if (!in_view(bx, bz, rad, 1.0e9f)) return;                          // CULLING: fuera del campo de vision
-        float ddx = bx - px, ddz = bz - pz;
-        float lpx = (px - cx) * c - (pz - cz) * s, lpz = (px - cx) * s + (pz - cz) * c;      // la camara en coordenadas de la caja
-        int outside = fabsf(lpx - lx) > hx + 0.3f || fabsf(lpz - lz) > hz + 0.3f;
-        if (outside) {
-            far_box = 1;                                                    // CULLING: caras traseras de cualquier caja vista desde fuera
-            if (y0 >= -0.5f) {
-                float dmin = sqrtf(ddx * ddx + ddz * ddz) - rad;
-                if (dmin > 4.0f && occ_hidden(X, Z, 4, dmin, y1)) return;    // CULLING: oculta detras de una pared alta
-                if (y0 <= 0.3f && y1 >= 2.5f && (hx > 0.5f || hz > 0.5f)) occ_add(X, Z, 4, y1);
-            }
-        }
-    }
     for (int i = 0; i < 4; i++) {
         int j = (i + 1) & 3;
         if (far_box) {
@@ -6947,26 +6880,6 @@ static void roof_rot(float cx, float cz, float a, float hx, float hz, float y0, 
 
 static void pyr_rot(float cx, float cz, float hw, float y0, float y1, const float *col)
 {
-    if (opt_cull) {                                                       // CULLING: oculto detras de una pared alta / caras que dan la espalda
-        float PX[4] = { cx - hw, cx + hw, cx + hw, cx - hw }, PZ[4] = { cz - hw, cz - hw, cz + hw, cz + hw };
-        float ddx = cx - px, ddz = cz - pz, dmin = sqrtf(ddx * ddx + ddz * ddz) - hw * 1.42f;
-        if (dmin > 4.0f && y0 >= -0.5f && occ_hidden(PX, PZ, 4, dmin, y1)) return;
-        const float ym = (y0 + y1) * 0.5f;
-        for (int i = 0; i < 4; i++) {
-            int j = (i + 1) & 3;
-            float ax = PX[i] - cx, az = PZ[i] - cz, bx_ = PX[j] - cx, bz_ = PZ[j] - cz;
-            float ux = ax, uy = y0 - y1, uz = az, vx_ = bx_, vy = y0 - y1, vz = bz_;           // dos aristas de la cara desde la punta
-            float nx = uy * vz - uz * vy, ny = uz * vx_ - ux * vz, nz = ux * vy - uy * vx_;
-            float mx = (ax + bx_) * 0.5f, mz = (az + bz_) * 0.5f;
-            if (nx * mx + nz * mz < 0.0f) { nx = -nx; ny = -ny; nz = -nz; }                 // la normal siempre hacia afuera
-            float wx = px - (cx), wy = cam_y - y1, wz = pz - (cz);
-            if (nx * wx + ny * wy + nz * wz <= 0.0f) continue;
-            V ap = mk(cx, y1, cz, col, 0);
-            V p0 = mk(PX[i], y0, PZ[i], col, 0), p1 = mk(PX[j], y0, PZ[j], col, 0);
-            tri_cam(p0, p1, ap);
-        }
-        return;
-    }
     V ap = mk(cx, y1, cz, col, 0);
     V c0 = mk(cx - hw, y0, cz - hw, col, 0), c1 = mk(cx + hw, y0, cz - hw, col, 0);
     V c2 = mk(cx + hw, y0, cz + hw, col, 0), c3 = mk(cx - hw, y0, cz + hw, col, 0);
@@ -84183,7 +84096,6 @@ static void draw_mon_fire(float t)
 
 static void render_game_inner(float t, int moving, int near_ladder, int notes)
 {
-    occ_reset();                                               // tabla de oclusion nueva para esta vista
         if (state == 1) {                                  // JUMPSCARE
             u64 bgc = (js_t < 4) ? GS_SETREG_RGBAQ(255, 255, 255, 0x80, 0)
                     : ((js_t < 100 && ((js_t / 2) & 1)) ? GS_SETREG_RGBAQ(90, 0, 0, 0x80, 0) : BLACK);
@@ -85281,7 +85193,7 @@ static void menu_frame(u32 newp, float lv, int frame)
     int was_skin = (screen == SC_SKIN);
     int ok = (newp & PAD_CROSS) != 0, back = (newp & PAD_CIRCLE) != 0;
     int lt = (newp & PAD_LEFT) != 0, rt = (newp & PAD_RIGHT) != 0;
-    int n = (screen == SC_SOLO) ? 4 : (screen == SC_OPT) ? 8 : (screen == SC_SND) ? 4 : (screen == SC_OPTZ) ? 3 : (screen == SC_SKIN ? 3 : screen == SC_CTRL ? 4 : (screen == SC_MAIN ? 7 : (screen == SC_NET ? 3 : (screen == SC_NETIP || screen == SC_NETWAIT ? 1 : 4))));
+    int n = (screen == SC_SOLO) ? 4 : (screen == SC_OPT) ? 8 : (screen == SC_SND) ? 4 : (screen == SC_SKIN ? 3 : screen == SC_CTRL ? 4 : (screen == SC_MAIN ? 7 : (screen == SC_NET ? 3 : (screen == SC_NETIP || screen == SC_NETWAIT ? 1 : 4))));
     if (pad2_warn > 0) pad2_warn--;
     const int scr0 = screen;                                   // pantalla con la que empieza este cuadro
 #ifdef HAVE_NET
@@ -85299,7 +85211,6 @@ static void menu_frame(u32 newp, float lv, int frame)
 #endif
     int *sel = (screen == SC_SOLO) ? &solo_sel : (screen == SC_OPT) ? &opt_sel : (screen == SC_SKIN ? &skin_sel : screen == SC_CTRL ? &ctl_sel : (screen == SC_NET ? &net_sel : &menu_sel));
     if (screen == SC_SND) sel = &snd_sel;
-    if (screen == SC_OPTZ) sel = &optz_sel;
 #ifdef HAVE_NET
     if (screen == SC_NETLIST) sel = &list_sel;
     if (screen == SC_LOBBY) sel = &lobby_sel;
@@ -85377,13 +85288,6 @@ static void menu_frame(u32 newp, float lv, int frame)
             else if (*sel == 2) { opt_from = SC_PAUSE; screen = SC_OPT; opt_sel = 0; rd_max = 8; }
             else { screen = SC_MAIN; menu_sel = 0; }
         }
-    } else if (screen == SC_OPTZ) {                           // OPTIMIZACION: lista de optimizaciones
-        int d = rt ? 1 : (lt ? -1 : (ok ? 1 : 0));
-        if (back || (ok && *sel == 2)) screen = SC_OPT;
-        else if (d != 0) {
-            if (*sel == 0) opt_on = !opt_on;
-            else if (*sel == 1) opt_cull = !opt_cull;
-        }
     } else if (screen == SC_SND) {                            // SONIDO: encendido / volumen / chat de proximidad
         int d = rt ? 1 : (lt ? -1 : (ok ? 1 : 0));
         if (back || (ok && *sel == 3)) screen = SC_OPT;
@@ -85398,9 +85302,9 @@ static void menu_frame(u32 newp, float lv, int frame)
         else if (ok && *sel == 6) { screen = SC_SKIN; skin_sel = 0; }
         else if (ok && *sel == 5) { screen = SC_CTRL; ctl_sel = 0; }
         else if (ok && *sel == 1) { screen = SC_SND; snd_sel = 0; }
-        else if (ok && *sel == 3) { screen = SC_OPTZ; optz_sel = 0; }
         else if (d != 0) {
             if (*sel == 0) gfx = (gfx + d + 3) % 3;
+            else if (*sel == 3) opt_on = !opt_on;
             else if (*sel == 4) { if (who_p2()) cursor_on2 = !cursor_on2; else cursor_on = !cursor_on; }
             else if (*sel == 2) {                                              // RENDER: llega hasta el tope que aguantan los 50 FPS
                 rd_lv += d;
@@ -85565,7 +85469,7 @@ static void menu_frame(u32 newp, float lv, int frame)
     // ---- dibujo ----
     ui_modern = 1;
     if (screen == SC_SOLO || screen == SC_LOBBY) gsKit_clear(gsGlobal, GS_SETREG_RGBAQ(10, 10, 14, 0x80, 0));
-    else if (screen == SC_MAIN || screen == SC_SECRET || screen == SC_CABLE || screen == SC_NET || screen == SC_NETIP || screen == SC_NETWAIT || screen == SC_NETLIST || screen == SC_NETCAP || screen == SC_NAME || ((screen == SC_OPT || screen == SC_SND || screen == SC_OPTZ || screen == SC_CTRL || screen == SC_SKIN) && opt_from == SC_MAIN)) menu_bg_main();
+    else if (screen == SC_MAIN || screen == SC_SECRET || screen == SC_CABLE || screen == SC_NET || screen == SC_NETIP || screen == SC_NETWAIT || screen == SC_NETLIST || screen == SC_NETCAP || screen == SC_NAME || ((screen == SC_OPT || screen == SC_SND || screen == SC_CTRL || screen == SC_SKIN) && opt_from == SC_MAIN)) menu_bg_main();
     else { render_frame(last_t, 1); menu_dim(); }
     ui_overlay((screen == SC_SOLO || screen == SC_LOBBY || screen == SC_CTRL || screen == SC_NETLIST) ? 0.0f : ((screen == SC_MAIN || screen == SC_PAUSE) ? 200.0f : 262.0f));
 
@@ -85590,20 +85494,6 @@ static void menu_frame(u32 newp, float lv, int frame)
             snprintf(line, sizeof(line), i == menu_sel ? "> %s <" : "%s", it[i]);
             draw_text_c(190.0f + i * 44.0f, line, 3, i == menu_sel ? sel_c : norm_c);
         }
-    } else if (screen == SC_OPTZ) {
-        draw_text_c(40.0f, "OPTIMIZACION", 5, sel_c);
-        for (int i = 0; i < 3; i++) {
-            char val[12]; val[0] = '\0'; const char *name = "VOLVER";
-            if (i == 0) { name = "1 ARBOLES 144P"; snprintf(val, sizeof(val), "%s", opt_on ? "SI" : "NO"); }
-            else if (i == 1) { name = "2 CULLING"; snprintf(val, sizeof(val), "%s", opt_cull ? "SI" : "NO"); }
-            if (val[0]) snprintf(line, sizeof(line), i == optz_sel ? "> %s: %s <" : "%s: %s", name, val);
-            else snprintf(line, sizeof(line), i == optz_sel ? "> %s <" : "%s", name);
-            draw_text_c(100.0f + i * 34.0f, line, 3, i == optz_sel ? sel_c : norm_c);
-        }
-        const char *d1 = optz_sel == 0 ? "ARBOLES PIXELADOS COMO A 144P Y MENOS LEJANOS" : (optz_sel == 1 ? "NO DIBUJA CARAS TRASERAS, LO QUE ESTA FUERA DE CAMARA" : "");
-        const char *d2 = optz_sel == 1 ? "NI LO QUE QUEDA OCULTO TRAS PAREDES ALTAS" : "";
-        draw_text_c(232.0f, d1, 2, hint_c);
-        draw_text_c(252.0f, d2, 2, hint_c);
     } else if (screen == SC_SND) {
         draw_text_c(40.0f, "SONIDO", 5, sel_c);
         for (int i = 0; i < 4; i++) {
@@ -85630,7 +85520,7 @@ static void menu_frame(u32 newp, float lv, int frame)
             if (i == 0) { name = "GRAFICOS"; snprintf(val, sizeof(val), "%s", gq[gfx]); }
             else if (i == 1) name = "SONIDO";
             else if (i == 2) { name = "RENDER"; snprintf(val, sizeof(val), rd_lv == rd_max && rd_max < 8 ? "%d MAX" : "%d", rd_lv); }
-            else if (i == 3) name = "OPTIMIZACION";
+            else if (i == 3) { name = "OPTIMIZACION"; snprintf(val, sizeof(val), "%s", opt_on ? "SI" : "NO"); }
             else if (i == 4) { name = "CURSOR"; snprintf(val, sizeof(val), "%s", (who_p2() ? cursor_on2 : cursor_on) ? "SI" : "NO"); }
             else if (i == 5) name = "CONTROLES";
             else if (i == 6) name = "SKINS";
@@ -85919,7 +85809,7 @@ static void menu_frame(u32 newp, float lv, int frame)
     }
 #endif
     if (screen != SC_NETIP && screen != SC_NETWAIT && screen != SC_LOBBY && screen != SC_NETLIST && screen != SC_NAME && screen != SC_SECRET && screen != SC_NETCAP)
-    if (screen != SC_SOLO) draw_text_c(H - 34.0f, (screen == SC_OPT || screen == SC_SND || screen == SC_OPTZ || screen == SC_CTRL || screen == SC_SKIN || screen == SC_SOLO) ? "IZQ/DER: CAMBIAR   O: ATRAS" : "ARRIBA/ABAJO: MOVER   X: ELEGIR", 2, hint_c);
+    if (screen != SC_SOLO) draw_text_c(H - 34.0f, (screen == SC_OPT || screen == SC_SND || screen == SC_CTRL || screen == SC_SKIN || screen == SC_SOLO) ? "IZQ/DER: CAMBIAR   O: ATRAS" : "ARRIBA/ABAJO: MOVER   X: ELEGIR", 2, hint_c);
     if (screen == SC_OPT)
         draw_text_c(H - 106.0f, "RENDER: 3 = NORMAL. MAS ALTO = VES MAS LEJOS (BAJA SOLO SI LOS FPS CAEN DE 50)", 1, hint_c);
     if (screen == SC_SND) {
