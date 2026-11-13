@@ -29,3 +29,36 @@ NOVEDADES (version 2 a 4 jugadores)
   - Cuando alguien consigue conectar con el servidor, la ventana muestra:  LLEGO UN PAQUETE de <su IP>
     Si el jugador dice "EL SERVIDOR NO RESPONDE" y esa linea NO aparece, el router o el firewall estan bloqueando el UDP 7778.
   - Si juegan en el MISMO PC que el servidor, la IP es 127.0.0.1. Desde otro equipo usa la IP de la ventana (misma WiFi) o la publica (internet).
+
+NOVEDADES v3 (arregla "sala creada y luego cerrada / error de IP")
+  - El servidor ahora abre un socket por cada IP del PC y responde SIEMPRE desde la misma IP a la que el jugador escribio.
+    Antes, si el PC tenia varias tarjetas (WiFi + VPN + maquinas virtuales), Windows respondia desde OTRA IP y el router del jugador descartaba la respuesta
+    (el servidor veia la sala creada, pero el jugador nunca recibia la confirmacion y salia el error de IP).
+  - Intenta crear solo la regla del Firewall (UDP 7778). Para que funcione, abrelo UNA vez con clic derecho > Ejecutar como administrador.
+  - Cada sala cerrada muestra el motivo (jugador cancelo / sin senales). La ventana muestra por que IP llega cada jugador.
+  - Si cambias de red o enciendes una VPN con el servidor abierto, se detecta sola (cada 10 s).
+
+NOVEDADES v4: CHAT DE VOZ DE PROXIMIDAD (celular como microfono)
+  1. Abre horror_server.exe (mejor como administrador la primera vez: abre UDP 7778 y TCP 8443 en el Firewall).
+  2. En el celular abre el navegador (Chrome) y entra a  https://IP:8443  (la MISMA IP que escribes en el juego, ej. https://192.168.1.50:8443).
+     Chrome avisara que la conexion no es privada (certificado propio): "Avanzado" > "Continuar". Es necesario para poder usar el microfono.
+  3. Pulsa ACTIVAR MICROFONO y acepta el permiso. Se empareja solo con tu jugador por la IP cuando entres a una partida.
+  4. Usa audifonos. Se oye mas fuerte quien esta cerca, por el lado donde esta, hasta 25 m. En otra capa (alcantarilla) se oye apagado.
+  Si juegas en el emulador del MISMO celular: pon el navegador y el juego en pantalla dividida / ventana flotante, porque Android
+  corta el microfono al navegador si queda en segundo plano. Otra opcion: abre la pagina desde otro celular o PC en la misma red.
+  Si hay dos jugadores con la misma IP (misma casa por internet), la pagina te deja elegir sala y jugador.
+  Solo funciona con partidas por servidor dedicado (no con LAN directa).
+
+CODIGO DEL CHAT DE VOZ (v4.1)
+  En el juego: OPCIONES > SONIDO muestra un CODIGO de 4 cifras y la direccion de la pagina.
+  En la pagina del celular escribe ese codigo: asi se empareja con tu jugador sin depender de la IP (sirve con VPN, datos moviles, etc.).
+  Si no escribes codigo, se empareja por IP como antes.
+
+SALAS ESTABLES (v4.2)
+  - El servidor reconoce a cada jugador por un TOKEN, no solo por IP:puerto: si el emulador o el router cambian el puerto a mitad, la sala sigue.
+  - Un SALIR atrasado ya no cierra una sala recien creada (los paquetes llevan numero de orden).
+  - El juego manda 3 senales de vida por segundo y el servidor contesta. En la sala de espera se ve "SERVIDOR: CONECTADO" o "SIN RESPUESTA".
+    Sin respuesta 5 s: el juego abre otro puerto solo. Si el servidor perdio la sala (reinicio), el anfitrion la crea otra vez solo.
+  - La sala se cierra tras 90 s sin saber del anfitrion (antes 15 s). Solo salen en la lista salas con anfitrion activo.
+  - Diagnostico: arranca con  horror_server.exe -v  para ver cada senal de vida; el servidor escribe por que cierra cada sala y los cambios de puerto.
+  IMPORTANTE: usa main_v227.c (o mas nuevo) con este servidor; el juego viejo tambien funciona pero sin estas protecciones.

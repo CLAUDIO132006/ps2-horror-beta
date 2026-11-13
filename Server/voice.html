@@ -1,0 +1,100 @@
+<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>HORROR - Chat de voz</title>
+<style>
+:root{color-scheme:dark}
+body{margin:0;background:#0b0b0e;color:#e8e8ea;font:16px system-ui,sans-serif;padding:16px;max-width:480px;margin:auto}
+h1{font-size:20px;margin:6px 0 14px;letter-spacing:.5px}
+button{width:100%;padding:16px;font-size:18px;border:0;border-radius:12px;background:#b3261e;color:#fff;margin:8px 0}
+button.sec{background:#2a2a32}
+#st{padding:12px;border-radius:10px;background:#16161c;margin:10px 0;line-height:1.4}
+.bar{height:10px;border-radius:5px;background:#222;overflow:hidden;margin:6px 0}
+#lvl{height:100%;width:0;background:#3fb950}
+.sp{display:inline-block;padding:4px 10px;margin:3px;border-radius:14px;background:#1f3d27}
+small{color:#9a9aa3}
+input{width:100%;box-sizing:border-box;padding:14px;font-size:24px;text-align:center;letter-spacing:6px;border-radius:12px;border:2px solid #333;background:#16161c;color:#fff}
+</style></head><body>
+<h1>HORROR · CHAT DE VOZ</h1>
+<div id="st">Escribe el codigo que sale en el juego (OPCIONES > SONIDO) y pulsa el boton para activar el microfono.</div>
+<input id="code" inputmode="numeric" maxlength="4" placeholder="CODIGO DE 4 CIFRAS" autocomplete="off">
+<button id="go">ACTIVAR MICROFONO</button>
+<button id="mute" class="sec" style="display:none">SILENCIAR MICROFONO</button>
+<div class="bar"><div id="lvl"></div></div>
+<div id="who"></div>
+<p><small>Usa audifonos para que no se oiga el eco del juego. Pon esta pagina y el juego a la vez (pantalla dividida o ventana flotante): si Android manda el navegador al fondo, deja de captar tu voz. Tambien puedes abrirla desde otro celular o PC y entrar con la misma WiFi.</small></p>
+<script>
+"use strict";
+const $=id=>document.getElementById(id);
+let ws,ctx,muted=false,lastVoice=0,rate=16000,wake=null;
+const MU=[];(function(){for(let i=0;i<256;i++){let u=~i&255,s=u&128?-1:1,e=(u>>4)&7,m=u&15;MU[i]=s*(((m<<3)+132)<<e)/32768-s*132/32768;}})();
+function enc(x){let s=x<0?128:0;if(x<0)x=-x;let v=Math.min(32635,Math.floor(x*32768))+132,e=7;for(let m=0x4000;(v&m)===0&&e>0;e--,m>>=1);return (~(s|(e<<4)|((v>>(e+3))&15)))&255;}
+function status(t){$("st").textContent=t}
+try{$("code").value=localStorage.getItem("hcode")||""}catch(e){}
+function sendCode(){const v=$("code").value.replace(/\D/g,"");try{localStorage.setItem("hcode",v)}catch(e){}if(ws&&ws.readyState===1)ws.send("code:"+(v.length===4?v:"0"))}
+$("code").oninput=sendCode;
+$("go").onclick=async()=>{
+  $("go").style.display="none";
+  try{
+    const stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true}});
+    ctx=new (window.AudioContext||window.webkitAudioContext)();
+    await ctx.resume();
+    try{wake=await navigator.wakeLock.request("screen")}catch(e){}
+    const src=ctx.createMediaStreamSource(stream),proc=ctx.createScriptProcessor(2048,1,1),z=ctx.createGain();z.gain.value=0;
+    let acc=0,cnt=0,pos=0;const step=ctx.sampleRate/rate;let out=[];
+    proc.onaudioprocess=e=>{
+      const d=e.inputBuffer.getChannelData(0);let sq=0;
+      for(let i=0;i<d.length;i++){sq+=d[i]*d[i];acc+=d[i];cnt++;pos+=1;if(pos>=step){pos-=step;out.push(enc(acc/cnt));acc=0;cnt=0;}}
+      const rms=Math.sqrt(sq/d.length);$("lvl").style.width=Math.min(100,rms*400)+"%";
+      const now=performance.now();if(rms>0.012)lastVoice=now;
+      if(out.length&&ws&&ws.readyState===1&&!muted&&now-lastVoice<400)ws.send(new Uint8Array(out));
+      out=[];
+    };
+    src.connect(proc);proc.connect(z);z.connect(ctx.destination);
+    $("mute").style.display="block";
+    connect();
+  }catch(e){status("No se pudo usar el microfono: "+e.message+" (acepta el permiso y abre la pagina con https://)");$("go").style.display="block";}
+};
+$("mute").onclick=()=>{muted=!muted;$("mute").textContent=muted?"ACTIVAR MICROFONO":"SILENCIAR MICROFONO"};
+function connect(){
+  ws=new WebSocket("wss://"+location.host+"/ws");ws.binaryType="arraybuffer";
+  ws.onopen=()=>{status("Conectado al servidor. Entra a una partida en el juego...");sendCode()};
+  ws.onclose=()=>{status("Sin conexion con el servidor. Reintentando...");setTimeout(connect,2000)};
+  ws.onmessage=ev=>{
+    if(typeof ev.data==="string"){onText(ev.data);return}
+    play(new Uint8Array(ev.data));
+  };
+}
+function onText(t){
+  let m;try{m=JSON.parse(t)}catch(e){return}
+  if(m.t==="wait")status($("code").value.length===4?"Conectado. Esperando a que entres a una partida con ese codigo...":"Conectado. Escribe el codigo del juego (OPCIONES > SONIDO) o entra a una partida con la misma IP...");
+  else if(m.t==="ok")status("Listo: Sala "+m.room+" - eres el JUGADOR "+(m.slot+1)+". Habla: te oiran segun la distancia.");
+  else if(m.t==="pick"){
+    status("Hay varias partidas con tu IP. Elige la tuya:");
+    const w=$("who");w.textContent="";
+    m.opts.forEach(o=>{const b=document.createElement("button");b.className="sec";b.textContent="Sala "+o.room+" · Jugador "+(o.slot+1);b.onclick=()=>{ws.send("sel:"+o.room+":"+o.slot);w.textContent=""};w.appendChild(b)});
+  }
+}
+const ch={},nx={},spk={};
+function chain(s){
+  if(ch[s])return ch[s];
+  const lp=ctx.createBiquadFilter();lp.type="lowpass";lp.frequency.value=20000;
+  const g=ctx.createGain(),p=ctx.createStereoPanner?ctx.createStereoPanner():null;
+  lp.connect(g);if(p){g.connect(p);p.connect(ctx.destination)}else g.connect(ctx.destination);
+  return ch[s]={lp,g,p};
+}
+function play(b){
+  if(!ctx||b.length<5)return;
+  const s=b[0],gain=b[1]/255,pan=(b[2]-128)/127,fl=b[3],n=b.length-4;
+  const buf=ctx.createBuffer(1,n,rate),c=buf.getChannelData(0);
+  for(let i=0;i<n;i++)c[i]=MU[b[4+i]];
+  const k=chain(s),t=ctx.currentTime;
+  k.g.gain.setTargetAtTime(gain,t,0.02);if(k.p)k.p.pan.setTargetAtTime(pan,t,0.02);
+  k.lp.frequency.setTargetAtTime(fl&1?600:20000,t,0.02);
+  const so=ctx.createBufferSource();so.buffer=buf;so.connect(k.lp);
+  if(!nx[s]||nx[s]<t+0.02)nx[s]=t+0.12;
+  if(nx[s]-t>0.7)nx[s]=t+0.12;
+  so.start(nx[s]);nx[s]+=n/rate;
+  spk[s]=performance.now();
+}
+setInterval(()=>{const w=$("who");if(w.querySelector("button"))return;const now=performance.now();
+  w.textContent="";for(const s in spk)if(now-spk[s]<500){const e=document.createElement("span");e.className="sp";e.textContent="Jugador "+(+s+1)+" habla";w.appendChild(e)}},200);
+</script></body></html>

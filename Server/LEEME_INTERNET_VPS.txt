@@ -1,0 +1,22 @@
+JUGADORES DE OTROS PAISES: HAY QUE ALOJAR EL SERVIDOR EN INTERNET
+==================================================================
+Con el servidor en tu PC solo entra gente de tu red o con tu IP publica y el router abierto. Para que cualquiera del mundo entre,
+pon el servidor en un VPS barato (Linux, con IP publica IPv4) y todos escriben la IP del VPS en el juego (ONLINE > IP SERVIDOR).
+
+1) Sube horror_server_linux al VPS y ejecuta:   chmod +x horror_server_linux && ./horror_server_linux
+   (para que siga al cerrar la sesion:  nohup ./horror_server_linux -quiet &   o un servicio systemd)
+2) En el firewall / panel del VPS abre:  UDP 7778 (juego)  y  TCP 8443 (chat de voz).
+3) Jugadores: ONLINE > IP SERVIDOR = IP publica del VPS.  El puerto del juego es fijo (7778).
+
+CHAT DE VOZ PARA GENTE DE OTROS PAISES
+  - La pagina es https://IP_DEL_VPS:8443  (Chrome avisa del certificado propio: Avanzado > Continuar, una vez).
+  - Sin aviso: consigue un dominio (gratis con DuckDNS) apuntando al VPS SOLO con registro A (IPv4, nada de AAAA/IPv6),
+    saca un certificado gratis (certbot / Let's Encrypt) y copia sus archivos junto al programa con estos nombres:
+        voice_cert.pem (fullchain.pem)   y   voice_key.pem (privkey.pem)
+    Luego entra a https://tu-dominio:8443 : ya sin avisos.
+  - El emparejamiento celular-jugador es por IP publica: el navegador y el juego deben salir por la misma red (mismo celular / misma WiFi).
+    Si usas VPN en el celular, apagala o usala en los dos. Si dos jugadores comparten IP (misma casa), la pagina deja elegir.
+
+LATENCIA
+  El juego va en lockstep (todos esperan al mas lento). Entre paises lejanos (ping > 150 ms) se sentira lento; pon el VPS en una region
+  intermedia (por ejemplo Miami / Dallas para America) para que todos tengan ping parecido.
