@@ -5358,7 +5358,7 @@ static const int   gfx_c2[3]    = { 1, 2, 2 };           // "media distancia" = 
 static const int   gfx_seg[3]   = { 16, 20, 24 };          // suavidad del circulo de luz (ALTO: 32 lados bastan, el borde es difuso)
 static const int   gfx_steps[3] = { 3, 4, 4 };
 static const float gfx_reach[3] = { 0.85f, 1.0f, 1.2f };   // alcance de la luz
-enum { SC_MAIN, SC_OPT, SC_PLAY, SC_PAUSE, SC_CTRL, SC_NET, SC_NETIP, SC_NETWAIT, SC_LOBBY, SC_NETLIST, SC_NAME, SC_SKIN, SC_SOLO, SC_SECRET, SC_CABLE, SC_NETCAP };
+enum { SC_MAIN, SC_OPT, SC_PLAY, SC_PAUSE, SC_CTRL, SC_NET, SC_NETIP, SC_NETWAIT, SC_LOBBY, SC_NETLIST, SC_NAME, SC_SKIN, SC_SOLO, SC_SECRET, SC_CABLE, SC_NETCAP, SC_SND };
 static int net_online;                  // 1 = partida online en curso (los dos juegos simulan lo mismo)
 static unsigned int game_seed;          // semilla de la partida (los codigos de los candados salen de ella)
 static int net_sel;                     // menu ONLINE
@@ -5993,6 +5993,13 @@ static int   mlayer;
 static float mon_wait, mon_y;
 static int   notes_got[3];
 static int   state, state_timer, frame_no;
+static int   snd_sel, voice_on = 1;                        // pantalla SONIDO: seleccion / chat de proximidad (mandar mi posicion al servidor)
+static unsigned voice_code;                                // codigo de 4 cifras para vincular el celular (pagina del chat de voz)
+static unsigned voice_code_get(void)
+{
+    if (!voice_code) voice_code = 1000u + ((unsigned)frame_no * 2654435761u + 40503u * (unsigned)my_name[0] + 977u) % 9000u;
+    return voice_code;
+}
 static int   door_msg, door_msg_id, code_door = -1, code_val, code_pos, inv_open;   // avisos / ventana del candado / notas (por jugador)
 static int   has_map, map_open, map_msg;     // mapa: ya lo tomaste / lo tienes abierto / aviso en pantalla (cuadros)
 
@@ -84412,10 +84419,10 @@ static int  net_srv_ok, net_srv_err;                   // el servidor ya confirm
 
 static void net_srv_pos(void)       // chat de voz de proximidad: le dice al servidor donde estas y hacia donde miras
 {
-    if (net_sock < 0 || !net_srv_act || net_local < 0 || net_local >= MAXP) return;
+    if (net_sock < 0 || !net_srv_act || !voice_on || net_local < 0 || net_local >= MAXP) return;
     unsigned char b[24];
     memset(b, 0, sizeof(b));
-    put32(b, SRV_MAGIC); b[4] = (unsigned char)SV_POS; b[5] = (unsigned char)(P[net_local].cur_layer ? 1 : 0);
+    put32(b, SRV_MAGIC); b[4] = (unsigned char)SV_POS; b[5] = (unsigned char)(P[net_local].cur_layer ? 1 : 0); { unsigned vc = voice_code_get(); b[6] = (unsigned char)vc; b[7] = (unsigned char)(vc >> 8); }
     float v[4] = { P[net_local].px, P[net_local].pz, P[net_local].rx, P[net_local].rz };
     for (int i = 0; i < 4; i++) { unsigned int u; memcpy(&u, &v[i], 4); put32(b + 8 + i * 4, u); }
     struct sockaddr_in a;
@@ -85069,7 +85076,7 @@ static void menu_frame(u32 newp, float lv, int frame)
     int was_skin = (screen == SC_SKIN);
     int ok = (newp & PAD_CROSS) != 0, back = (newp & PAD_CIRCLE) != 0;
     int lt = (newp & PAD_LEFT) != 0, rt = (newp & PAD_RIGHT) != 0;
-    int n = (screen == SC_SOLO) ? 4 : (screen == SC_OPT) ? 9 : (screen == SC_SKIN ? 3 : screen == SC_CTRL ? 4 : (screen == SC_MAIN ? 7 : (screen == SC_NET ? 3 : (screen == SC_NETIP || screen == SC_NETWAIT ? 1 : 4))));
+    int n = (screen == SC_SOLO) ? 4 : (screen == SC_OPT) ? 7 : (screen == SC_SND) ? 4 : (screen == SC_SKIN ? 3 : screen == SC_CTRL ? 4 : (screen == SC_MAIN ? 7 : (screen == SC_NET ? 3 : (screen == SC_NETIP || screen == SC_NETWAIT ? 1 : 4))));
     if (pad2_warn > 0) pad2_warn--;
     const int scr0 = screen;                                   // pantalla con la que empieza este cuadro
 #ifdef HAVE_NET
@@ -85086,6 +85093,7 @@ static void menu_frame(u32 newp, float lv, int frame)
     else if (screen == SC_LOBBY) n = net_host ? (net_cable ? 3 : 4) : 2;
 #endif
     int *sel = (screen == SC_SOLO) ? &solo_sel : (screen == SC_OPT) ? &opt_sel : (screen == SC_SKIN ? &skin_sel : screen == SC_CTRL ? &ctl_sel : (screen == SC_NET ? &net_sel : &menu_sel));
+    if (screen == SC_SND) sel = &snd_sel;
 #ifdef HAVE_NET
     if (screen == SC_NETLIST) sel = &list_sel;
     if (screen == SC_LOBBY) sel = &lobby_sel;
@@ -85163,18 +85171,24 @@ static void menu_frame(u32 newp, float lv, int frame)
             else if (*sel == 2) { opt_from = SC_PAUSE; screen = SC_OPT; opt_sel = 0; rd_max = 8; }
             else { screen = SC_MAIN; menu_sel = 0; }
         }
+    } else if (screen == SC_SND) {                            // SONIDO: encendido / volumen / chat de proximidad
+        int d = rt ? 1 : (lt ? -1 : (ok ? 1 : 0));
+        if (back || (ok && *sel == 3)) screen = SC_OPT;
+        else if (d != 0) {
+            if (*sel == 0) snd_on = !snd_on;
+            else if (*sel == 1) { vol_lv += d; if (vol_lv > 5) vol_lv = ok ? 1 : 5; if (vol_lv < 1) vol_lv = 1; }
+            else if (*sel == 2) voice_on = !voice_on;
+        }
     } else if (screen == SC_OPT) {
         int d = rt ? 1 : (lt ? -1 : (ok ? 1 : 0));
-        if (back || (ok && *sel == 8)) screen = opt_from;
-        else if (ok && *sel == 7) { screen = SC_SKIN; skin_sel = 0; }
-        else if (ok && *sel == 6) { screen = SC_CTRL; ctl_sel = 0; }
+        if (back || (ok && *sel == 6)) screen = opt_from;
+        else if (ok && *sel == 5) { screen = SC_SKIN; skin_sel = 0; }
+        else if (ok && *sel == 4) { screen = SC_CTRL; ctl_sel = 0; }
+        else if (ok && *sel == 1) { screen = SC_SND; snd_sel = 0; }
         else if (d != 0) {
             if (*sel == 0) gfx = (gfx + d + 3) % 3;
-            else if (*sel == 1) snd_on = !snd_on;
-            else if (*sel == 2) { vol_lv += d; if (vol_lv > 5) vol_lv = ok ? 1 : 5; if (vol_lv < 1) vol_lv = 1; }
-            else if (*sel == 3) blend_flip = !blend_flip;
-            else if (*sel == 5) { if (who_p2()) cursor_on2 = !cursor_on2; else cursor_on = !cursor_on; }
-            else if (*sel == 4) {                                              // RENDER: llega hasta el tope que aguantan los 50 FPS
+            else if (*sel == 3) { if (who_p2()) cursor_on2 = !cursor_on2; else cursor_on = !cursor_on; }
+            else if (*sel == 2) {                                              // RENDER: llega hasta el tope que aguantan los 50 FPS
                 rd_lv += d;
                 if (rd_lv > rd_max) rd_lv = ok ? 1 : rd_max;
                 if (rd_lv < 1) rd_lv = 1;
@@ -85336,7 +85350,7 @@ static void menu_frame(u32 newp, float lv, int frame)
     if (screen == SC_PLAY) return;                            // la partida online acaba de empezar
     // ---- dibujo ----
     if (screen == SC_SOLO || screen == SC_LOBBY) gsKit_clear(gsGlobal, GS_SETREG_RGBAQ(10, 10, 14, 0x80, 0));
-    else if (screen == SC_MAIN || screen == SC_SECRET || screen == SC_CABLE || screen == SC_NET || screen == SC_NETIP || screen == SC_NETWAIT || screen == SC_NETLIST || screen == SC_NETCAP || screen == SC_NAME || ((screen == SC_OPT || screen == SC_CTRL || screen == SC_SKIN) && opt_from == SC_MAIN)) menu_bg_main();
+    else if (screen == SC_MAIN || screen == SC_SECRET || screen == SC_CABLE || screen == SC_NET || screen == SC_NETIP || screen == SC_NETWAIT || screen == SC_NETLIST || screen == SC_NETCAP || screen == SC_NAME || ((screen == SC_OPT || screen == SC_SND || screen == SC_CTRL || screen == SC_SKIN) && opt_from == SC_MAIN)) menu_bg_main();
     else { render_frame(last_t, 1); menu_dim(); }
 
     u64 sel_c = GS_SETREG_RGBAQ(255, 230, 90, 0x80, 0), norm_c = GS_SETREG_RGBAQ(170, 170, 175, 0x80, 0);
@@ -85360,21 +85374,35 @@ static void menu_frame(u32 newp, float lv, int frame)
             snprintf(line, sizeof(line), i == menu_sel ? "> %s <" : "%s", it[i]);
             draw_text_c(190.0f + i * 44.0f, line, 3, i == menu_sel ? sel_c : norm_c);
         }
+    } else if (screen == SC_SND) {
+        draw_text_c(40.0f, "SONIDO", 5, sel_c);
+        for (int i = 0; i < 4; i++) {
+            char val[12]; val[0] = '\0'; const char *name = "VOLVER";
+            if (i == 0) { name = "SONIDO"; snprintf(val, sizeof(val), "%s", snd_on ? "SI" : "NO"); }
+            else if (i == 1) { name = "VOLUMEN"; snprintf(val, sizeof(val), "%d", vol_lv); }
+            else if (i == 2) { name = "CHAT DE PROXIMIDAD"; snprintf(val, sizeof(val), "%s", voice_on ? "SI" : "NO"); }
+            if (val[0]) snprintf(line, sizeof(line), i == snd_sel ? "> %s: %s <" : "%s: %s", name, val);
+            else snprintf(line, sizeof(line), i == snd_sel ? "> %s <" : "%s", name);
+            draw_text_c(92.0f + i * 30.0f, line, 3, i == snd_sel ? sel_c : norm_c);
+        }
+        snprintf(line, sizeof(line), "CODIGO DEL CHAT: %04u", voice_code_get());
+        draw_text_c(236.0f, line, 3, GS_SETREG_RGBAQ(120, 220, 255, 0x80, 0));
+        draw_text_c(266.0f, "EN EL CELULAR ABRE LA PAGINA DEL SERVIDOR:", 2, hint_c);
+        snprintf(line, sizeof(line), "HTTPS://%d.%d.%d.%d:8443", srv_ip[0], srv_ip[1], srv_ip[2], srv_ip[3]);
+        draw_text_c(286.0f, line, 2, norm_c);
+        draw_text_c(306.0f, "ESCRIBE ESE CODIGO Y ACTIVA EL MICROFONO", 2, hint_c);
     } else if (screen == SC_OPT) {
         draw_text_c(40.0f, "OPCIONES", 5, sel_c);
         static const char *gq[3] = { "BAJO", "MEDIO", "ALTO" };
-        char vt[8]; vt[0] = (char)('0' + vol_lv); vt[1] = '\0';
-        for (int i = 0; i < 9; i++) {
+        for (int i = 0; i < 7; i++) {
             const char *name = "";
             char val[12]; val[0] = '\0';
             if (i == 0) { name = "GRAFICOS"; snprintf(val, sizeof(val), "%s", gq[gfx]); }
-            else if (i == 1) { name = "SONIDO"; snprintf(val, sizeof(val), "%s", snd_on ? "SI" : "NO"); }
-            else if (i == 2) { name = "VOLUMEN"; snprintf(val, sizeof(val), "%s", vt); }
-            else if (i == 3) { name = "INVERTIR LUZ"; snprintf(val, sizeof(val), "%s", blend_flip ? "SI" : "NO"); }
-            else if (i == 4) { name = "RENDER"; snprintf(val, sizeof(val), rd_lv == rd_max && rd_max < 8 ? "%d MAX" : "%d", rd_lv); }
-            else if (i == 5) { name = "CURSOR"; snprintf(val, sizeof(val), "%s", (who_p2() ? cursor_on2 : cursor_on) ? "SI" : "NO"); }
-            else if (i == 6) name = "CONTROLES";
-            else if (i == 7) name = "SKINS";
+            else if (i == 1) name = "SONIDO";
+            else if (i == 2) { name = "RENDER"; snprintf(val, sizeof(val), rd_lv == rd_max && rd_max < 8 ? "%d MAX" : "%d", rd_lv); }
+            else if (i == 3) { name = "CURSOR"; snprintf(val, sizeof(val), "%s", (who_p2() ? cursor_on2 : cursor_on) ? "SI" : "NO"); }
+            else if (i == 4) name = "CONTROLES";
+            else if (i == 5) name = "SKINS";
             else name = "VOLVER";
             if (val[0]) snprintf(line, sizeof(line), i == opt_sel ? "> %s: %s <" : "%s: %s", name, val);
             else snprintf(line, sizeof(line), i == opt_sel ? "> %s <" : "%s", name);
@@ -85654,16 +85682,15 @@ static void menu_frame(u32 newp, float lv, int frame)
     }
 #endif
     if (screen != SC_NETIP && screen != SC_NETWAIT && screen != SC_LOBBY && screen != SC_NETLIST && screen != SC_NAME && screen != SC_SECRET && screen != SC_NETCAP)
-    if (screen != SC_SOLO) draw_text_c(H - 34.0f, (screen == SC_OPT || screen == SC_CTRL || screen == SC_SKIN || screen == SC_SOLO) ? "IZQ/DER: CAMBIAR   O: ATRAS" : "ARRIBA/ABAJO: MOVER   X: ELEGIR", 2, hint_c);
-    if (screen == SC_MAIN || screen == SC_OPT) draw_text_c(H - 58.0f, "LUZ AL REVES? PULSA SELECT", 2, hint_c);
+    if (screen != SC_SOLO) draw_text_c(H - 34.0f, (screen == SC_OPT || screen == SC_SND || screen == SC_CTRL || screen == SC_SKIN || screen == SC_SOLO) ? "IZQ/DER: CAMBIAR   O: ATRAS" : "ARRIBA/ABAJO: MOVER   X: ELEGIR", 2, hint_c);
     if (screen == SC_OPT)
         draw_text_c(H - 106.0f, "RENDER: 3 = NORMAL. MAS ALTO = VES MAS LEJOS (BAJA SOLO SI LOS FPS CAEN DE 50)", 1, hint_c);
-    if (screen == SC_OPT) {
+    if (screen == SC_SND) {
         static char abuf[64];
         if (audio_state == 2) snprintf(abuf, sizeof abuf, "AUDIO: ACTIVO");
         else if (audio_state == 1) snprintf(abuf, sizeof abuf, "AUDIO: NO ARRANCO C%d L%d/%d/%d F%d/%d/%d", audio_err, audio_dbg[0], audio_dbg[1], audio_dbg[2], audio_dbg[4], audio_dbg[5], audio_dbg[6]);
         else snprintf(abuf, sizeof abuf, "AUDIO: NO INCLUIDO");
-        draw_text_c(H - 82.0f, abuf,
+        draw_text_c(H - 70.0f, abuf,
                     2, audio_state == 2 ? GS_SETREG_RGBAQ(90, 210, 110, 0x80, 0) : GS_SETREG_RGBAQ(220, 90, 60, 0x80, 0));
     }
     fps_draw();
@@ -86305,7 +86332,6 @@ static int net_lockstep(void)
     u32 old = net_last_pd;
     if (padRead(0, 0, pd)) net_last_pd = 0xffff ^ pd->btns;
     u32 edge = net_last_pd & ~old;
-    if (edge & PAD_SELECT) blend_flip = !blend_flip;
     if (edge & PAD_START) {                                    // START: pregunta si quieres salir
         if (net_leave_prompt) { net_leave("SALISTE DE LA PARTIDA"); return 0; }
         net_leave_prompt = 1;
@@ -86447,7 +86473,6 @@ int main(void)
             if (use2) pad_poll(1);
             for (int k = 0; k < (use2 ? 2 : 1); k++) {
                 if ((pin[k].np & PAD_START) && screen == SC_PLAY && state == 0) { screen = SC_PAUSE; menu_sel = 0; pin[k].np = 0; menu_who = k; }
-                if (pin[k].np & PAD_SELECT) blend_flip = !blend_flip;
             }
         }
 
