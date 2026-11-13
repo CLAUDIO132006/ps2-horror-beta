@@ -5318,6 +5318,7 @@ static float mon_thud;                      // sacudida de camara por las pisada
 static float cam_rc = 1.0f, cam_rs = 0.0f;  // balanceo (roll) de la camara: cos / sin
 static int   crouched, blend_flip;
 static int   opt_cull, optz_sel;                           // OPTIMIZACION > CULLING (caras traseras / fuera de camara / ocultos tras paredes)
+static int   opt_cullc;                                    // OPTIMIZACION > CULLING PERSONAJES
 static int   opt_on;                                       // OPCIONES > OPTIMIZACION: arboles mas ligeros (solo dibujo)
 static int   cable_sel;                    // menu 2 JUGADORES POR CABLE
 
@@ -9392,6 +9393,19 @@ static void st_nrm(const StPart *p, float n0, float n1, float n2, float *nx, flo
     } else { *nx = n0 * p->c - n1 * p->s; *ny = n0 * p->s + n1 * p->c; *nz = n2; }
 }
 
+// Normal para piezas con codo/rodilla: mezcla la del tramo de arriba y la del de abajo segun donde esta el punto
+static void st_nrm_at(const StPart *p, float x, float y, float z, float n0, float n1, float n2, float *nx, float *ny, float *nz)
+{
+    if (!p->lo) { st_nrm(p, n0, n1, n2, nx, ny, nz); return; }
+    float u = p->jax ? (x - p->jc) : (p->jc - y);
+    float w = 0.5f + u / (2.0f * p->jb);
+    if (w <= 0.0f) { st_nrm(p, n0, n1, n2, nx, ny, nz); return; }
+    if (w >= 1.0f) { st_nrm(p->lo, n0, n1, n2, nx, ny, nz); return; }
+    float ax, ay, az, bx, by, bz;
+    st_nrm(p, n0, n1, n2, &ax, &ay, &az); st_nrm(p->lo, n0, n1, n2, &bx, &by, &bz);
+    *nx = ax + (bx - ax) * w; *ny = ay + (by - ay) * w; *nz = az + (bz - az) * w;
+}
+
 // Rectangulo en un plano del modelo. axis 0: x=v (a=y,b=z)  1: y=v (a=x,b=z)  2: z=v (a=x,b=y)
 // sgn: hacia que lado mira la cara (+1 / -1 sobre su eje): si mira de espaldas a la camara no se dibuja
 static void st_plane1(const StCtx *C, const StPart *p, int axis, int sgn, float v,
@@ -9412,7 +9426,16 @@ static void st_plane1(const StCtx *C, const StPart *p, int axis, int sgn, float 
         float fx_ = (q[0][0] + q[1][0] + q[2][0] + q[3][0]) * 0.25f;
         float fy_ = (q[0][1] + q[1][1] + q[2][1] + q[3][1]) * 0.25f;
         float fz_ = (q[0][2] + q[1][2] + q[2][2] + q[3][2]) * 0.25f;
-        if (!p->lo && wx * (px - fx_) + ny * (cam_y - fy_) + wz * (pz - fz_) <= 0.0f) return;   // de espaldas (con codo/rodilla no: la normal de arriba no vale para el tramo de abajo)
+        if (!p->lo && wx * (px - fx_) + ny * (cam_y - fy_) + wz * (pz - fz_) <= 0.0f) return;   // de espaldas
+        if (p->lo && opt_cullc) {                                         // codo/rodilla: normal sacada de las esquinas ya colocadas (sirve para cualquier doblez)
+            float e1[3] = { q[1][0] - q[0][0], q[1][1] - q[0][1], q[1][2] - q[0][2] };
+            float e2[3] = { q[3][0] - q[0][0], q[3][1] - q[0][1], q[3][2] - q[0][2] };
+            float g[3] = { e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0] };
+            float k = -(float)sgn * (axis == 1 ? -1.0f : 1.0f);
+            float vx = px - fx_, vy = cam_y - fy_, vz = pz - fz_;
+            float gl = sqrtf(g[0] * g[0] + g[1] * g[1] + g[2] * g[2]), vl = sqrtf(vx * vx + vy * vy + vz * vz);
+            if (gl > 1e-9f && k * (g[0] * vx + g[1] * vy + g[2] * vz) < -0.08f * gl * vl) return;   // con margen: ante la duda se dibuja
+        }
     }
     quad_sub(q, col, 1, emit);
 }
@@ -9482,7 +9505,7 @@ static const TexRect tx_leg[6]  = { {4,20,4,12},  {12,20,4,12}, {0,20,4,12},  {8
 // La cara es visible desde la camara? (misma prueba que st_plane, para saltarse caras enteras de espaldas)
 static int st_facing(const StCtx *C, const StPart *p, int axis, int sgn, float v, float a0, float a1, float b0, float b1)
 {
-    if (p->lo) return 1;
+    if (p->lo && !opt_cullc) return 1;
     float m[3], q[3];
     float a = (a0 + a1) * 0.5f, b = (b0 + b1) * 0.5f;
     if (axis == 0)      { m[0] = v; m[1] = a; m[2] = b; }
@@ -9490,8 +9513,9 @@ static int st_facing(const StCtx *C, const StPart *p, int axis, int sgn, float v
     else                { m[0] = a; m[1] = b; m[2] = v; }
     st_pt(C, p, m[0], m[1], m[2], q);
     float n0 = (axis == 0) ? (float)sgn : 0.0f, n1 = (axis == 1) ? (float)sgn : 0.0f, n2 = (axis == 2) ? (float)sgn : 0.0f;
-    float nx, ny, nz; st_nrm(p, n0, n1, n2, &nx, &ny, &nz);
+    float nx, ny, nz; st_nrm_at(p, m[0], m[1], m[2], n0, n1, n2, &nx, &ny, &nz);
     float wx = nx * C->fwx + nz * C->rtx, wz = nx * C->fwz + nz * C->rtz;
+    if (p->lo) return wx * (px - q[0]) + ny * (cam_y - q[1]) + wz * (pz - q[2]) > -0.25f;   // con codo/rodilla: margen, ante la duda se dibuja
     return wx * (px - q[0]) + ny * (cam_y - q[1]) + wz * (pz - q[2]) > 0.0f;
 }
 
@@ -10996,7 +11020,7 @@ static void kb_mesh(const StCtx *C, const StPart *p, const short *v, const signe
     for (int i = 0; i < nv; i++) {
         float m[3], nx, ny, nz;
         st_pt(C, p, v[i * 3] * (1.0f / 256.0f), v[i * 3 + 1] * (1.0f / 256.0f), v[i * 3 + 2] * (1.0f / 256.0f), m);
-        st_nrm(p, n[i * 3] * (1.0f / 120.0f), n[i * 3 + 1] * (1.0f / 120.0f), n[i * 3 + 2] * (1.0f / 120.0f), &nx, &ny, &nz);
+        st_nrm_at(p, v[i * 3] * (1.0f / 256.0f), v[i * 3 + 1] * (1.0f / 256.0f), v[i * 3 + 2] * (1.0f / 256.0f), n[i * 3] * (1.0f / 120.0f), n[i * 3 + 1] * (1.0f / 120.0f), n[i * 3 + 2] * (1.0f / 120.0f), &nx, &ny, &nz);
         float wx = nx * C->fwx + nz * C->rtx, wz = nx * C->fwz + nz * C->rtz;
         d[i] = wx * (px - m[0]) + ny * (cam_y - m[1]) + wz * (pz - m[2]);
         float sh = 0.70f + 0.30f * ny; if (sh < 0.45f) sh = 0.45f;
@@ -11005,7 +11029,7 @@ static void kb_mesh(const StCtx *C, const StPart *p, const short *v, const signe
     }
     for (int k = 0; k < nt; k++) {
         int a = t[k * 3], b = t[k * 3 + 1], c = t[k * 3 + 2];
-        if (!p->lo && d[a] < 0.0f && d[b] < 0.0f && d[c] < 0.0f) continue;
+        if ((!p->lo || opt_cullc) && d[a] < 0.0f && d[b] < 0.0f && d[c] < 0.0f) continue;
         tri_cam(vv[a], vv[b], vv[c]);
     }
 }
@@ -11024,12 +11048,12 @@ static void kb_decals(const StCtx *C, const StPart *p, float emit)
             float ry = y - KB_CEN_Y, il = 1.0f / sqrtf(x * x + ry * ry + z * z);
             float n0 = x * il, n1 = ry * il, n2 = z * il;
             st_pt(C, p, x + n0 * 0.05f, y + n1 * 0.05f, z + n2 * 0.05f, w[k]);
-            float nx, ny, nz; st_nrm(p, n0, n1, n2, &nx, &ny, &nz);
+            float nx, ny, nz; st_nrm_at(p, x, y, z, n0, n1, n2, &nx, &ny, &nz);
             float wx = nx * C->fwx + nz * C->rtx, wz = nx * C->fwz + nz * C->rtz;
             if (wx * (px - w[k][0]) + ny * (cam_y - w[k][1]) + wz * (pz - w[k][2]) > 0.0f) front++;
             nyAvg += ny;
         }
-        if (!front && !p->lo) continue;
+        if (!front && (!p->lo || opt_cullc)) continue;
         float sh = 0.70f + 0.075f * nyAvg; if (sh < 0.45f) sh = 0.45f;
         float col[3] = { q[3] * sh, q[4] * sh, q[5] * sh };
         quad_sub(w, col, 1, emit);
@@ -24441,12 +24465,12 @@ static void kc_mesh(const StCtx *C, const StPart *p, const KChar *K, int part, f
             }
         }
         const signed char *fn = &K->f[k * 3];
-        if (!p->lo && (fn[0] | fn[1] | fn[2])) {                        // cara de atras: normal exacta del triangulo
+        if ((!p->lo || opt_cullc) && (fn[0] | fn[1] | fn[2])) {                        // cara de atras: normal exacta del triangulo
             float nx, ny, nz;
-            st_nrm(p, fn[0] * (1.0f / 120.0f), fn[1] * (1.0f / 120.0f), fn[2] * (1.0f / 120.0f), &nx, &ny, &nz);
+            st_nrm_at(p, K->v[(v0 + K->t[k * 3]) * 3] * (1.0f / 256.0f), K->v[(v0 + K->t[k * 3]) * 3 + 1] * (1.0f / 256.0f), K->v[(v0 + K->t[k * 3]) * 3 + 2] * (1.0f / 256.0f), fn[0] * (1.0f / 120.0f), fn[1] * (1.0f / 120.0f), fn[2] * (1.0f / 120.0f), &nx, &ny, &nz);
             float wx = nx * C->fwx + nz * C->rtx, wz = nx * C->fwz + nz * C->rtz;
             const float *m0 = kc_m[id[0]];
-            if (wx * (px - m0[0]) + ny * (cam_y - m0[1]) + wz * (pz - m0[2]) < 0.0f) continue;
+            if (wx * (px - m0[0]) + ny * (cam_y - m0[1]) + wz * (pz - m0[2]) < (p->lo ? -0.25f : 0.0f)) continue;
         }
         for (int j = 0; j < 3; j++) {
             int i = id[j];
@@ -85282,7 +85306,7 @@ static void menu_frame(u32 newp, float lv, int frame)
     int was_skin = (screen == SC_SKIN);
     int ok = (newp & PAD_CROSS) != 0, back = (newp & PAD_CIRCLE) != 0;
     int lt = (newp & PAD_LEFT) != 0, rt = (newp & PAD_RIGHT) != 0;
-    int n = (screen == SC_SOLO) ? 4 : (screen == SC_OPT) ? 8 : (screen == SC_SND) ? 4 : (screen == SC_OPTZ) ? 3 : (screen == SC_SKIN ? 3 : screen == SC_CTRL ? 4 : (screen == SC_MAIN ? 7 : (screen == SC_NET ? 3 : (screen == SC_NETIP || screen == SC_NETWAIT ? 1 : 4))));
+    int n = (screen == SC_SOLO) ? 4 : (screen == SC_OPT) ? 8 : (screen == SC_SND) ? 4 : (screen == SC_OPTZ) ? 4 : (screen == SC_SKIN ? 3 : screen == SC_CTRL ? 4 : (screen == SC_MAIN ? 7 : (screen == SC_NET ? 3 : (screen == SC_NETIP || screen == SC_NETWAIT ? 1 : 4))));
     if (pad2_warn > 0) pad2_warn--;
     const int scr0 = screen;                                   // pantalla con la que empieza este cuadro
 #ifdef HAVE_NET
@@ -85380,10 +85404,11 @@ static void menu_frame(u32 newp, float lv, int frame)
         }
     } else if (screen == SC_OPTZ) {                           // OPTIMIZACION: lista de optimizaciones
         int d = rt ? 1 : (lt ? -1 : (ok ? 1 : 0));
-        if (back || (ok && *sel == 2)) screen = SC_OPT;
+        if (back || (ok && *sel == 3)) screen = SC_OPT;
         else if (d != 0) {
             if (*sel == 0) opt_on = !opt_on;
             else if (*sel == 1) opt_cull = !opt_cull;
+            else if (*sel == 2) opt_cullc = !opt_cullc;
         }
     } else if (screen == SC_SND) {                            // SONIDO: encendido / volumen / chat de proximidad
         int d = rt ? 1 : (lt ? -1 : (ok ? 1 : 0));
@@ -85593,16 +85618,17 @@ static void menu_frame(u32 newp, float lv, int frame)
         }
     } else if (screen == SC_OPTZ) {
         draw_text_c(40.0f, "OPTIMIZACION", 5, sel_c);
-        for (int i = 0; i < 3; i++) {
+        for (int i = 0; i < 4; i++) {
             char val[12]; val[0] = '\0'; const char *name = "VOLVER";
             if (i == 0) { name = "1 ARBOLES 144P"; snprintf(val, sizeof(val), "%s", opt_on ? "SI" : "NO"); }
             else if (i == 1) { name = "2 CULLING"; snprintf(val, sizeof(val), "%s", opt_cull ? "SI" : "NO"); }
+            else if (i == 2) { name = "3 CULLING PERSONAJES"; snprintf(val, sizeof(val), "%s", opt_cullc ? "SI" : "NO"); }
             if (val[0]) snprintf(line, sizeof(line), i == optz_sel ? "> %s: %s <" : "%s: %s", name, val);
             else snprintf(line, sizeof(line), i == optz_sel ? "> %s <" : "%s", name);
             draw_text_c(100.0f + i * 34.0f, line, 3, i == optz_sel ? sel_c : norm_c);
         }
-        const char *d1 = optz_sel == 0 ? "ARBOLES PIXELADOS COMO A 144P Y MENOS LEJANOS" : (optz_sel == 1 ? "NO DIBUJA CARAS TRASERAS, LO QUE ESTA FUERA DE CAMARA" : "");
-        const char *d2 = optz_sel == 1 ? "NI LO QUE QUEDA OCULTO TRAS PAREDES ALTAS" : "";
+        const char *d1 = optz_sel == 0 ? "ARBOLES PIXELADOS COMO A 144P Y MENOS LEJANOS" : (optz_sel == 1 ? "NO DIBUJA CARAS TRASERAS, LO QUE ESTA FUERA DE CAMARA" : (optz_sel == 2 ? "NO DIBUJA LAS CARAS TRASERAS DE TODOS LOS PERSONAJES" : ""));
+        const char *d2 = optz_sel == 1 ? "NI LO QUE QUEDA OCULTO TRAS PAREDES ALTAS" : (optz_sel == 2 ? "INCLUSO CODOS Y RODILLAS, SIN CAMBIO AL MOVERSE" : "");
         draw_text_c(232.0f, d1, 2, hint_c);
         draw_text_c(252.0f, d2, 2, hint_c);
     } else if (screen == SC_SND) {
@@ -86672,13 +86698,6 @@ int main(void)
     while (1) {
         frame_no++;
         fps_update();
-        {   // RENDER: si con un nivel mayor al normal los FPS bajan de 50, baja un nivel y ese pasa a ser el tope
-            static int low = 0;
-            if (screen == SC_PLAY && fps_val > 1.0f && fps_val < 50.0f && rd_lv > RD_DEF) {
-                if (++low > 100) { rd_lv--; rd_max = rd_lv; low = -60; }
-            } else if (low > 0 || screen != SC_PLAY) low = 0;
-            else if (low < 0) low++;
-        }
         float t = frame_no * dt;
         int nsteps = 1;                                  // pasos de simulacion de este cuadro (a 30 fps se hacen 2 para que el juego no vaya en camara lenta)
         {
