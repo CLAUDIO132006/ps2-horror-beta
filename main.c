@@ -5316,7 +5316,6 @@ static int   walk_step;                     // numero de paso (para sincronizar 
 static float mon_thud;                      // sacudida de camara por las pisadas del monstruo
 static float cam_rc = 1.0f, cam_rs = 0.0f;  // balanceo (roll) de la camara: cos / sin
 static int   crouched, blend_flip;
-static int   opt_on;                                       // OPCIONES > OPTIMIZACION: arboles mas ligeros (solo dibujo)
 static int   cable_sel;                    // menu 2 JUGADORES POR CABLE
 
 static int   spec_walk;                   // MODO SECRETO: 1 = caminas normal (sin noclip); flecha ARRIBA alterna
@@ -6661,7 +6660,6 @@ static int pool_mode;        // 1: dibujando luz de la linterna del otro jugador
 static float pool_rgb[3];
 static int vm_mode;          // 1: dibujando mano+linterna (profundidad propia, siempre al frente)
 
-static float px_snap;                                      // >0: los vertices se pegan a una cuadricula gruesa (OPTIMIZACION: arboles pixelados, como a 144p)
 static void emit_tri(V a, V b, V c)
 {
     V t[3] = { a, b, c };
@@ -6673,7 +6671,6 @@ static void emit_tri(V a, V b, V c)
         if (!vm_mode) { float rx_ = qx * cam_rc - qy * cam_rs; qy = qx * cam_rs + qy * cam_rc; qx = rx_; }   // roll
         X[i] = clampf(W * 0.5f + qx / t[i].z * FOCAL, -1000.0f, W + 1000.0f);
         Y[i] = clampf(H * 0.5f - qy / t[i].z * FOCAL, -1000.0f, H + 1000.0f);
-        if (px_snap > 0.0f) { X[i] = floorf(X[i] / px_snap + 0.5f) * px_snap; Y[i] = floorf(Y[i] / px_snap + 0.5f) * px_snap; }
         if (vm_mode) Z[i] = 16777215 - (int)(clampf((t[i].z - 0.2f) / 0.5f, 0.0f, 1.0f) * 110.0f);
         else if (force_z >= 0) Z[i] = force_z;
         else {                                   // 1/z: lineal en pantalla (profundidad correcta)
@@ -7010,12 +7007,11 @@ static void draw_trees(void)
 {
     int pcx = (int)(px / CS), pcz = (int)(pz / CS);
     const int gR = (int)((float)gfx_R[gfx] * rd_k + 0.5f);
-    px_snap = opt_on ? H / 144.0f : 0.0f;                     // OPTIMIZACION: los arboles se dibujan como si la pantalla fuera de 144 lineas
     for (int cz = pcz - gR; cz <= pcz + gR; cz++)
         for (int cx = pcx - gR; cx <= pcx + gR; cx++) {
             float tx, tz, s; int dead;
             if (!tree_at(cx, cz, &tx, &tz, &s, &dead)) continue;
-            if (!in_view(tx, tz, 1.6f, fminf(draw_lim, (gfx_pd[gfx] * rd_k)) * (opt_on ? 0.8f : 1.0f))) continue;       // OPTIMIZACION: los lejanos ni se dibujan
+            if (!in_view(tx, tz, 1.6f, fminf(draw_lim, (gfx_pd[gfx] * rd_k)))) continue;
             float bark[3] = { 78.f, 58.f, 40.f };
             if (dead) {
                 float bk[3] = { 64.f, 52.f, 44.f };
@@ -7026,7 +7022,7 @@ static void draw_trees(void)
                 float g1[3] = { 34.f, 72.f, 36.f }, g2[3] = { 42.f, 86.f, 44.f };
                 float ex = tx - px, ez = tz - pz, lim = fminf(draw_lim, (gfx_pd[gfx] * rd_k));
                 box_rot(tx, tz, 0, 0, 0, 0.17f * s, 0.17f * s, 0, 2.4f * s, bark, 0);
-                if (ex * ex + ez * ez > (opt_on ? 0.16f : 0.36f) * lim * lim)  // lejos: un solo cono (casi no se nota)
+                if (ex * ex + ez * ez > 0.36f * lim * lim)                    // lejos: un solo cono (casi no se nota)
                     pyr_rot(tx, tz, 1.1f * s, 1.5f * s, 5.2f * s, g1);
                 else {
                     pyr_rot(tx, tz, 1.15f * s, 1.5f * s, 3.7f * s, g1);
@@ -7034,7 +7030,6 @@ static void draw_trees(void)
                 }
             }
         }
-    px_snap = 0.0f;
 }
 
 #define PUMP_NV 320
@@ -85193,7 +85188,7 @@ static void menu_frame(u32 newp, float lv, int frame)
     int was_skin = (screen == SC_SKIN);
     int ok = (newp & PAD_CROSS) != 0, back = (newp & PAD_CIRCLE) != 0;
     int lt = (newp & PAD_LEFT) != 0, rt = (newp & PAD_RIGHT) != 0;
-    int n = (screen == SC_SOLO) ? 4 : (screen == SC_OPT) ? 8 : (screen == SC_SND) ? 4 : (screen == SC_SKIN ? 3 : screen == SC_CTRL ? 4 : (screen == SC_MAIN ? 7 : (screen == SC_NET ? 3 : (screen == SC_NETIP || screen == SC_NETWAIT ? 1 : 4))));
+    int n = (screen == SC_SOLO) ? 4 : (screen == SC_OPT) ? 7 : (screen == SC_SND) ? 4 : (screen == SC_SKIN ? 3 : screen == SC_CTRL ? 4 : (screen == SC_MAIN ? 7 : (screen == SC_NET ? 3 : (screen == SC_NETIP || screen == SC_NETWAIT ? 1 : 4))));
     if (pad2_warn > 0) pad2_warn--;
     const int scr0 = screen;                                   // pantalla con la que empieza este cuadro
 #ifdef HAVE_NET
@@ -85298,14 +85293,13 @@ static void menu_frame(u32 newp, float lv, int frame)
         }
     } else if (screen == SC_OPT) {
         int d = rt ? 1 : (lt ? -1 : (ok ? 1 : 0));
-        if (back || (ok && *sel == 7)) screen = opt_from;
-        else if (ok && *sel == 6) { screen = SC_SKIN; skin_sel = 0; }
-        else if (ok && *sel == 5) { screen = SC_CTRL; ctl_sel = 0; }
+        if (back || (ok && *sel == 6)) screen = opt_from;
+        else if (ok && *sel == 5) { screen = SC_SKIN; skin_sel = 0; }
+        else if (ok && *sel == 4) { screen = SC_CTRL; ctl_sel = 0; }
         else if (ok && *sel == 1) { screen = SC_SND; snd_sel = 0; }
         else if (d != 0) {
             if (*sel == 0) gfx = (gfx + d + 3) % 3;
-            else if (*sel == 3) opt_on = !opt_on;
-            else if (*sel == 4) { if (who_p2()) cursor_on2 = !cursor_on2; else cursor_on = !cursor_on; }
+            else if (*sel == 3) { if (who_p2()) cursor_on2 = !cursor_on2; else cursor_on = !cursor_on; }
             else if (*sel == 2) {                                              // RENDER: llega hasta el tope que aguantan los 50 FPS
                 rd_lv += d;
                 if (rd_lv > rd_max) rd_lv = ok ? 1 : rd_max;
@@ -85514,16 +85508,15 @@ static void menu_frame(u32 newp, float lv, int frame)
     } else if (screen == SC_OPT) {
         draw_text_c(40.0f, "OPCIONES", 5, sel_c);
         static const char *gq[3] = { "BAJO", "MEDIO", "ALTO" };
-        for (int i = 0; i < 8; i++) {
+        for (int i = 0; i < 7; i++) {
             const char *name = "";
             char val[12]; val[0] = '\0';
             if (i == 0) { name = "GRAFICOS"; snprintf(val, sizeof(val), "%s", gq[gfx]); }
             else if (i == 1) name = "SONIDO";
             else if (i == 2) { name = "RENDER"; snprintf(val, sizeof(val), rd_lv == rd_max && rd_max < 8 ? "%d MAX" : "%d", rd_lv); }
-            else if (i == 3) { name = "OPTIMIZACION"; snprintf(val, sizeof(val), "%s", opt_on ? "SI" : "NO"); }
-            else if (i == 4) { name = "CURSOR"; snprintf(val, sizeof(val), "%s", (who_p2() ? cursor_on2 : cursor_on) ? "SI" : "NO"); }
-            else if (i == 5) name = "CONTROLES";
-            else if (i == 6) name = "SKINS";
+            else if (i == 3) { name = "CURSOR"; snprintf(val, sizeof(val), "%s", (who_p2() ? cursor_on2 : cursor_on) ? "SI" : "NO"); }
+            else if (i == 4) name = "CONTROLES";
+            else if (i == 5) name = "SKINS";
             else name = "VOLVER";
             if (val[0]) snprintf(line, sizeof(line), i == opt_sel ? "> %s: %s <" : "%s: %s", name, val);
             else snprintf(line, sizeof(line), i == opt_sel ? "> %s <" : "%s", name);
