@@ -5318,6 +5318,7 @@ static float mon_thud;                      // sacudida de camara por las pisada
 static float cam_rc = 1.0f, cam_rs = 0.0f;  // balanceo (roll) de la camara: cos / sin
 static int   crouched, blend_flip;
 static int   opt_cull, optz_sel;                           // OPTIMIZACION > CULLING (caras traseras / fuera de camara / ocultos tras paredes)
+static int   opt_fastm, opt_early;                         // OPTIMIZACION: matematica rapida / descarte temprano de triangulos
 static int   opt_cullc;                                    // OPTIMIZACION > CULLING PERSONAJES
 static int   opt_on;                                       // OPCIONES > OPTIMIZACION: arboles mas ligeros (solo dibujo)
 static int   cable_sel;                    // menu 2 JUGADORES POR CABLE
@@ -6665,8 +6666,55 @@ static float pool_rgb[3];
 static int vm_mode;          // 1: dibujando mano+linterna (profundidad propia, siempre al frente)
 
 static float px_snap;                                      // >0: los vertices se pegan a una cuadricula gruesa (OPTIMIZACION: arboles pixelados, como a 144p)
+static void emit_tri_fast(V a, V b, V c)
+{
+    V t[3] = { a, b, c };
+    float X[3], Y[3], iz[3];
+    for (int i = 0; i < 3; i++) {
+        float qx = t[i].x, qy = t[i].y;
+        if (!vm_mode) { float rx_ = qx * cam_rc - qy * cam_rs; qy = qx * cam_rs + qy * cam_rc; qx = rx_; }
+        iz[i] = opt_fastm ? 1.0f / t[i].z : 0.0f;
+        float kx = opt_fastm ? qx * iz[i] : qx / t[i].z, ky = opt_fastm ? qy * iz[i] : qy / t[i].z;
+        X[i] = clampf(W * 0.5f + kx * FOCAL, -1000.0f, W + 1000.0f);
+        Y[i] = clampf(H * 0.5f - ky * FOCAL, -1000.0f, H + 1000.0f);
+        if (px_snap > 0.0f) { X[i] = floorf(X[i] / px_snap + 0.5f) * px_snap; Y[i] = floorf(Y[i] / px_snap + 0.5f) * px_snap; }
+    }
+    if (opt_early && !vm_mode) {                 // se descarta ANTES de calcular profundidad y color
+        float ar = (X[1] - X[0]) * (Y[2] - Y[0]) - (X[2] - X[0]) * (Y[1] - Y[0]);
+        if (ar < 0.6f && ar > -0.6f) return;
+        if ((X[0] < 0.0f && X[1] < 0.0f && X[2] < 0.0f) || (X[0] > W && X[1] > W && X[2] > W) ||
+            (Y[0] < 0.0f && Y[1] < 0.0f && Y[2] < 0.0f) || (Y[0] > H && Y[1] > H && Y[2] > H)) return;
+    }
+    int Z[3];
+    u64 col[3];
+    for (int i = 0; i < 3; i++) {
+        if (vm_mode) Z[i] = 16777215 - (int)(clampf((t[i].z - 0.2f) / 0.5f, 0.0f, 1.0f) * 110.0f);
+        else if (force_z >= 0) Z[i] = force_z;
+        else {
+            Z[i] = (int)(16777000.0f * (opt_fastm ? NEAR_Z * iz[i] : NEAR_Z / t[i].z) * z_bias_k);
+            if (Z[i] < 1) Z[i] = 1; else if (Z[i] > 16777215) Z[i] = 16777215;
+        }
+        if (pool_mode) {
+            Z[i] = (int)clampf((float)Z[i] + 3000.0f, 1.0f, 16777215.0f);
+            col[i] = GS_SETREG_RGBAQ((int)pool_rgb[0], (int)pool_rgb[1], (int)pool_rgb[2], ba((int)clampf(t[i].r, 0, 128)), 0x00);
+        } else if (water_mode > 0)
+            col[i] = GS_SETREG_RGBAQ((int)clampf(t[i].r, 0, 255), (int)clampf(t[i].g, 0, 255), (int)clampf(t[i].b, 0, 255), ba(water_mode), 0x00);
+        else
+            col[i] = GS_SETREG_RGBAQ((int)clampf(t[i].r, 0, 255), (int)clampf(t[i].g, 0, 255), (int)clampf(t[i].b, 0, 255), 0x80, 0x00);
+    }
+    if (!opt_early && !vm_mode) {
+        float ar = (X[1] - X[0]) * (Y[2] - Y[0]) - (X[2] - X[0]) * (Y[1] - Y[0]);
+        if (ar < 0.6f && ar > -0.6f) return;
+        if ((X[0] < 0.0f && X[1] < 0.0f && X[2] < 0.0f) || (X[0] > W && X[1] > W && X[2] > W) ||
+            (Y[0] < 0.0f && Y[1] < 0.0f && Y[2] < 0.0f) || (Y[0] > H && Y[1] > H && Y[2] > H)) return;
+    }
+    gsKit_prim_triangle_gouraud_3d(gsGlobal,
+        X[0], Y[0], Z[0], X[1], Y[1], Z[1], X[2], Y[2], Z[2], col[0], col[1], col[2]);
+}
+
 static void emit_tri(V a, V b, V c)
 {
+    if (opt_fastm || opt_early) { emit_tri_fast(a, b, c); return; }
     V t[3] = { a, b, c };
     float X[3], Y[3];
     int Z[3];
@@ -82358,68 +82406,88 @@ static void ui_chamfer(float x0, float y0, float x1, float y1, float c, int r, i
     ui_rect(x0, y0 + c, x1, y1 - c, r, g, b, a);
     ui_rect(x0 + c, y1 - c, x1 - c, y1, r, g, b, a);
 }
-static void ui_card(float x0, float y0, float x1, float y1, int sel)                // tarjeta: borde rojo si esta seleccionada, fondo oscuro
+static float ui_cx = -1.0f;                                                           // centro horizontal del texto de menu (<0 = centro de pantalla)
+static void ui_card(float x0, float y0, float x1, float y1, int sel)                // tarjeta sobria: borde fino, el seleccionado mas claro
 {
-    ui_chamfer(x0 + 3.0f, y0 + 4.0f, x1 + 3.0f, y1 + 4.0f, 4.0f, 0, 0, 0, 70);          // sombra
-    if (sel) ui_chamfer(x0 - 2.0f, y0 - 2.0f, x1 + 2.0f, y1 + 2.0f, 5.0f, 230, 50, 54, 235);
-    else ui_chamfer(x0 - 1.0f, y0 - 1.0f, x1 + 1.0f, y1 + 1.0f, 5.0f, 80, 84, 100, 200);
-    ui_chamfer(x0, y0, x1, y1, 4.0f, 14, 14, 22, 235);
-    ui_rect(x0 + 4.0f, y0 + 1.0f, x1 - 4.0f, y0 + 3.0f, sel ? 255 : 60, sel ? 110 : 64, sel ? 90 : 78, 90);     // brillo superior
+    ui_rect(x0 - 1.0f, y0 - 1.0f, x1 + 1.0f, y1 + 1.0f, sel ? 190 : 80, sel ? 180 : 78, sel ? 160 : 74, sel ? 200 : 140);
+    ui_rect(x0, y0, x1, y1, 8, 8, 10, 225);
 }
-static void ui_pill(float x0, float y0, float x1, float y1)                       // barra de opcion seleccionada (late suave)
+static void ui_pill(float x0, float y0, float x1, float y1)                       // opcion seleccionada: franja de sangre seca que se desvanece + lineas finas
 {
-    int pa = 200 + (int)(40.0f * sinf((float)frame_no * 0.12f));
-    ui_chamfer(x0 - 5.0f, y0 - 4.0f, x1 + 5.0f, y1 + 4.0f, 7.0f, 230, 40, 50, 55);       // resplandor
-    ui_chamfer(x0, y0, x1, y1, 6.0f, 176, 22, 34, pa);
-    ui_rect(x0 + 6.0f, y0 + 1.0f, x1 - 6.0f, y0 + 4.0f, 255, 120, 110, 70);
-    ui_rect(x0, y0 + 6.0f, x0 + 5.0f, y1 - 6.0f, 255, 214, 90, 240);                       // marca dorada a la izquierda
-    ui_rect(x1 - 5.0f, y0 + 6.0f, x1, y1 - 6.0f, 255, 214, 90, 240);
+    int pa = 70 + (int)(22.0f * sinf((float)frame_no * 0.08f));
+    float cx = (x0 + x1) * 0.5f, hw = (x1 - x0) * 0.5f;
+    for (int k = 0; k < 6; k++) {                                                      // degradado horizontal: mas intenso al centro
+        float f = 1.0f - (float)k / 6.0f;
+        ui_rect(cx - hw * f, y0, cx + hw * f, y1, 92, 12, 12, pa / 5);
+    }
+    ui_rect(cx - hw, y0, cx + hw, y0 + 1.0f, 170, 160, 140, 90);
+    ui_rect(cx - hw, y1 - 1.0f, cx + hw, y1, 170, 160, 140, 90);
 }
-static void ui_overlay(float with_panel)                                              // vineta, brasas que suben y panel central
+static void ui_overlay(float with_panel)                                              // niebla, grano, vineta y panel; with_panel < 0: degradado oscuro a la izquierda (menu principal)
 {
-    ui_rect(0.0f, 0.0f, W, 54.0f, 0, 0, 0, 70);                                          // barras de cine arriba y abajo
-    ui_rect(0.0f, H - 40.0f, W, H, 0, 0, 0, 90);
-    ui_rect(0.0f, 54.0f, W, 56.0f, 200, 30, 40, 110);
-    ui_rect(0.0f, H - 42.0f, W, H - 40.0f, 200, 30, 40, 80);
-    for (int i = 0; i < 22; i++) {                                                       // brasas
+    for (int k = 0; k < 6; k++) {                                                        // oscurece arriba y abajo en degradado
+        int al = 120 - k * 20;
+        ui_rect(0.0f, (float)k * 9.0f, W, (float)(k + 1) * 9.0f, 0, 0, 0, al);
+        ui_rect(0.0f, H - (float)(k + 1) * 9.0f, W, H - (float)k * 9.0f, 0, 0, 0, al);
+    }
+    if (with_panel < 0.0f) {
+        for (int k = 0; k < 10; k++) ui_rect(0.0f, 0.0f, W * (0.72f - 0.05f * (float)k), H, 0, 0, 0, 22);   // sombra a la izquierda para leer el texto
+    } else {
+        for (int k = 0; k < 4; k++) { ui_rect(0.0f, 0.0f, 10.0f * (float)(4 - k), H, 0, 0, 0, 26); ui_rect(W - 10.0f * (float)(4 - k), 0.0f, W, H, 0, 0, 0, 26); }
+    }
+    for (int i = 0; i < 3; i++) {                                                         // bancos de niebla que pasan despacio
+        float sp = 0.10f + 0.06f * (float)i;
+        float x = fmodf((float)frame_no * sp + (float)i * 260.0f, W + 420.0f) - 420.0f;
+        float y = H * (0.30f + 0.22f * (float)i);
+        for (int k = 0; k < 3; k++) ui_rect(x + 40.0f * (float)k, y + 10.0f * (float)k, x + 420.0f - 40.0f * (float)k, y + 70.0f - 10.0f * (float)k, 150, 150, 155, 6);
+    }
+    for (int i = 0; i < 18; i++) {                                                       // ceniza que cae despacio
         unsigned int h = (unsigned int)(i + 1) * 2654435761u;
-        float sp = 0.35f + (float)((h >> 8) & 255u) / 255.0f * 0.9f;
-        float y = H - fmodf((float)frame_no * sp + (float)((h >> 16) & 1023u), H + 20.0f) + 10.0f;
-        float x = (float)((h >> 4) % (unsigned int)W) + 7.0f * sinf((float)frame_no * 0.03f + (float)i);
-        int al = 40 + (int)((h >> 12) & 63u);
-        ui_rect(x, y, x + 2.0f, y + 2.0f, 255, 120 + (int)((h >> 20) & 95u), 50, al);
+        float sp = 0.25f + (float)((h >> 8) & 255u) / 255.0f * 0.5f;
+        float y = fmodf((float)frame_no * sp + (float)((h >> 16) & 1023u), H + 20.0f) - 10.0f;
+        float x = (float)((h >> 4) % (unsigned int)W) + 9.0f * sinf((float)frame_no * 0.02f + (float)i);
+        ui_rect(x, y, x + 2.0f, y + 2.0f, 175, 170, 160, 30 + (int)((h >> 12) & 31u));
+    }
+    for (int i = 0; i < 40; i++) {                                                       // grano de pelicula
+        unsigned int h = ((unsigned int)frame_no * 40u + (unsigned int)i + 1u) * 2246822519u;
+        h ^= h >> 15; h *= 2654435761u;
+        float x = (float)(h % (unsigned int)W), y = (float)((h >> 11) % (unsigned int)H);
+        int g = 120 + (int)((h >> 22) & 63u);
+        ui_rect(x, y, x + 1.0f, y + 1.0f, g, g, g, 40);
     }
     if (with_panel > 0.0f) {
         float x0 = W * 0.5f - with_panel, x1 = W * 0.5f + with_panel, y0 = 66.0f, y1 = H - 52.0f;
-        ui_chamfer(x0 + 4.0f, y0 + 5.0f, x1 + 4.0f, y1 + 5.0f, 12.0f, 0, 0, 0, 80);
-        ui_chamfer(x0 - 2.0f, y0 - 2.0f, x1 + 2.0f, y1 + 2.0f, 13.0f, 190, 28, 40, 150);
-        ui_chamfer(x0, y0, x1, y1, 12.0f, 8, 8, 14, 205);
-        ui_rect(x0 + 12.0f, y0 + 2.0f, x1 - 12.0f, y0 + 5.0f, 255, 90, 80, 60);
+        ui_rect(x0 - 1.0f, y0 - 1.0f, x1 + 1.0f, y1 + 1.0f, 120, 114, 102, 90);
+        ui_rect(x0, y0, x1, y1, 6, 6, 8, 195);
+        ui_rect(x0 + 10.0f, y0 + 6.0f, x1 - 10.0f, y0 + 7.0f, 150, 140, 120, 60);
     }
 }
 static void draw_text_c(float y, const char *str, int sc, u64 col)
 {
+    float cx = ui_cx > 0.0f ? ui_cx : W * 0.5f;
     if (ui_modern) {
         int n = (int)strlen(str);
-        if (n > 4 && str[0] == '>' && str[1] == ' ' && str[n - 1] == '<' && str[n - 2] == ' ') {      // opcion seleccionada: barra roja con texto blanco
+        if (n > 4 && str[0] == '>' && str[1] == ' ' && str[n - 1] == '<' && str[n - 2] == ' ') {      // opcion seleccionada: franja tenue, texto claro que respira
             char tmp[64]; int m = n - 4; if (m > 62) m = 62;
             memcpy(tmp, str + 2, (size_t)m); tmp[m] = '\0';
-            float w = text_w(tmp, sc), x = (W - w) * 0.5f;
-            ui_pill(x - 28.0f, y - 8.0f, x + w + 28.0f, y + 7.0f * sc + 7.0f);
+            float w = text_w(tmp, sc), x = cx - w * 0.5f;
+            ui_pill(x - 40.0f, y - 7.0f, x + w + 40.0f, y + 7.0f * sc + 6.0f);
+            int br = 225 + (int)(25.0f * sinf((float)frame_no * 0.08f));
             draw_text(x + (float)sc * 0.5f, y + (float)sc * 0.5f, tmp, sc, GS_SETREG_RGBAQ(0, 0, 0, 0x80, 0));
-            draw_text(x, y, tmp, sc, GS_SETREG_RGBAQ(255, 250, 245, 0x80, 0));
+            draw_text(x, y, tmp, sc, GS_SETREG_RGBAQ(br, br - 8, br - 30, 0x80, 0));
             return;
         }
-        if (sc >= 4) {                                                                               // titulo: sombra y subrayado de color
-            float w = text_w(str, sc), x = (W - w) * 0.5f;
+        if (sc >= 4) {                                                                               // titulo: sombra y una linea fina debajo
+            float w = text_w(str, sc), x = cx - w * 0.5f;
             draw_text(x + (float)sc * 0.6f, y + (float)sc * 0.6f, str, sc, GS_SETREG_RGBAQ(0, 0, 0, 0x80, 0));
             draw_text(x, y, str, sc, col);
-            ui_rect(x + w * 0.2f, y + 7.0f * sc + 7.0f, x + w * 0.8f, y + 7.0f * sc + 10.0f, 230, 50, 54, 230);
-            ui_rect(x + w * 0.38f, y + 7.0f * sc + 11.0f, x + w * 0.62f, y + 7.0f * sc + 13.0f, 255, 214, 90, 200);
+            ui_rect(x + w * 0.1f, y + 7.0f * sc + 8.0f, x + w * 0.9f, y + 7.0f * sc + 9.0f, 150, 140, 120, 130);
+            ui_rect(x + w * 0.4f, y + 7.0f * sc + 11.0f, x + w * 0.6f, y + 7.0f * sc + 12.0f, 110, 100, 90, 110);
             return;
         }
+        if (sc >= 2) draw_text(cx - text_w(str, sc) * 0.5f + (float)sc * 0.5f, y + (float)sc * 0.5f, str, sc, GS_SETREG_RGBAQ(0, 0, 0, 0x80, 0));   // sombra del texto
     }
-    draw_text((W - text_w(str, sc)) * 0.5f, y, str, sc, col);
+    draw_text(cx - text_w(str, sc) * 0.5f, y, str, sc, col);
 }
 
 // ---------------- Contador de FPS en tiempo real (arriba a la derecha) ----------------
@@ -85306,7 +85374,7 @@ static void menu_frame(u32 newp, float lv, int frame)
     int was_skin = (screen == SC_SKIN);
     int ok = (newp & PAD_CROSS) != 0, back = (newp & PAD_CIRCLE) != 0;
     int lt = (newp & PAD_LEFT) != 0, rt = (newp & PAD_RIGHT) != 0;
-    int n = (screen == SC_SOLO) ? 4 : (screen == SC_OPT) ? 8 : (screen == SC_SND) ? 4 : (screen == SC_OPTZ) ? 4 : (screen == SC_SKIN ? 3 : screen == SC_CTRL ? 4 : (screen == SC_MAIN ? 7 : (screen == SC_NET ? 3 : (screen == SC_NETIP || screen == SC_NETWAIT ? 1 : 4))));
+    int n = (screen == SC_SOLO) ? 4 : (screen == SC_OPT) ? 8 : (screen == SC_SND) ? 4 : (screen == SC_OPTZ) ? 6 : (screen == SC_SKIN ? 3 : screen == SC_CTRL ? 4 : (screen == SC_MAIN ? 7 : (screen == SC_NET ? 3 : (screen == SC_NETIP || screen == SC_NETWAIT ? 1 : 4))));
     if (pad2_warn > 0) pad2_warn--;
     const int scr0 = screen;                                   // pantalla con la que empieza este cuadro
 #ifdef HAVE_NET
@@ -85404,11 +85472,13 @@ static void menu_frame(u32 newp, float lv, int frame)
         }
     } else if (screen == SC_OPTZ) {                           // OPTIMIZACION: lista de optimizaciones
         int d = rt ? 1 : (lt ? -1 : (ok ? 1 : 0));
-        if (back || (ok && *sel == 3)) screen = SC_OPT;
+        if (back || (ok && *sel == 5)) screen = SC_OPT;
         else if (d != 0) {
             if (*sel == 0) opt_on = !opt_on;
             else if (*sel == 1) opt_cull = !opt_cull;
             else if (*sel == 2) opt_cullc = !opt_cullc;
+            else if (*sel == 3) opt_fastm = !opt_fastm;
+            else if (*sel == 4) opt_early = !opt_early;
         }
     } else if (screen == SC_SND) {                            // SONIDO: encendido / volumen / chat de proximidad
         int d = rt ? 1 : (lt ? -1 : (ok ? 1 : 0));
@@ -85593,20 +85663,22 @@ static void menu_frame(u32 newp, float lv, int frame)
     if (screen == SC_SOLO || screen == SC_LOBBY) gsKit_clear(gsGlobal, GS_SETREG_RGBAQ(10, 10, 14, 0x80, 0));
     else if (screen == SC_MAIN || screen == SC_SECRET || screen == SC_CABLE || screen == SC_NET || screen == SC_NETIP || screen == SC_NETWAIT || screen == SC_NETLIST || screen == SC_NETCAP || screen == SC_NAME || ((screen == SC_OPT || screen == SC_SND || screen == SC_OPTZ || screen == SC_CTRL || screen == SC_SKIN) && opt_from == SC_MAIN)) menu_bg_main();
     else { render_frame(last_t, 1); menu_dim(); }
-    ui_overlay((screen == SC_SOLO || screen == SC_LOBBY || screen == SC_CTRL || screen == SC_NETLIST) ? 0.0f : ((screen == SC_MAIN || screen == SC_PAUSE) ? 200.0f : 262.0f));
+    ui_overlay((screen == SC_SOLO || screen == SC_LOBBY || screen == SC_CTRL || screen == SC_NETLIST) ? 0.0f : (screen == SC_MAIN ? -1.0f : (screen == SC_PAUSE ? 200.0f : 262.0f)));
 
-    u64 sel_c = GS_SETREG_RGBAQ(255, 230, 90, 0x80, 0), norm_c = GS_SETREG_RGBAQ(170, 170, 175, 0x80, 0);
-    u64 hint_c = GS_SETREG_RGBAQ(120, 120, 130, 0x80, 0);
+    u64 sel_c = GS_SETREG_RGBAQ(222, 212, 190, 0x80, 0), norm_c = GS_SETREG_RGBAQ(128, 125, 120, 0x80, 0);
+    u64 hint_c = GS_SETREG_RGBAQ(98, 95, 92, 0x80, 0);
     int fl = (frame / 6) % 23 == 0;
-    u64 title_c = GS_SETREG_RGBAQ(fl ? 90 : 200, 0, 0, 0x80, 0);
+    u64 title_c = GS_SETREG_RGBAQ(fl ? 110 : 196, fl ? 100 : 186, fl ? 90 : 168, 0x80, 0);
     static char line[48];
     if (screen == SC_MAIN) {
         draw_text_c(50.0f, "HORROR BETA", 6, title_c);
         static const char *it[7] = { "1 JUGADOR", "2 JUGADORES", "ONLINE", "2 JUG. POR CABLE", "OPCIONES", "MODO SECRETO", "SALIR" };
+        ui_cx = W * 0.30f;                                    // la lista va a la izquierda: el monstruo se ve a la derecha
         for (int i = 0; i < 7; i++) {
             snprintf(line, sizeof(line), i == menu_sel ? "> %s <" : "%s", it[i]);
             draw_text_c(146.0f + i * 32.0f, line, 3, i == menu_sel ? sel_c : norm_c);
         }
+        ui_cx = -1.0f;
         if (pad2_warn > 0) draw_text_c(H - 110.0f, "CONECTA EL CONTROL 2", 2, GS_SETREG_RGBAQ(220, 90, 60, 0x80, 0));
         if (net_notice_t > 0) draw_text_c(H - 110.0f, net_notice, 2, GS_SETREG_RGBAQ(235, 130, 60, 0x80, 0));
     } else if (screen == SC_PAUSE) {
@@ -85618,19 +85690,21 @@ static void menu_frame(u32 newp, float lv, int frame)
         }
     } else if (screen == SC_OPTZ) {
         draw_text_c(40.0f, "OPTIMIZACION", 5, sel_c);
-        for (int i = 0; i < 4; i++) {
+        for (int i = 0; i < 6; i++) {
             char val[12]; val[0] = '\0'; const char *name = "VOLVER";
             if (i == 0) { name = "1 ARBOLES 144P"; snprintf(val, sizeof(val), "%s", opt_on ? "SI" : "NO"); }
             else if (i == 1) { name = "2 CULLING"; snprintf(val, sizeof(val), "%s", opt_cull ? "SI" : "NO"); }
             else if (i == 2) { name = "3 CULLING PERSONAJES"; snprintf(val, sizeof(val), "%s", opt_cullc ? "SI" : "NO"); }
+            else if (i == 3) { name = "4 MATEMATICA RAPIDA"; snprintf(val, sizeof(val), "%s", opt_fastm ? "SI" : "NO"); }
+            else if (i == 4) { name = "5 DESCARTE TEMPRANO"; snprintf(val, sizeof(val), "%s", opt_early ? "SI" : "NO"); }
             if (val[0]) snprintf(line, sizeof(line), i == optz_sel ? "> %s: %s <" : "%s: %s", name, val);
             else snprintf(line, sizeof(line), i == optz_sel ? "> %s <" : "%s", name);
-            draw_text_c(100.0f + i * 34.0f, line, 3, i == optz_sel ? sel_c : norm_c);
+            draw_text_c(84.0f + i * 28.0f, line, 3, i == optz_sel ? sel_c : norm_c);
         }
-        const char *d1 = optz_sel == 0 ? "ARBOLES PIXELADOS COMO A 144P Y MENOS LEJANOS" : (optz_sel == 1 ? "NO DIBUJA CARAS TRASERAS, LO QUE ESTA FUERA DE CAMARA" : (optz_sel == 2 ? "NO DIBUJA LAS CARAS TRASERAS DE TODOS LOS PERSONAJES" : ""));
-        const char *d2 = optz_sel == 1 ? "NI LO QUE QUEDA OCULTO TRAS PAREDES ALTAS" : (optz_sel == 2 ? "INCLUSO CODOS Y RODILLAS, SIN CAMBIO AL MOVERSE" : "");
-        draw_text_c(232.0f, d1, 2, hint_c);
-        draw_text_c(252.0f, d2, 2, hint_c);
+        const char *d1 = optz_sel == 0 ? "ARBOLES PIXELADOS COMO A 144P Y MENOS LEJANOS" : (optz_sel == 1 ? "NO DIBUJA CARAS TRASERAS, LO QUE ESTA FUERA DE CAMARA" : (optz_sel == 2 ? "NO DIBUJA LAS CARAS TRASERAS DE TODOS LOS PERSONAJES" : (optz_sel == 3 ? "UNA DIVISION POR VERTICE EN VEZ DE TRES" : (optz_sel == 4 ? "TRIANGULOS INVISIBLES SE DESCARTAN ANTES DE CALCULAR" : ""))));
+        const char *d2 = optz_sel == 1 ? "NI LO QUE QUEDA OCULTO TRAS PAREDES ALTAS" : (optz_sel == 2 ? "INCLUSO CODOS Y RODILLAS, SIN CAMBIO AL MOVERSE" : (optz_sel == 3 ? "MISMA IMAGEN, MENOS CARGA DE CPU" : (optz_sel == 4 ? "COLOR Y PROFUNDIDAD SOLO DE LO QUE SE VE" : "")));
+        draw_text_c(262.0f, d1, 2, hint_c);
+        draw_text_c(282.0f, d2, 2, hint_c);
     } else if (screen == SC_SND) {
         draw_text_c(40.0f, "SONIDO", 5, sel_c);
         for (int i = 0; i < 4; i++) {
@@ -85957,7 +86031,7 @@ static void menu_frame(u32 newp, float lv, int frame)
         draw_text_c(H - 70.0f, abuf,
                     2, audio_state == 2 ? GS_SETREG_RGBAQ(90, 210, 110, 0x80, 0) : GS_SETREG_RGBAQ(220, 90, 60, 0x80, 0));
     }
-    ui_modern = 0;
+    ui_modern = 0; ui_cx = -1.0f;
     fps_draw();
     draw_text(W - 40.0f, 26.0f, "V8", 2, hint_c);
 }
