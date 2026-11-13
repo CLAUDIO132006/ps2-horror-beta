@@ -82226,84 +82226,7 @@ static void draw_text(float x, float y, const char *str, int sc, u64 col)
     }
 }
 static float text_w(const char *str, int sc) { return (float)strlen(str) * 6.0f * sc - sc; }
-// ---------------- Interfaz moderna de los menus ----------------
-static int ui_modern;                                     // 1 mientras se dibujan los menus
-static void ui_rect(float x0, float y0, float x1, float y1, int r, int g, int b, int a)
-{
-    gsKit_set_primalpha(gsGlobal, BLEND_STD, 0);
-    gsGlobal->PrimAlphaEnable = GS_SETTING_ON;
-    gsKit_prim_sprite(gsGlobal, x0, y0, x1, y1, 16777200, GS_SETREG_RGBAQ(r, g, b, a, 0));
-    gsGlobal->PrimAlphaEnable = GS_SETTING_OFF;
-}
-static void ui_chamfer(float x0, float y0, float x1, float y1, float c, int r, int g, int b, int a)    // rectangulo con las esquinas cortadas (sin superponer: la transparencia no se duplica)
-{
-    ui_rect(x0 + c, y0, x1 - c, y0 + c, r, g, b, a);
-    ui_rect(x0, y0 + c, x1, y1 - c, r, g, b, a);
-    ui_rect(x0 + c, y1 - c, x1 - c, y1, r, g, b, a);
-}
-static void ui_card(float x0, float y0, float x1, float y1, int sel)                // tarjeta: borde rojo si esta seleccionada, fondo oscuro
-{
-    ui_chamfer(x0 + 3.0f, y0 + 4.0f, x1 + 3.0f, y1 + 4.0f, 4.0f, 0, 0, 0, 70);          // sombra
-    if (sel) ui_chamfer(x0 - 2.0f, y0 - 2.0f, x1 + 2.0f, y1 + 2.0f, 5.0f, 230, 50, 54, 235);
-    else ui_chamfer(x0 - 1.0f, y0 - 1.0f, x1 + 1.0f, y1 + 1.0f, 5.0f, 80, 84, 100, 200);
-    ui_chamfer(x0, y0, x1, y1, 4.0f, 14, 14, 22, 235);
-    ui_rect(x0 + 4.0f, y0 + 1.0f, x1 - 4.0f, y0 + 3.0f, sel ? 255 : 60, sel ? 110 : 64, sel ? 90 : 78, 90);     // brillo superior
-}
-static void ui_pill(float x0, float y0, float x1, float y1)                       // barra de opcion seleccionada (late suave)
-{
-    int pa = 200 + (int)(40.0f * sinf((float)frame_no * 0.12f));
-    ui_chamfer(x0 - 5.0f, y0 - 4.0f, x1 + 5.0f, y1 + 4.0f, 7.0f, 230, 40, 50, 55);       // resplandor
-    ui_chamfer(x0, y0, x1, y1, 6.0f, 176, 22, 34, pa);
-    ui_rect(x0 + 6.0f, y0 + 1.0f, x1 - 6.0f, y0 + 4.0f, 255, 120, 110, 70);
-    ui_rect(x0, y0 + 6.0f, x0 + 5.0f, y1 - 6.0f, 255, 214, 90, 240);                       // marca dorada a la izquierda
-    ui_rect(x1 - 5.0f, y0 + 6.0f, x1, y1 - 6.0f, 255, 214, 90, 240);
-}
-static void ui_overlay(float with_panel)                                              // vineta, brasas que suben y panel central
-{
-    ui_rect(0.0f, 0.0f, W, 54.0f, 0, 0, 0, 70);                                          // barras de cine arriba y abajo
-    ui_rect(0.0f, H - 40.0f, W, H, 0, 0, 0, 90);
-    ui_rect(0.0f, 54.0f, W, 56.0f, 200, 30, 40, 110);
-    ui_rect(0.0f, H - 42.0f, W, H - 40.0f, 200, 30, 40, 80);
-    for (int i = 0; i < 22; i++) {                                                       // brasas
-        unsigned int h = (unsigned int)(i + 1) * 2654435761u;
-        float sp = 0.35f + (float)((h >> 8) & 255u) / 255.0f * 0.9f;
-        float y = H - fmodf((float)frame_no * sp + (float)((h >> 16) & 1023u), H + 20.0f) + 10.0f;
-        float x = (float)((h >> 4) % (unsigned int)W) + 7.0f * sinf((float)frame_no * 0.03f + (float)i);
-        int al = 40 + (int)((h >> 12) & 63u);
-        ui_rect(x, y, x + 2.0f, y + 2.0f, 255, 120 + (int)((h >> 20) & 95u), 50, al);
-    }
-    if (with_panel > 0.0f) {
-        float x0 = W * 0.5f - with_panel, x1 = W * 0.5f + with_panel, y0 = 66.0f, y1 = H - 52.0f;
-        ui_chamfer(x0 + 4.0f, y0 + 5.0f, x1 + 4.0f, y1 + 5.0f, 12.0f, 0, 0, 0, 80);
-        ui_chamfer(x0 - 2.0f, y0 - 2.0f, x1 + 2.0f, y1 + 2.0f, 13.0f, 190, 28, 40, 150);
-        ui_chamfer(x0, y0, x1, y1, 12.0f, 8, 8, 14, 205);
-        ui_rect(x0 + 12.0f, y0 + 2.0f, x1 - 12.0f, y0 + 5.0f, 255, 90, 80, 60);
-    }
-}
-static void draw_text_c(float y, const char *str, int sc, u64 col)
-{
-    if (ui_modern) {
-        int n = (int)strlen(str);
-        if (n > 4 && str[0] == '>' && str[1] == ' ' && str[n - 1] == '<' && str[n - 2] == ' ') {      // opcion seleccionada: barra roja con texto blanco
-            char tmp[64]; int m = n - 4; if (m > 62) m = 62;
-            memcpy(tmp, str + 2, (size_t)m); tmp[m] = '\0';
-            float w = text_w(tmp, sc), x = (W - w) * 0.5f;
-            ui_pill(x - 28.0f, y - 8.0f, x + w + 28.0f, y + 7.0f * sc + 7.0f);
-            draw_text(x + (float)sc * 0.5f, y + (float)sc * 0.5f, tmp, sc, GS_SETREG_RGBAQ(0, 0, 0, 0x80, 0));
-            draw_text(x, y, tmp, sc, GS_SETREG_RGBAQ(255, 250, 245, 0x80, 0));
-            return;
-        }
-        if (sc >= 4) {                                                                               // titulo: sombra y subrayado de color
-            float w = text_w(str, sc), x = (W - w) * 0.5f;
-            draw_text(x + (float)sc * 0.6f, y + (float)sc * 0.6f, str, sc, GS_SETREG_RGBAQ(0, 0, 0, 0x80, 0));
-            draw_text(x, y, str, sc, col);
-            ui_rect(x + w * 0.2f, y + 7.0f * sc + 7.0f, x + w * 0.8f, y + 7.0f * sc + 10.0f, 230, 50, 54, 230);
-            ui_rect(x + w * 0.38f, y + 7.0f * sc + 11.0f, x + w * 0.62f, y + 7.0f * sc + 13.0f, 255, 214, 90, 200);
-            return;
-        }
-    }
-    draw_text((W - text_w(str, sc)) * 0.5f, y, str, sc, col);
-}
+static void draw_text_c(float y, const char *str, int sc, u64 col) { draw_text((W - text_w(str, sc)) * 0.5f, y, str, sc, col); }
 
 // ---------------- Contador de FPS en tiempo real (arriba a la derecha) ----------------
 #if defined(_EE) || defined(__mips__) || defined(__mips)
@@ -84244,8 +84167,9 @@ static void setup_ui(const char *title, int sel, int diff, int diff_locked, cons
     draw_text(24.0f, 22.0f, title, 3, white);
     for (int i = 0; i < (setup_cap ? 3 : 2); i++) {        // paneles de opciones (arriba a la derecha)
         float x0 = W * 0.50f, x1 = W - 20.0f, y0 = 20.0f + i * 50.0f, y1 = y0 + 42.0f;
-        ui_card(x0, y0, x1, y1, i == sel || (i == 2 && sel == 4));
-        (void)pbd; (void)pbg;
+        u64 bd = (i == sel || (i == 2 && sel == 4)) ? sel_c : pbd;
+        gsKit_prim_sprite(gsGlobal, x0 - 2.0f, y0 - 2.0f, x1 + 2.0f, y1 + 2.0f, 16776990, bd);
+        gsKit_prim_sprite(gsGlobal, x0, y0, x1, y1, 16777000, pbg);
         const char *nm = i == 0 ? "DIFICULTAD" : (i == 1 ? "MARCADOR" : "JUGADORES");
         char capb[4] = { (char)('0' + setup_cap), 0, 0, 0 };
         const char *vl = i == 0 ? dn_[diff < 0 ? 0 : (diff > 2 ? 2 : diff)] : (i == 1 ? (map_ind ? "SI" : "NO") : capb);
@@ -84270,10 +84194,9 @@ static void setup_ui(const char *title, int sel, int diff, int diff_locked, cons
     }
     {   // boton verde
         float bx = 28.0f, by = H - 70.0f, bw = 250.0f, bh = 46.0f;
-        ui_chamfer(bx + 3.0f, by + 4.0f, bx + bw + 3.0f, by + bh + 4.0f, 6.0f, 0, 0, 0, 80);
-        ui_chamfer(bx - 3.0f, by - 3.0f, bx + bw + 3.0f, by + bh + 3.0f, 8.0f, sel == 3 ? 255 : 150, sel == 3 ? 214 : 156, sel == 3 ? 90 : 160, 235);
-        if (btn_on) { ui_chamfer(bx, by, bx + bw, by + bh, 6.0f, 36, 160, 70, 245); ui_rect(bx + 6.0f, by + 2.0f, bx + bw - 6.0f, by + 8.0f, 150, 255, 170, 70); }
-        else ui_chamfer(bx, by, bx + bw, by + bh, 6.0f, 48, 54, 58, 245);
+        u64 bd = sel == 3 ? sel_c : GS_SETREG_RGBAQ(230, 230, 232, 0x80, 0);
+        gsKit_prim_sprite(gsGlobal, bx - 3.0f, by - 3.0f, bx + bw + 3.0f, by + bh + 3.0f, 16776990, bd);
+        gsKit_prim_sprite(gsGlobal, bx, by, bx + bw, by + bh, 16777000, btn_on ? GS_SETREG_RGBAQ(40, 150, 40, 0x80, 0) : GS_SETREG_RGBAQ(60, 70, 60, 0x80, 0));
         draw_text(bx + (bw - (float)text_w(btn, 2)) * 0.5f, by + 16.0f, btn, 2, btn_on ? white : arr);
     }
 }
@@ -84486,35 +84409,20 @@ static void net_fill(struct sockaddr_in *a, int o0, int o1, int o2, int o3, int 
 // funciona entre emuladores y detras de routers (nadie abre puertos, los dos solo se conectan HACIA el servidor).
 #define SRV_PORT  7778
 #define SRV_MAGIC 0x56535248u
-enum { SV_CREATE = 1, SV_LIST = 2, SV_JOIN = 3, SV_KEEP = 4, SV_LEAVE = 5, SV_POS = 6, SV_ROOM = 16, SV_LISTRES = 17, SV_JOINED = 18, SV_ERR = 19, SV_KEEPACK = 21 };
+enum { SV_CREATE = 1, SV_LIST = 2, SV_JOIN = 3, SV_KEEP = 4, SV_LEAVE = 5, SV_POS = 6, SV_ROOM = 16, SV_LISTRES = 17, SV_JOINED = 18, SV_ERR = 19 };
 static int  net_srv;                                   // opcion del menu ONLINE: usar el servidor
 static int  net_srv_act;                               // 1 = esta conexion pasa por el servidor
 static unsigned char srv_ip[4] = { 127, 0, 0, 1 };     // IP del servidor (se escribe en ONLINE > IP DEL SERVIDOR)
 static int  net_ip_srv;                                // 1 = la pantalla de IP esta editando la del servidor
 static unsigned int net_room_id;                       // sala del servidor (la que creaste o a la que entras)
 static int  net_srv_ok, net_srv_err;                   // el servidor ya confirmo la sala / codigo de error
-// ---- Sesion con el servidor: el servidor te reconoce por un TOKEN (no por la IP:puerto, que un emulador / NAT puede cambiar a mitad de partida) ----
-static unsigned int net_tok, net_seq;                  // token de esta consola y numero de orden de cada paquete (el servidor ignora un SALIR atrasado)
-static int  net_ack_f, net_ack_known, net_ack_n;       // ultimo cuadro en que el servidor respondio / 1 = el servidor te tiene en una sala / cuantas respuestas
-static int  net_keep_t, net_reopen_t, net_recreate_t, net_reopens;
-static int  net_open(int port);
-static void net_srv_stamp(unsigned char *b)           // paquetes al servidor de 40 bytes: [32] token, [36] numero de orden
-{
-    if (!net_tok) {
-        unsigned int h = 2166136261u ^ ((unsigned int)frame_no * 2654435761u);
-        for (int i = 0; my_name[i] && i < 12; i++) h = (h ^ (unsigned char)my_name[i]) * 16777619u;
-        h ^= voice_code_get() * 40503u; h ^= (unsigned int)rand() * 2246822519u;
-        net_tok = h ? h : 1u;
-    }
-    put32(b + 32, net_tok); put32(b + 36, ++net_seq);
-}
 
 static void net_srv_pos(void)       // chat de voz de proximidad: le dice al servidor donde estas y hacia donde miras
 {
     if (net_sock < 0 || !net_srv_act || !voice_on || net_local < 0 || net_local >= MAXP) return;
-    unsigned char b[40];
+    unsigned char b[24];
     memset(b, 0, sizeof(b));
-    put32(b, SRV_MAGIC); b[4] = (unsigned char)SV_POS; net_srv_stamp(b); b[5] = (unsigned char)(P[net_local].cur_layer ? 1 : 0); { unsigned vc = voice_code_get(); b[6] = (unsigned char)vc; b[7] = (unsigned char)(vc >> 8); }
+    put32(b, SRV_MAGIC); b[4] = (unsigned char)SV_POS; b[5] = (unsigned char)(P[net_local].cur_layer ? 1 : 0); { unsigned vc = voice_code_get(); b[6] = (unsigned char)vc; b[7] = (unsigned char)(vc >> 8); }
     float v[4] = { P[net_local].px, P[net_local].pz, P[net_local].rx, P[net_local].rz };
     for (int i = 0; i < 4; i++) { unsigned int u; memcpy(&u, &v[i], 4); put32(b + 8 + i * 4, u); }
     struct sockaddr_in a;
@@ -84524,9 +84432,9 @@ static void net_srv_pos(void)       // chat de voz de proximidad: le dice al ser
 static void net_srv_send(int type, unsigned int arg)
 {
     if (net_sock < 0) return;
-    unsigned char b[40];
+    unsigned char b[32];
     memset(b, 0, sizeof(b));
-    put32(b, SRV_MAGIC); b[4] = (unsigned char)type; net_srv_stamp(b);
+    put32(b, SRV_MAGIC); b[4] = (unsigned char)type;
     if (type == SV_CREATE) { snprintf((char *)b + 8, 24, "SALA DE %s", my_name); b[5] = (unsigned char)net_cap; }
     else if (type == SV_JOIN) put32(b + 8, arg);
     else if (type == SV_KEEP && net_host) b[5] = (unsigned char)net_cap;      // el anfitrion avisa la capacidad de la sala (puede cambiarla en la sala de espera)
@@ -84540,13 +84448,12 @@ static int net_srv_handle(const unsigned char *b, int n)
 {
     if (n < 8 || get32(b) != SRV_MAGIC) return 0;
     int t = b[4];
-    if (t == SV_ROOM && n >= 12) { net_room_id = get32(b + 8); net_srv_ok = 1; net_ack_f = frame_no; net_ack_known = 1; }
+    if (t == SV_ROOM && n >= 12) { net_room_id = get32(b + 8); net_srv_ok = 1; }
     else if (t == SV_JOINED) {                          // el servidor te dio tu numero de jugador y la capacidad de la sala
         if (b[5] >= 1 && b[5] < MAXP) net_local = b[5];
         if (b[6] >= 2 && b[6] <= MAXP) net_cap = b[6];
-        net_srv_ok = 1; net_ack_f = frame_no; net_ack_known = 1;
+        net_srv_ok = 1;
     }
-    else if (t == SV_KEEPACK) { net_ack_f = frame_no; net_ack_n++; net_ack_known = b[5]; }       // el servidor responde a cada senal de vida: b[5] = 1 si la sala sigue en pie
     else if (t == SV_ERR) net_srv_err = b[5] ? b[5] : 1;
     else if (t == SV_LISTRES) {                        // lista de salas: sustituye a la anterior
         int cnt = b[5];
@@ -84561,21 +84468,6 @@ static int net_srv_handle(const unsigned char *b, int n)
         }
     }
     return 1;
-}
-
-// Senal de vida al servidor (3 por segundo, en la sala de espera, al conectar y en la partida). Si el servidor deja de contestar, abre un puerto nuevo
-// (el token hace que el servidor te reconozca igual) y, si el servidor olvido la sala (se reinicio), el anfitrion la vuelve a crear solo.
-static void net_srv_tick(int in_lobby)
-{
-    if (!net_srv_act || !net_srv_ok || net_sock < 0) return;
-    if (++net_keep_t >= 20) { net_keep_t = 0; net_srv_send(SV_KEEP, 0); }
-    if (net_reopen_t > 0) net_reopen_t--;
-    if (frame_no - net_ack_f > 300 && net_reopen_t <= 0) {          // 5 s sin respuesta: puerto nuevo
-        NS_close(net_sock); net_sock = -1;
-        if (net_open(net_host ? NET_PORT : 0) < 0) net_open(0);
-        net_reopens++; net_reopen_t = 300; net_srv_send(SV_KEEP, 0);
-    }
-    if (in_lobby && net_host && !net_ack_known && net_recreate_t-- <= 0) { net_recreate_t = 30; net_srv_send(SV_CREATE, 0); }   // el servidor perdio la sala: crearla otra vez
 }
 
 // ---- Hardware de red de la PS2 (es lo unico que no se puede probar en PC) ----
@@ -84929,7 +84821,7 @@ static void net_pump(void)
 static void net_close(void)
 {
     if (net_sock >= 0 && net_srv_act) net_srv_send(SV_LEAVE, 0);                  // avisa al servidor que sales
-    net_srv_ok = 0; net_srv_err = 0; net_ack_known = 1; net_keep_t = 0; net_reopen_t = 0; net_recreate_t = 0; net_ack_f = frame_no;
+    net_srv_ok = 0; net_srv_err = 0;
     if (net_sock >= 0) { NS_close(net_sock); net_sock = -1; }
     net_have_peer = 0; net_got_hello = net_got_welcome = net_bye = 0;
     net_in_lobby = 0; net_got_start = 0; net_guest_t = 0; net_only = -1;
@@ -85025,7 +84917,6 @@ static int net_connect_poll(void)
         snprintf(net_names[net_local], sizeof(net_names[0]), "%s", my_name);
         net_present[net_local] = 1; net_psens_h[net_local] = sens_h; net_psens_v[net_local] = sens_v;
     }
-    net_srv_tick(0);
     if (net_host) {                                           // anfitrion: pasa directo a la sala de espera
         net_in_lobby = 1; net_lobby_wait = 0;
         return 2;
@@ -85063,8 +84954,7 @@ static int net_lobby_poll(int ok)
         if (q != net_local && net_present[q] && ++net_age[q] > 150) { net_present[q] = 0; if (net_hrelay()) { net_gused[q] = 0; net_have_peer = 0; for (int w = 1; w < MAXP; w++) if (net_gused[w]) net_have_peer = 1; } }
     if (net_host) {
         net_got_hello = 0; for (int q = 1; q < MAXP; q++) if (net_present[q]) net_got_hello = 1;
-        net_srv_tick(1);
-        if (!net_srv_act && net_ann_t++ % 60 == 0) net_announce();                          // la sala sigue viva (LAN: anuncio; servidor: net_srv_tick)
+        if (net_ann_t++ % 60 == 0) { if (net_srv_act) net_srv_send(SV_KEEP, 0); else net_announce(); }   // la sala sigue viva
         int full = 1;
         for (int q = 0; q < net_cap; q++) if (!net_present[q]) full = 0;
         if (ok && full) {                                                              // sala llena: comienza
@@ -85074,9 +84964,7 @@ static int net_lobby_poll(int ok)
             return 1;
         }
     } else {
-        net_srv_tick(1);
         if (net_bye) { snprintf(net_text, sizeof(net_text), "EL ANFITRION CERRO LA SALA"); return -1; }
-        if (net_srv_act && !net_ack_known && frame_no - net_ack_f < 120 && ++net_guest_t > 90) { snprintf(net_text, sizeof(net_text), "LA SALA YA NO EXISTE EN EL SERVIDOR"); return -1; }
         if (net_got_start) { net_match_begin(); return 1; }
         if (net_lobby_wait % 30 == 1) net_send_pkt(NP_HELLO);                                  // senal de vida
         if (net_rx_age > 300) { snprintf(net_text, sizeof(net_text), "SE PERDIO LA CONEXION"); return -1; }
@@ -85461,11 +85349,9 @@ static void menu_frame(u32 newp, float lv, int frame)
 #endif
     if (screen == SC_PLAY) return;                            // la partida online acaba de empezar
     // ---- dibujo ----
-    ui_modern = 1;
     if (screen == SC_SOLO || screen == SC_LOBBY) gsKit_clear(gsGlobal, GS_SETREG_RGBAQ(10, 10, 14, 0x80, 0));
     else if (screen == SC_MAIN || screen == SC_SECRET || screen == SC_CABLE || screen == SC_NET || screen == SC_NETIP || screen == SC_NETWAIT || screen == SC_NETLIST || screen == SC_NETCAP || screen == SC_NAME || ((screen == SC_OPT || screen == SC_SND || screen == SC_CTRL || screen == SC_SKIN) && opt_from == SC_MAIN)) menu_bg_main();
     else { render_frame(last_t, 1); menu_dim(); }
-    ui_overlay((screen == SC_SOLO || screen == SC_LOBBY || screen == SC_CTRL || screen == SC_NETLIST) ? 0.0f : ((screen == SC_MAIN || screen == SC_PAUSE) ? 200.0f : 262.0f));
 
     u64 sel_c = GS_SETREG_RGBAQ(255, 230, 90, 0x80, 0), norm_c = GS_SETREG_RGBAQ(170, 170, 175, 0x80, 0);
     u64 hint_c = GS_SETREG_RGBAQ(120, 120, 130, 0x80, 0);
@@ -85712,8 +85598,8 @@ static void menu_frame(u32 newp, float lv, int frame)
             float y = 64.0f + i * 40.0f;
             u64 bc = pc[i];
             char jn[3] = { 'J', (char)('1' + i), '\0' };
-            ui_card(24.0f, y, 300.0f, y + 34.0f, i == net_local);
-            ui_rect(24.0f, y + 4.0f, 30.0f, y + 30.0f, (int)(bc & 255u), (int)((bc >> 8) & 255u), (int)((bc >> 16) & 255u), 255);
+            gsKit_prim_sprite(gsGlobal, 24.0f, y, 300.0f, y + 34.0f, 16776990, bc);
+            gsKit_prim_sprite(gsGlobal, 26.0f, y + 2.0f, 298.0f, y + 32.0f, 16777000, GS_SETREG_RGBAQ(12, 12, 18, 0x80, 0));
             draw_text(34.0f, y + 10.0f, jn, 2, bc);
             int here = net_present[i];
             const char *who = (i == net_local) ? "(TU)" : "";
@@ -85735,12 +85621,6 @@ static void menu_frame(u32 newp, float lv, int frame)
                 draw_text(24.0f, yy, line, 1, hint_c);
                 draw_text(24.0f, yy + 16.0f, full ? "X EN COMENZAR PARTIDA PARA EMPEZAR" : (net_srv_act ? "ESPERANDO A QUE SE LLENE LA SALA (PUBLICA EN EL SERVIDOR)" : "ESPERANDO A UN JUGADOR (SALA PUBLICA EN TU RED)"), 1, hint_c);
             } else draw_text(24.0f, yy, "ESPERA A QUE EL ANFITRION COMIENCE", 1, hint_c);
-            if (net_srv_act) {                                 // estado de la conexion con el servidor
-                int ok_ = (frame_no - net_ack_f) < 180;
-                snprintf(line, sizeof(line), ok_ ? "SERVIDOR: CONECTADO  SALA %u  (%d)" : "SERVIDOR: SIN RESPUESTA, REINTENTANDO... (%d)", net_room_id, net_ack_n);
-                draw_text(24.0f, yy + 36.0f, line, 1, ok_ ? GS_SETREG_RGBAQ(90, 210, 110, 0x80, 0) : GS_SETREG_RGBAQ(235, 150, 60, 0x80, 0));
-                if (net_reopens) { snprintf(line, sizeof(line), "PUERTO CAMBIADO %d VECES", net_reopens); draw_text(24.0f, yy + 50.0f, line, 1, hint_c); }
-            }
         }
         draw_text(W - 190.0f, H - 20.0f, "O: SALIR DE LA SALA", 1, hint_c);
         draw_text(W - 60.0f, 6.0f, "V151", 1, hint_c);
@@ -85813,7 +85693,6 @@ static void menu_frame(u32 newp, float lv, int frame)
         draw_text_c(H - 70.0f, abuf,
                     2, audio_state == 2 ? GS_SETREG_RGBAQ(90, 210, 110, 0x80, 0) : GS_SETREG_RGBAQ(220, 90, 60, 0x80, 0));
     }
-    ui_modern = 0;
     fps_draw();
     draw_text(W - 40.0f, 26.0f, "V8", 2, hint_c);
 }
@@ -86467,7 +86346,6 @@ static int net_lockstep(void)
     }
     net_pump();
     net_send_pkt(NP_INPUT);
-    net_srv_tick(0);
     { static int pos_t; if (++pos_t >= 6) { pos_t = 0; net_srv_pos(); } }     // 10 veces por segundo
     if (net_bye) { net_leave(num_players > 2 ? "EL ANFITRION SE FUE" : "EL OTRO JUGADOR SE FUE"); return 0; }
     int missing = 0, alive_r = 0;
