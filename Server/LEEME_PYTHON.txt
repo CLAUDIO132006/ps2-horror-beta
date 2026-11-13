@@ -1,0 +1,13 @@
+SERVIDOR PYTHON con CHAT DE VOZ
+  python3 horror_server.py        (Python 3.8+; necesita openssl para crear el certificado la primera vez; en Windows: pip install cryptography)
+  Deja voice.html en la misma carpeta que horror_server.py.
+  Abre en el firewall / VPS:  UDP 7778 (juego) y TCP 8443 (voz).
+  Celular: https://IP:8443 (acepta el aviso del certificado), ACTIVAR MICROFONO, usa audifonos.
+  Para gente de otros paises: ponlo en un VPS con IP publica IPv4. Sin aviso de certificado: dominio (solo registro A) + Let's Encrypt,
+  y copia fullchain.pem como voice_cert.pem y privkey.pem como voice_key.pem junto al programa.
+  Mas detalles en LEEME_INTERNET_VPS.txt del zip de Windows (son los mismos pasos).
+
+CODIGO: en el juego, OPCIONES > SONIDO muestra un codigo de 4 cifras; escribelo en la pagina del celular para vincularte a tu jugador (sin depender de la IP).
+
+SALAS ESTABLES (v4.2): igual que el servidor de Windows (token de sesion, senales de vida con respuesta, sala 90 s, diagnostico con  python3 horror_server.py -v ).
+Usa main_v227.c (o mas nuevo) con este servidor.
