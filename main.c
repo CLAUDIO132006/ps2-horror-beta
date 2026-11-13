@@ -8940,6 +8940,12 @@ static void draw_flashlight(float t, int moving)
             r = 255.f * f; g = 248.f * f; b = 200.f * f;
             if (uv_on && flash_on) { r = 190.f; g = 110.f; b = 255.f; }
         }
+        if (fp_on) {                                          // lo que queda detras del puño no se dibuja: la linterna ya no atraviesa la mano
+            float zmax = vm_v[vm_t[k][0]][2];
+            if (vm_v[vm_t[k][1]][2] > zmax) zmax = vm_v[vm_t[k][1]][2];
+            if (vm_v[vm_t[k][2]][2] > zmax) zmax = vm_v[vm_t[k][2]][2];
+            if (zmax < -0.07f) continue;
+        }
         if (fp_on && vm_c[k][0] == 0 && vm_c[k][1] == 112 && vm_c[k][2] == 121) continue;       // la manga del .obj: ahora va el brazo original de Steve
         int ix[3] = { vm_t[k][0], vm_t[k][1], vm_t[k][2] };
         V v[3];
@@ -9052,8 +9058,8 @@ static void draw_detector(float t)
     const float hx = 0.042f * S, hy = 0.085f * S, hz = 0.017f * S, zf = -hz;
 
     vm_mode = 1;
-    if (!fp_arm_local(0.0f, -hy * 0.55f, hz + 0.02f))
-    {   // mano izquierda (bloque de piel) detras del aparato
+    if (0)
+    {   // mano izquierda (sin mano: se veia feo) (bloque de piel) detras del aparato
         float sk[3] = { hand_col[4][0], hand_col[4][1], hand_col[4][2] }, sk2[3] = { hand_col[2][0], hand_col[2][1], hand_col[2][2] };
         rd_box(0.0f, -hy * 0.80f, hz + 0.020f, hx * 1.05f, hy * 0.50f, 0.026f, sk, sk2);          // palma (detras)
         rd_box(-hx - 0.007f, -hy * 0.35f, 0.0f, 0.009f, 0.010f, hz + 0.006f, sk, sk2);             // dedos que rodean el aparato
@@ -9306,7 +9312,7 @@ static void st_plane1(const StCtx *C, const StPart *p, int axis, int sgn, float 
         float fx_ = (q[0][0] + q[1][0] + q[2][0] + q[3][0]) * 0.25f;
         float fy_ = (q[0][1] + q[1][1] + q[2][1] + q[3][1]) * 0.25f;
         float fz_ = (q[0][2] + q[1][2] + q[2][2] + q[3][2]) * 0.25f;
-        if (wx * (px - fx_) + ny * (cam_y - fy_) + wz * (pz - fz_) <= 0.0f) return;   // de espaldas
+        if (!p->lo && wx * (px - fx_) + ny * (cam_y - fy_) + wz * (pz - fz_) <= 0.0f) return;   // de espaldas (con codo/rodilla no: la normal de arriba no vale para el tramo de abajo)
     }
     quad_sub(q, col, 1, emit);
 }
@@ -9376,6 +9382,7 @@ static const TexRect tx_leg[6]  = { {4,20,4,12},  {12,20,4,12}, {0,20,4,12},  {8
 // La cara es visible desde la camara? (misma prueba que st_plane, para saltarse caras enteras de espaldas)
 static int st_facing(const StCtx *C, const StPart *p, int axis, int sgn, float v, float a0, float a1, float b0, float b1)
 {
+    if (p->lo) return 1;
     float m[3], q[3];
     float a = (a0 + a1) * 0.5f, b = (b0 + b1) * 0.5f;
     if (axis == 0)      { m[0] = v; m[1] = a; m[2] = b; }
@@ -10898,7 +10905,7 @@ static void kb_mesh(const StCtx *C, const StPart *p, const short *v, const signe
     }
     for (int k = 0; k < nt; k++) {
         int a = t[k * 3], b = t[k * 3 + 1], c = t[k * 3 + 2];
-        if (d[a] < 0.0f && d[b] < 0.0f && d[c] < 0.0f) continue;
+        if (!p->lo && d[a] < 0.0f && d[b] < 0.0f && d[c] < 0.0f) continue;
         tri_cam(vv[a], vv[b], vv[c]);
     }
 }
@@ -10922,7 +10929,7 @@ static void kb_decals(const StCtx *C, const StPart *p, float emit)
             if (wx * (px - w[k][0]) + ny * (cam_y - w[k][1]) + wz * (pz - w[k][2]) > 0.0f) front++;
             nyAvg += ny;
         }
-        if (!front) continue;
+        if (!front && !p->lo) continue;
         float sh = 0.70f + 0.075f * nyAvg; if (sh < 0.45f) sh = 0.45f;
         float col[3] = { q[3] * sh, q[4] * sh, q[5] * sh };
         quad_sub(w, col, 1, emit);
@@ -24334,7 +24341,7 @@ static void kc_mesh(const StCtx *C, const StPart *p, const KChar *K, int part, f
             }
         }
         const signed char *fn = &K->f[k * 3];
-        if (fn[0] | fn[1] | fn[2]) {                                    // cara de atras: normal exacta del triangulo
+        if (!p->lo && (fn[0] | fn[1] | fn[2])) {                        // cara de atras: normal exacta del triangulo
             float nx, ny, nz;
             st_nrm(p, fn[0] * (1.0f / 120.0f), fn[1] * (1.0f / 120.0f), fn[2] * (1.0f / 120.0f), &nx, &ny, &nz);
             float wx = nx * C->fwx + nz * C->rtx, wz = nx * C->fwz + nz * C->rtz;
@@ -24433,6 +24440,7 @@ static int fp_arm_ok(void)
 static int fp_arm(const float g[3], int left)
 {
     if (!fp_arm_ok()) return 0;
+    if (left) return 1;                                         // brazo izquierdo: no se dibuja (se veia feo con el detector y los objetos)
     const int si = skin_of(pl_cur);
     const SkinDef *K = &skins[si];
     const float sc = 0.48f;                                     // el brazo de Steve a escala de vista (como los demas objetos de la mano)
@@ -83323,14 +83331,6 @@ static void draw_pap_hand(float t)
 }
 
 // Martillo en una mano (izquierda del centro); se levanta y baja al golpear
-// MARTILLO (martillo_low_poly.obj): 72 vertices (x1000), 112 triangulos {a,b,c,material,sombra%}.
-// El .obj traia el mango y la garra con los ejes y/z cambiados; aqui ya van corregidos (mango en y, cara de golpe +x, garra -x).
-#define HAM_NV 72
-#define HAM_NT 112
-static const short ham_v[HAM_NV][3] = {{-105,-1020,-85},{105,-1020,-85},{75,280,-85},{-75,280,-85},{-105,-1020,85},{105,-1020,85},{75,280,85},{-75,280,85},{-112,-1075,-60},{112,-1075,-60},{112,-885,-60},{-112,-885,-60},{-112,-1075,60},{112,-1075,60},{112,-885,60},{-112,-885,60},{-90,-515,-94},{90,-515,-94},{90,-325,-94},{-90,-325,-94},{-90,-515,94},{90,-515,94},{90,-325,94},{-90,-325,94},{-155,145,-140},{155,145,-140},{155,395,-140},{-155,395,-140},{-155,145,140},{155,145,140},{155,395,140},{-155,395,140},{-80,180,-190},{640,180,-190},{640,500,-190},{-80,500,-190},{-80,180,190},{640,180,190},{640,500,190},{-80,500,190},{540,160,-215},{720,160,-215},{720,520,-215},{540,520,-215},{540,160,215},{720,160,215},{720,520,215},{540,520,215},{-120,490,-160},{-350,580,-160},{-570,520,-160},{-700,390,-160},{-600,320,-160},{-470,400,-160},{-300,390,-160},{-120,300,-160},{-120,490,160},{-350,580,160},{-570,520,160},{-700,390,160},{-600,320,160},{-470,400,160},{-300,390,160},{-120,300,160},{-35,170,-150},{75,170,-150},{75,510,-150},{-35,510,-150},{-35,170,150},{75,170,150},{75,510,150},{-35,510,150}};
-static const unsigned char ham_t[HAM_NT][5] = {{3,2,1,0,89},{3,1,0,0,89},{4,5,6,0,55},{4,6,7,0,55},{0,1,5,0,55},{0,5,4,0,55},{1,2,6,0,55},{1,6,5,0,55},{2,3,7,0,80},{2,7,6,0,80},{3,0,4,0,71},{3,4,7,0,71},{8,11,10,1,89},{8,10,9,1,89},{12,13,14,1,55},{12,14,15,1,55},{8,9,13,1,55},{8,13,12,1,55},{9,10,14,1,55},{9,14,13,1,55},{10,11,15,1,55},{10,15,14,1,55},{11,8,12,1,71},{11,12,15,1,71},{16,19,18,2,89},{16,18,17,2,89},{20,21,22,2,55},{20,22,23,2,55},{16,17,21,2,55},{16,21,20,2,55},{17,18,22,2,55},{17,22,21,2,55},{18,19,23,2,55},{18,23,22,2,55},{19,16,20,2,71},{19,20,23,2,71},{24,27,26,5,89},{24,26,25,5,89},{28,29,30,5,55},{28,30,31,5,55},{24,25,29,5,80},{24,29,28,5,80},{25,26,30,5,55},{25,30,29,5,55},{26,27,31,5,80},{26,31,30,5,80},{27,24,28,5,71},{27,28,31,5,71},{32,35,34,3,89},{32,34,33,3,89},{36,37,38,3,55},{36,38,39,3,55},{32,33,37,3,80},{32,37,36,3,80},{33,34,38,3,55},{33,38,37,3,55},{34,35,39,3,80},{34,39,38,3,80},{35,32,36,3,71},{35,36,39,3,71},{40,43,42,4,89},{40,42,41,4,89},{44,45,46,4,55},{44,46,47,4,55},{40,41,45,4,80},{40,45,44,4,80},{41,42,46,4,55},{41,46,45,4,55},{42,43,47,4,80},{42,47,46,4,80},{43,40,44,4,55},{43,44,47,4,55},{55,54,53,3,89},{55,53,52,3,89},{55,52,51,3,89},{55,51,50,3,89},{55,50,49,3,89},{55,49,48,3,89},{56,57,58,3,55},{56,58,59,3,55},{56,59,60,3,55},{56,60,61,3,55},{56,61,62,3,55},{56,62,63,3,55},{48,49,57,3,72},{48,57,56,3,72},{49,50,58,3,83},{49,58,57,3,83},{50,51,59,3,84},{50,59,58,3,84},{51,52,60,3,55},{51,60,59,3,55},{52,53,61,3,85},{52,61,60,3,85},{53,54,62,3,79},{53,62,61,3,79},{54,55,63,3,70},{54,63,62,3,70},{55,48,56,3,71},{55,56,63,3,71},{64,67,66,5,89},{64,66,65,5,89},{68,69,70,5,55},{68,70,71,5,55},{64,65,69,5,80},{64,69,68,5,80},{65,66,70,5,55},{65,70,69,5,55},{66,67,71,5,80},{66,71,70,5,80},{67,64,68,5,71},{67,68,71,5,71}};
-static const unsigned char ham_mat[6][3] = { {140,98,58}, {176,126,76}, {92,64,38}, {122,124,132}, {176,178,186}, {76,78,86} };   // madera, madera clara, madera oscura, metal, metal claro, metal oscuro
-
 static void draw_ham_hand(float t)
 {
     static float up[MAXP];
@@ -83339,36 +83339,30 @@ static void draw_ham_hand(float t)
     ham_sw *= 0.88f;
     if (up[sl] < 0.02f) return;
     float e = up[sl] * up[sl] * (3.0f - 2.0f * up[sl]);
-    rd_sc = 1.0f;
-    rd_th = -0.12f + 0.90f * (1.0f - e) + 1.25f * ham_sw; rd_ya = 0.10f;       // parado: el mango hacia arriba, la cabeza arriba, un poco inclinado
-    rd_ox = -0.17f + 0.010f * walk_amp * sinf(walk_ph + 0.5f);
-    rd_oy = -0.13f - 0.45f * (1.0f - e) + 0.008f * walk_amp * sinf(2.0f * walk_ph + 0.4f) - 0.015f * step_imp + sinf(t * 1.3f) * 0.002f;
+    rd_sc = 0.90f;
+    rd_th = -0.50f + 0.90f * (1.0f - e) + 1.25f * ham_sw; rd_ya = -0.10f;       // bien parado: la cabeza arriba, el mango en el puño
+    rd_ox = -0.05f + 0.010f * walk_amp * sinf(walk_ph + 0.5f);
+    rd_oy = -0.30f - 0.45f * (1.0f - e) + 0.008f * walk_amp * sinf(2.0f * walk_ph + 0.4f) - 0.015f * step_imp + sinf(t * 1.3f) * 0.002f;
     rd_oz = 0.48f;
-    const float HS = 0.150f;                                       // escala del modelo (1 unidad del .obj = 15 cm de vista)
-    const float gx = 0.0f, gy = -0.85f, gz = 0.0f;                 // punto del mango donde va la mano (abajo, cerca del pomo)
-    const float lean = 0.22f, cl = cosf(lean), sl_ = sinf(lean);   // el martillo se inclina un poco hacia la derecha (cabeza hacia afuera)
-    float pt[HAM_NV][3];
-    for (int n = 0; n < HAM_NV; n++) {
-        float x = (float)ham_v[n][0] * 0.001f - gx, y = (float)ham_v[n][1] * 0.001f - gy, z = (float)ham_v[n][2] * 0.001f - gz;
-        float lx = x * cl + y * sl_, ly = -x * sl_ + y * cl;
-        rd_pt(lx * HS, ly * HS, z * HS, pt[n]);
-    }
     vm_mode = 1;
-    for (int k = 0; k < HAM_NT; k++) {
-        const float sh = (float)ham_t[k][4] * 0.01f;
-        const unsigned char *mc = ham_mat[ham_t[k][3]];
-        V w[3];
-        for (int j = 0; j < 3; j++) {
-            const float *q = pt[ham_t[k][j]];
-            w[j].x = q[0]; w[j].y = q[1]; w[j].z = q[2];
-            w[j].r = (float)mc[0] * sh; w[j].g = (float)mc[1] * sh; w[j].b = (float)mc[2] * sh;
-        }
-        tri_cam(w[0], w[1], w[2]);
-    }
-    if (!fp_arm_local(0.0f, 0.0f, 0.0f)) {      // brazo ORIGINAL de Steve sujetando el mango (si la skin no lo tiene: bloques)
+    {
+        static const float wood[3] = { 140.f, 98.f, 58.f }, wood2[3] = { 104.f, 72.f, 42.f }, iron[3] = { 150.f, 152.f, 160.f }, iron2[3] = { 96.f, 98.f, 106.f }, leather[3] = { 52.f, 34.f, 24.f }, leather2[3] = { 38.f, 24.f, 18.f };
         float sk[3] = { hand_col[4][0], hand_col[4][1], hand_col[4][2] }, sk2[3] = { hand_col[2][0], hand_col[2][1], hand_col[2][2] };
-        rd_box(0.0f, -0.030f, 0.0f, 0.036f, 0.030f, 0.036f, sk, sk2);
-        rd_box(0.0f, -0.090f, 0.0f, 0.030f, 0.080f, 0.030f, sk, sk2);
+        rd_box(0.0f, 0.0f, 0.14f, 0.017f, 0.017f, 0.27f, wood, wood2);          // mango grueso
+        rd_box(0.0f, 0.0f, 0.00f, 0.021f, 0.021f, 0.085f, leather, leather2);   // empunadura forrada
+        rd_box(0.0f, 0.0f, -0.135f, 0.024f, 0.024f, 0.012f, iron2, iron2);      // tope del mango
+        rd_box(0.0f, 0.0f, 0.405f, 0.026f, 0.026f, 0.016f, iron2, iron2);       // collar bajo la cabeza
+        rd_box(0.0f, 0.0f, 0.450f, 0.070f, 0.036f, 0.038f, iron, iron2);        // cabeza de acero
+        rd_box(0.088f, 0.0f, 0.450f, 0.022f, 0.044f, 0.046f, iron, iron2);      // cara de golpe
+        rd_box(-0.088f, 0.0f, 0.450f, 0.026f, 0.026f, 0.030f, iron, iron2);     // pico (lado opuesto)
+        rd_box(-0.124f, 0.0f, 0.450f, 0.014f, 0.016f, 0.020f, iron2, iron2);
+        rd_box(0.0f, 0.040f, 0.450f, 0.058f, 0.006f, 0.030f, iron2, iron2);     // brillo / faja superior
+        if (!fp_arm_local(0.0f, -0.010f, -0.01f)) {
+        rd_box(0.0f, -0.030f, -0.01f, 0.036f, 0.020f, 0.040f, sk, sk2);         // palma bajo el mango
+        rd_box(0.0f, 0.026f, -0.01f, 0.034f, 0.010f, 0.040f, sk, sk2);          // dedos por encima
+        rd_box(0.032f, 0.0f, 0.040f, 0.010f, 0.014f, 0.016f, sk, sk2);          // pulgar
+        rd_box(0.0f, -0.060f, -0.15f, 0.030f, 0.026f, 0.110f, sk, sk2);         // antebrazo
+        }
     }
     vm_mode = 0; rd_sc = 1.0f;
 }
@@ -84408,7 +84402,7 @@ static void net_fill(struct sockaddr_in *a, int o0, int o1, int o2, int o3, int 
 // funciona entre emuladores y detras de routers (nadie abre puertos, los dos solo se conectan HACIA el servidor).
 #define SRV_PORT  7778
 #define SRV_MAGIC 0x56535248u
-enum { SV_CREATE = 1, SV_LIST = 2, SV_JOIN = 3, SV_KEEP = 4, SV_LEAVE = 5, SV_ROOM = 16, SV_LISTRES = 17, SV_JOINED = 18, SV_ERR = 19 };
+enum { SV_CREATE = 1, SV_LIST = 2, SV_JOIN = 3, SV_KEEP = 4, SV_LEAVE = 5, SV_POS = 6, SV_ROOM = 16, SV_LISTRES = 17, SV_JOINED = 18, SV_ERR = 19 };
 static int  net_srv;                                   // opcion del menu ONLINE: usar el servidor
 static int  net_srv_act;                               // 1 = esta conexion pasa por el servidor
 static unsigned char srv_ip[4] = { 127, 0, 0, 1 };     // IP del servidor (se escribe en ONLINE > IP DEL SERVIDOR)
@@ -84416,6 +84410,18 @@ static int  net_ip_srv;                                // 1 = la pantalla de IP 
 static unsigned int net_room_id;                       // sala del servidor (la que creaste o a la que entras)
 static int  net_srv_ok, net_srv_err;                   // el servidor ya confirmo la sala / codigo de error
 
+static void net_srv_pos(void)       // chat de voz de proximidad: le dice al servidor donde estas y hacia donde miras
+{
+    if (net_sock < 0 || !net_srv_act || net_local < 0 || net_local >= MAXP) return;
+    unsigned char b[24];
+    memset(b, 0, sizeof(b));
+    put32(b, SRV_MAGIC); b[4] = (unsigned char)SV_POS; b[5] = (unsigned char)(P[net_local].cur_layer ? 1 : 0);
+    float v[4] = { P[net_local].px, P[net_local].pz, P[net_local].rx, P[net_local].rz };
+    for (int i = 0; i < 4; i++) { unsigned int u; memcpy(&u, &v[i], 4); put32(b + 8 + i * 4, u); }
+    struct sockaddr_in a;
+    net_fill(&a, srv_ip[0], srv_ip[1], srv_ip[2], srv_ip[3], SRV_PORT);
+    NS_sendto(net_sock, b, sizeof(b), 0, (struct sockaddr *)&a, sizeof(a));
+}
 static void net_srv_send(int type, unsigned int arg)
 {
     if (net_sock < 0) return;
@@ -86314,6 +86320,7 @@ static int net_lockstep(void)
     }
     net_pump();
     net_send_pkt(NP_INPUT);
+    { static int pos_t; if (++pos_t >= 6) { pos_t = 0; net_srv_pos(); } }     // 10 veces por segundo
     if (net_bye) { net_leave(num_players > 2 ? "EL ANFITRION SE FUE" : "EL OTRO JUGADOR SE FUE"); return 0; }
     int missing = 0, alive_r = 0;
     for (int q = 0; q < num_players; q++) {
@@ -86524,7 +86531,11 @@ int main(void)
                 player_load(js_victim); js_update(); player_save(js_victim);
                 if (--state_timer <= 0) js_finish();
             } else if (state == 3) { cine_step();            // cinematica del final secreto
-            } else if (--state_timer <= 0) { run_deaths = 0; run_secs = 0.0f; reset_game(); }
+            } else if (--state_timer <= 0) {                   // el final termino: al menu (en online todos salen a la vez, el lockstep va igual en todos)
+                run_deaths = 0; run_secs = 0.0f;
+                if (net_online) net_leave("PARTIDA TERMINADA");
+                else { int sm_ = spec_mode; reset_game(); screen = sm_ ? SC_MAIN : SC_SOLO; if (!sm_) solo_sel = 3; menu_sel = 0; }
+            }
 
             if (!stalled) for (int i = 0; i < num_players; i++) {   // camara de cada jugador
                 player_load(i);
