@@ -6632,7 +6632,9 @@ static void view_set(float x, float y, float w, float h)
 // La luz del cono de cada linterna se calcula en el vertice y la GPU solo interpola: no se oscurece la pantalla despues.
 // Los cuadrados del nivel se subdividen unicamente donde cae un cono (ver quad_sub): el resto no gasta poligonos extra.
 #define LC_IN   0.974f          // cos 13 grados: dentro de este angulo, luz completa
-#define LC_OUT  0.875f          // cos 29 grados: fuera de este angulo, nada de cono
+#define LC_OUT  0.875f
+#define OWN_IN  0.985f          // linterna propia: cos 10 grados, luz completa
+#define OWN_OUT 0.940f          // cos 20 grados, borde del cono          // cos 29 grados: fuera de este angulo, nada de cono
 typedef struct { int on; float ox, oy, oz, dx, dy, dz, reach, blen, tr, tg, tb; int near; } Beam;   // near: el otro jugador esta lo bastante cerca para que su luz me llegue
 static Beam bm_other;                                  // linterna del otro jugador (la propia se calcula en el espacio de camara)
 static const int gfx_nl[3] = { 3, 4, 6 };              // subdivision de lo que esta dentro de un cono (bajo/medio/alto)
@@ -6645,6 +6647,9 @@ static inline float cone_f(float cs)
     return t * t * (3.0f - 2.0f * t);
 }
 
+#define OWN_NB 144
+static float own_hd[OWN_NB];                               // distancia horizontal a la que mi luz choca con una pared, por direccion
+static int own_hd_on = 0;
 typedef struct { int kx, ky, kz; unsigned int sig; float r, g, b; } LmEnt;
 #define LM_N 4096
 static LmEnt lm_tab[LM_N];                                  // luz de lamparas precalculada por punto (se invalida si cambia el grupo de lamparas cercanas)
@@ -6679,8 +6684,25 @@ static V mk(float wx, float wy, float wz, const float *c, float emit)
     float mr = 1.0f, mg = 1.0f, mb = 1.0f;
     if (flash_on) {
         if (opt_vlit && d2_ >= amb_r * amb_r) d = amb_r; else if (opt_vlit) d = sqrtf(d2_);
-        float att = 1.0f - d / amb_r;
-        if (att > 0.0f) A = att * att;
+        if (d < amb_r && d > 1e-3f) {                           // LINTERNA EN CONO: circulo chico de frente, elipse en superficies de lado
+            float cs = (v.z - 0.04f * v.y) / d;                  // coseno del angulo con el eje de la linterna (un poco hacia abajo)
+            float t = (cs - OWN_OUT) * (1.0f / (OWN_IN - OWN_OUT));
+            if (t > 0.0f) {
+                if (t > 1.0f) t = 1.0f;
+                float cf = t * t * (3.0f - 2.0f * t), a2 = 1.0f - d / amb_r;
+                A = a2 * (0.4f + 0.6f * a2) * cf * 1.6f;
+            }
+            float ab = 1.0f - d * (1.0f / 6.0f);                 // resplandor suave alrededor de mi (para ver los pies)
+            if (ab > 0.0f) A += ab * ab * 0.10f;
+            if (A > 1.0f) A = 1.0f;
+        }
+        if (A > 0.0f && own_hd_on && wy - (cur_layer ? SEWER_Y : 0.0f) < 3.0f) {      // la luz no traspasa paredes
+            float hd = sqrtf(dx * dx + dz * dz);
+            float ang = atan2f(dx, dz);
+            int bi = (int)((ang + 3.14159265f) * (OWN_NB / 6.2831853f)); if (bi < 0) bi = 0; if (bi >= OWN_NB) bi = OWN_NB - 1;
+            float oc = (own_hd[bi] + 0.9f - hd) * 1.5f;
+            if (oc < 1.0f) A *= (oc < 0.0f ? 0.0f : oc);
+        }
         if (uv_on) { mr = 0.62f; mg = 0.20f; mb = 1.0f; }       // luz UV: solo la luz de la linterna es morada
     } else {
         if (opt_vlit && d2_ >= amb_r * amb_r * 0.0784f) d = amb_r; else if (opt_vlit) d = sqrtf(d2_);
@@ -6890,6 +6912,15 @@ static int quad_lit(const float p[4][3])
     float cx = (p[0][0] + p[2][0]) * 0.5f, cy = (p[0][1] + p[2][1]) * 0.5f, cz = (p[0][2] + p[2][2]) * 0.5f;
     float ex = p[2][0] - p[0][0], ey = p[2][1] - p[0][1], ez = p[2][2] - p[0][2];
     float r = 0.5f * sqrtf(ex * ex + ey * ey + ez * ez);
+    if (flash_on && !spec_day) {                              // mi linterna (cono)
+        float wx = cx - px, wy = cy - cam_y, wz = cz - pz;
+        float d = sqrtf(wx * wx + wy * wy + wz * wz);
+        if (d - r < amb_r) {
+            if (d <= r * 1.3f) return 1;
+            float along = wx * (fx * cpitch) + wy * spitch + wz * (fz * cpitch);
+            if (along / d > OWN_OUT - 0.5f * r / d - 0.03f) return 1;
+        }
+    }
     if (bm_other.on) {                                        // linterna del otro jugador
         float wx = cx - bm_other.ox, wy = cy - bm_other.oy, wz = cz - bm_other.oz;
         float d = sqrtf(wx * wx + wy * wy + wz * wz);
@@ -7575,8 +7606,14 @@ static void draw_supermarket(float t)
         neon_letter(txt[i], lcx, 3.78f, i < 5 ? pink : cyan, e, zf + 0.7f, 0.7f, 0.9f, 0.11f);       // y encima de la oscuridad
     }
     // toldo rayado sobre la puerta, con dos postes
-    for (int i = 0; i < 10; i++)
-        box_rot(229.5f + (float)i, zf + 1.2f, 0, 0, 0, 0.5f, 1.2f, 2.55f, 2.7f, (i & 1) ? white : red, 0.0f);
+    // (rayas hechas con planos sueltos arriba y abajo, sin caras que coincidan con la pared ni con la vecina: antes parpadeaban al moverte)
+    for (int i = 0; i < 10; i++) {
+        const float *rc = (i & 1) ? white : red;
+        hquad(229.0f + (float)i, zf + 0.03f, 230.0f + (float)i, zf + 2.39f, 2.70f, rc, 2);
+        hquad(229.0f + (float)i, zf + 0.03f, 230.0f + (float)i, zf + 2.39f, 2.55f, rc, 2);
+    }
+    box_rot(229.0f, zf + 1.21f, 0, 0, 0, 0.01f, 1.18f, 2.55f, 2.69f, red, 0.0f);       // cantos de los extremos
+    box_rot(239.0f, zf + 1.21f, 0, 0, 0, 0.01f, 1.18f, 2.55f, 2.69f, red, 0.0f);
     box_rot(234.0f, zf + 2.45f, 0, 0, 0, 5.0f, 0.06f, 2.3f, 2.7f, red, 0.0f);
     box_rot(229.1f, zf + 2.3f, 0, 0, 0, 0.06f, 0.06f, 0.0f, 2.55f, frame, 0.0f);
     box_rot(238.9f, zf + 2.3f, 0, 0, 0, 0.06f, 0.06f, 0.0f, 2.55f, frame, 0.0f);
@@ -9364,8 +9401,7 @@ static void draw_detector(float t)
     const float hx = 0.042f * S, hy = 0.085f * S, hz = 0.017f * S, zf = -hz;
 
     vm_mode = 1;
-    if (0)
-    {   // mano izquierda (sin mano: se veia feo) (bloque de piel) detras del aparato
+    {   // mano izquierda (la de bloques de siempre) detras del aparato
         float sk[3] = { hand_col[4][0], hand_col[4][1], hand_col[4][2] }, sk2[3] = { hand_col[2][0], hand_col[2][1], hand_col[2][2] };
         rd_box(0.0f, -hy * 0.80f, hz + 0.020f, hx * 1.05f, hy * 0.50f, 0.026f, sk, sk2);          // palma (detras)
         rd_box(-hx - 0.007f, -hy * 0.35f, 0.0f, 0.009f, 0.010f, hz + 0.006f, sk, sk2);             // dedos que rodean el aparato
@@ -9421,6 +9457,7 @@ static void draw_detector(float t)
 static void draw_spot_overlay(void)
 {
     if (spec_day) return;                              // de dia no hay oscuridad de pantalla
+    if (flash_on && state == 0) return;                // linterna en cono: la oscuridad ya va por vertices, no hace falta el circulo de pantalla
     const int seg = gfx_seg[gfx], steps = gfx_steps[gfx], nr = steps + 3;
     float clear_r = flash_on ? 0.16f : 0.03f;     // radio totalmente claro (fraccion del ancho)
     float soft_r  = flash_on ? 0.19f : 0.08f;     // ancho del borde suave
@@ -26826,6 +26863,22 @@ static void lights_prepare(void)
             if (Q->uv_on) { bm_other.tr = 0.62f; bm_other.tg = 0.20f; bm_other.tb = 1.0f; }
             else { bm_other.tr = 1.0f; bm_other.tg = 0.95f; bm_other.tb = 0.78f; }
         }
+    }
+    own_hd_on = 0;
+    if (flash_on && state == 0 && !spec_day && !climbing) {      // mi linterna: hasta donde llega la luz en cada direccion (las paredes la cortan)
+        const float lb = cur_layer ? SEWER_Y : 0.0f;
+        const float rr = amb_r;
+        for (int k = 0; k < OWN_NB; k++) {
+            float a_ = -3.14159265f + (k + 0.5f) * (6.2831853f / OWN_NB), sx = sinf(a_), cz_ = cosf(a_);
+            float hd = rr;
+            for (float sd = 0.6f; sd <= rr; sd += 0.6f) {
+                float x = px + sx * sd, z = pz + cz_ * sd;
+                if (solid(x, z) || tree_hit(x, z) || col_hit(x, z, 0.0f)) { hd = sd; break; }
+            }
+            own_hd[k] = hd;
+        }
+        (void)lb;
+        own_hd_on = 1;
     }
     lamp_n = 0; lamp_at_me = 0.0f;
     if (cur_layer == 1 || climbing || see_down) {
@@ -84540,6 +84593,14 @@ static void ui_overlay_(float with_panel)                                       
         float x = (float)((h >> 4) % (unsigned int)W) + 9.0f * sinf((float)frame_no * 0.02f + (float)i);
         ui_rect(x, y, x + 2.0f, y + 2.0f, 175, 170, 160, 30 + (int)((h >> 12) & 31u));
     }
+    for (int i = 0; i < 22; i++) {                                                       // brasas rojas que suben (las de antes)
+        unsigned int h = (unsigned int)(i + 1) * 2654435761u;
+        float sp = 0.35f + (float)((h >> 8) & 255u) / 255.0f * 0.9f;
+        float y = H - fmodf((float)frame_no * sp + (float)((h >> 16) & 1023u), H + 20.0f) + 10.0f;
+        float x = (float)((h >> 4) % (unsigned int)W) + 7.0f * sinf((float)frame_no * 0.03f + (float)i);
+        int al = 70 + (int)((h >> 12) & 63u);
+        ui_rect(x, y, x + 2.0f, y + 2.0f, 255, 50 + (int)((h >> 20) & 70u), 30, al);
+    }
     for (int i = 0; i < 40; i++) {                                                       // grano de pelicula
         unsigned int h = ((unsigned int)frame_no * 40u + (unsigned int)i + 1u) * 2246822519u;
         h ^= h >> 15; h *= 2654435761u;
@@ -85761,7 +85822,7 @@ static void draw_lighter_hand(float t)
     vm_mode = 1;
     {   // mano (bloques de piel) sosteniendo el encendedor
         float sk[3] = { hand_col[4][0], hand_col[4][1], hand_col[4][2] }, sk2[3] = { hand_col[2][0], hand_col[2][1], hand_col[2][2] };
-        if (!fp_arm_local(0.0f, -0.040f, 0.0f)) {
+        {
         rd_box(0.0f, -0.046f, 0.000f, 0.034f, 0.016f, 0.024f, sk, sk2);
         rd_box(0.046f, -0.018f, 0.000f, 0.011f, 0.030f, 0.016f, sk, sk2);
         rd_box(-0.046f, -0.018f, 0.000f, 0.011f, 0.030f, 0.016f, sk, sk2);
