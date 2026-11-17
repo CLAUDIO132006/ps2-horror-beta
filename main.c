@@ -6055,7 +6055,7 @@ static float jd_sx, jd_sz, jd_my, jd_face, jd_yaw, jd_pitch; static int jd_ml, j
 static int creature_sel;        // 0 = MONSTRUO, 1 = ACECHADOR, 2 = AMBOS
 #define STK_ON() ((creature_sel == 2 ? mon_act : creature_sel) == 1 && !net_online)
 #define DUAL() (creature_sel == 2 && !net_online && !mon_view && !js_demo)     // online siempre usa el monstruo normal (los dos juegos deben simular lo mismo)
-enum { SK_WALK, SK_PEEK, SK_CHASE };
+enum { SK_WALK, SK_PEEK, SK_CHASE, SK_SCARE };      // SK_SCARE: susto de puerta (se asoma de lado y se esconde en la pared; no mata)
 static int   stk_mode, stk_kind, stk_side, stk_have, stk_n;     // kind: 0 arbol, 1 esquina de pared; side: hacia que lado se asoma
 static int js_t;                       // cuadros del jumpscare (se usa tambien al dibujar al acechador)
 static int stk_back, stk_mv;             // stk_back: el siguiente escondite esta a tu espalda; stk_mv: se esta recolocando tras el arbol
@@ -9269,7 +9269,7 @@ static void draw_stalker(void)
     if (mon_blind_t > 0.0f) a = mon_blind_yaw;
     const float sn = sinf(a), cs = cosf(a);
     const float mm = clampf(mon_spd * 0.8f, 0.0f, 1.0f), ph = mon_phase;
-    const int peek = play && stk_mode == SK_PEEK;
+    const int peek = play && (stk_mode == SK_PEEK || stk_mode == SK_SCARE);
     const float lean = peek ? stk_lean : 0.0f, side = (float)stk_side;
     const float cov = mon_cover;
     // ---- tronco: se inclina (hacia adelante al correr, hacia un lado al asomarse) ----
@@ -27543,13 +27543,60 @@ static void stk_search(void)
     }
 }
 
+// ---- SUSTO DE PUERTA: cuando vas a salir de una estructura, el acechador se asoma de lado desde la pared junto a la puerta, te mira un momento y se mete en la pared. No mata. ----
+static int stk_scare_ev;                         // pide el sonido del susto (se toca en el bucle principal)
+static unsigned int stk_scared;                  // puertas que ya usaron su susto
+static float stk_scare_cd = 45.0f;               // segundos hasta el proximo susto posible
+static int stk_scare_try(void)
+{
+    if (stk_scare_cd > 0.0f || state != 0 || hide_id >= 0) return 0;
+    if (vel_x * vel_x + vel_z * vel_z < 1.0f || fz < 0.35f) return 0;           // camina hacia la salida (hacia +Z: las puertas dan al sur)
+    for (int i = 0; i < ND; i++) {
+        const Door *d = &doors[i];
+        if (d->orient != 0 || d->layer != 0 || i == 5 || (stk_scared & (1u << i))) continue;
+        if (fabsf(px - d->x) > d->hw + 0.8f || pz > d->z - 1.8f || pz < d->z - 6.0f) continue;
+        unsigned int h = hash2((int)game_seed + i * 31, 777 + stk_n);
+        stk_scared |= 1u << i;
+        if (h % 100u >= 70u) continue;                                          // 7 de cada 10 veces
+        float sgn = ((h >> 8) & 1u) ? 1.0f : -1.0f;
+        stk_scare_cd = 50.0f;
+        stk_mode = SK_SCARE; stk_have = 0; stk_kind = 1; stk_t = 0.0f; stk_cx = d->x; stk_cz = d->z; stk_lean = 0.0f; stk_stare = 0.0f; stk_unseen = 0.0f;
+        sx_ = d->x + sgn * (d->hw + 0.85f); sz_ = d->z + 0.35f; mlayer = 0; mon_y = 0.0f; mon_spd = 0.0f; mon_runf = 0.0f; mon_has = 0; mon_wp_ok = 0;
+        mon_face = atan2f(px - sx_, pz - sz_);
+        stk_side = (-sgn * cosf(mon_face) > 0.0f) ? 1 : -1;                    // se inclina hacia el hueco de la puerta
+        stk_scare_ev = 1;
+        return 1;
+    }
+    return 0;
+}
+static int stk_scare_run(float dt)
+{
+    stk_t += dt;
+    float dx = px - sx_, dz = pz - sz_;
+    { float df = wrap_pi(atan2f(dx, dz) - mon_face); mon_face += df * clampf(dt * 5.0f, 0.0f, 1.0f); }
+    float tgt = stk_t < 2.0f ? 1.0f : 0.0f;
+    stk_lean += (tgt - stk_lean) * clampf(dt * (tgt > 0.5f ? 7.0f : 5.0f), 0.0f, 1.0f);
+    if (stk_t > 2.0f) sx_ += (sx_ > stk_cx ? 1.0f : -1.0f) * dt * 1.6f;          // se mete en la pared
+    mon_spd = 0.0f; mon_runf = 0.0f;
+    if (stk_t > 2.8f) {                                                          // desaparece: reaparece lejos
+        float ax = 58.0f - px, az = 100.0f - pz, bx = MON_X - px, bz = MON_Z - pz;
+        if (ax * ax + az * az > bx * bx + bz * bz) { sx_ = 58.0f; sz_ = 100.0f; } else { sx_ = MON_X; sz_ = MON_Z; }
+        mlayer = 0; mon_y = 0.0f; stk_mode = SK_WALK; stk_have = 0; stk_lean = 0.0f; stk_tgt = -1; mon_wp_ok = 0; mon_look_t = 0.0f; need_flow = 1;
+        return 0;
+    }
+    return 2;
+}
+
 // 0 = IA normal (persecucion), 1 = camina hacia su escondite (IA normal con destino fijo), 2 = quieto asomandose
 static int stalker_pre(float dt)
 {
     if (!STK_ON()) return 0;
     if (mlayer != cur_layer || cur_layer != 0 || climbing) { stk_mode = SK_WALK; stk_have = 0; stk_lean = 0.0f; return 0; }
     float dx = px - sx_, dz = pz - sz_, dist = sqrtf(dx * dx + dz * dz);
+    if (stk_scare_cd > 0.0f) stk_scare_cd -= dt;
     if (frenzy_t > 0.0f && stk_mode != SK_CHASE) stk_begin_chase(dt);
+    if (stk_mode == SK_SCARE) return stk_scare_run(dt);
+    if (stk_mode == SK_WALK && !stk_have && !mon_seen && stk_scare_try()) return 2;
     if (stk_mode == SK_CHASE) {
         if (mon_seen) stk_lost = 0.0f; else stk_lost += dt;
         if (stk_lost > 7.0f || dist > 45.0f) { stk_mode = SK_WALK; stk_have = 0; mon_has = 0; mon_wp_ok = 0; stk_n++; stk_back = 0; }
@@ -27827,7 +27874,7 @@ static void reset_game(void)
     spec_mode = 0; spec_day = 0; spec_walk = 0; give_open = 0; js_demo = 0; mon_view = 0;
     if (net_online) game_seed = game_seed * 1664525u + 1013904223u;   // online: los dos juegos avanzan igual
     else game_seed = (unsigned int)frame_no;
-    dth_who = -1; mon_act = 0; alt_ok = 0; stk_tgt = -1; stk_visited = 0; mon_stuck = 0.0f; mon_blind_t = 0.0f; mon_cover = 0.0f; stk_mode = SK_WALK; stk_have = 0; stk_lean = 0.0f;
+    stk_scared = 0; stk_scare_cd = 45.0f; dth_who = -1; mon_act = 0; alt_ok = 0; stk_tgt = -1; stk_visited = 0; mon_stuck = 0.0f; mon_blind_t = 0.0f; mon_cover = 0.0f; stk_mode = SK_WALK; stk_have = 0; stk_lean = 0.0f;
     need_flow = 1; last_layer = -1; last_foot = 0;
     sx_ = MON_X; sz_ = MON_Z; mlayer = 0; mon_y = 0.0f; mon_wait = 0.0f;
     for (int i = 0; i < 3; i++) { notes_got[i] = 0; notes_off[i] = 0; notes_used[i] = 0; notes_frz[i] = 0; }
@@ -92032,7 +92079,7 @@ static void js_finish(void)
     reset_game();
 }
 
-static const unsigned char font5x7[42][7] = {
+static const unsigned char font5x7[45][7] = {
     {0x0E,0x11,0x11,0x1F,0x11,0x11,0x11}, /* A */
     {0x1E,0x11,0x11,0x1E,0x11,0x11,0x1E}, /* B */
     {0x0E,0x11,0x10,0x10,0x10,0x11,0x0E}, /* C */
@@ -92075,8 +92122,11 @@ static const unsigned char font5x7[42][7] = {
     {0x00,0x00,0x00,0x1F,0x00,0x00,0x00}, /* - */
     {0x00,0x00,0x00,0x00,0x00,0x0C,0x0C}, /* . */
     {0x01,0x01,0x02,0x04,0x08,0x10,0x10}, /* / */
+    {0x0E,0x11,0x17,0x15,0x17,0x10,0x0E}, /* @ */
+    {0x0E,0x11,0x01,0x02,0x04,0x00,0x04}, /* ? */
+    {0x00,0x00,0x1F,0x00,0x1F,0x00,0x00}, /* = */
 };
-static const char font_order[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789:<>-./";
+static const char font_order[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789:<>-./@?=";
 
 static void draw_text(float x, float y, const char *str, int sc, u64 col)
 {
@@ -95139,8 +95189,10 @@ static void skin_prev_rect(const unsigned char *tex, int u0, int v0, int w, int 
 static int who_p2(void) { return menu_who == 1 && num_players == 2 && !net_online && opt_from == SC_PAUSE; }
 // ---- Logos del menu principal: DISCORD y YOUTUBE (seleccionables) y la pantalla con el link ----
 #define DISCORD_URL "https://discord.gg/H35DbhzDdN"
-#define YOUTUBE_URL ""                              // pon aqui el link de tu canal (por ejemplo "https://youtube.com/@TuCanal"); vacio = "PROXIMAMENTE"
-static int link_which;                              // 0 discord, 1 youtube
+static const char *const yt_name[2] = { "CLAUDIOGUAPOXD", "FORESTTTT64GAMES" };
+static const char *const yt_url1[2] = { "https://youtube.com/@claudioguapoxd", "https://youtube.com/@forestttt64games" };
+static const char *const yt_url2[2] = { "?si=Cwjp3Uvt-BA1VwOT", "?si=VOfz10lEeLvAJrAx" };
+static int link_which, link_sub, yt_pick;           // link_which: 0 discord, 1 youtube; en youtube link_sub: 0 lista de canales, 1 link del canal elegido
 static void draw_social_icon(int kind, float x, float y, float sz, int al)
 {
     if (kind == 0) {                                // Discord: cuadrado azul con la carita blanca
@@ -95216,13 +95268,14 @@ static void menu_frame(u32 newp, float lv, int frame)
 #ifdef HAVE_NET
     if (screen == SC_NETCAP) { n = 1; sel = &sec_dummy; }
 #endif
+    if (screen == SC_LINK) { n = (link_which == 1 && link_sub == 0) ? 2 : 1; sel = &yt_pick; }
     if (up) { *sel = (*sel + n - 1) % n; sfx_play(SFX_CLICK, 0.5f); }
     if (dn) { *sel = (*sel + 1) % n; sfx_play(SFX_CLICK, 0.5f); }
     if (ok || back || lt || rt) sfx_play(SFX_CLICK, 0.7f);
     if (screen == SC_MAIN && menu_sel >= 7 && (lt || rt)) menu_sel = 15 - menu_sel;      // los dos logos (DISCORD / YOUTUBE): izquierda / derecha
 
     if (screen == SC_MAIN) {
-        if (ok && menu_sel >= 7) { link_which = menu_sel - 7; screen = SC_LINK; }
+        if (ok && menu_sel >= 7) { link_which = menu_sel - 7; screen = SC_LINK; link_sub = 0; yt_pick = 0; }
         else if (ok) {
             if (*sel == 0) { screen = SC_SOLO; solo_mode = 1; solo_sel = 3; }
             else if (*sel == 1) { screen = SC_SOLO; solo_mode = 2; solo_sel = 3; }
@@ -95246,7 +95299,8 @@ static void menu_frame(u32 newp, float lv, int frame)
             else Exit(0);
         }
     } else if (screen == SC_LINK) {                           // LINK de Discord / YouTube
-        if (ok || back) screen = SC_MAIN;
+        if (link_which == 1 && link_sub == 0) { if (back) screen = SC_MAIN; else if (ok) link_sub = 1; }      // YOUTUBE: primero eliges el canal
+        else if (back || ok) { if (link_which == 1) link_sub = 0; else screen = SC_MAIN; }
     } else if (screen == SC_SOLO) {                           // 1 JUGADOR: dificultad / marcador / mapa / empezar
         int d = rt ? 1 : (lt ? -1 : (ok ? 1 : 0));
         if (back) screen = SC_MAIN;
@@ -95855,15 +95909,30 @@ static void menu_frame(u32 newp, float lv, int frame)
     }
 #endif
     if (screen == SC_LINK) {
-        const int dc = (link_which == 0);
-        draw_text_c(40.0f, dc ? "DISCORD" : "YOUTUBE", 6, sel_c);
-        draw_social_icon(link_which, W * 0.5f - 36.0f, 112.0f, 72.0f, 128);
-        draw_text_c(210.0f, dc ? "UNETE AL GRUPO" : "MI CANAL", 3, norm_c);
-        if (dc) draw_url_c(256.0f, DISCORD_URL, sel_c);
-        else if (YOUTUBE_URL[0]) draw_url_c(256.0f, YOUTUBE_URL, sel_c);
-        else draw_text_c(256.0f, "PROXIMAMENTE", 3, sel_c);
-        draw_text_c(300.0f, "LAS LETRAS CHICAS SON MINUSCULAS", 1, hint_c);
-        draw_text_c(H - 34.0f, "X / O: VOLVER", 2, hint_c);
+        if (link_which == 0) {
+            draw_text_c(40.0f, "DISCORD", 6, sel_c);
+            draw_social_icon(0, W * 0.5f - 36.0f, 112.0f, 72.0f, 128);
+            draw_text_c(210.0f, "UNETE AL GRUPO", 3, norm_c);
+            draw_url_c(256.0f, DISCORD_URL, sel_c);
+            draw_text_c(300.0f, "LAS LETRAS CHICAS SON MINUSCULAS", 1, hint_c);
+            draw_text_c(H - 34.0f, "X / O: VOLVER", 2, hint_c);
+        } else if (link_sub == 0) {
+            draw_text_c(40.0f, "YOUTUBE", 6, sel_c);
+            draw_social_icon(1, W * 0.5f - 36.0f, 112.0f, 72.0f, 128);
+            for (int i = 0; i < 2; i++) {
+                snprintf(line, sizeof(line), i == yt_pick ? "> %s <" : "%s", yt_name[i]);
+                draw_text_c(222.0f + i * 40.0f, line, 3, i == yt_pick ? sel_c : norm_c);
+            }
+            draw_text_c(H - 34.0f, "ARRIBA/ABAJO: MOVER   X: ELEGIR   O: ATRAS", 2, hint_c);
+        } else {
+            draw_text_c(40.0f, yt_name[yt_pick], 4, sel_c);
+            draw_social_icon(1, W * 0.5f - 36.0f, 100.0f, 72.0f, 128);
+            draw_text_c(190.0f, "CANAL DE YOUTUBE", 3, norm_c);
+            draw_url_c(236.0f, yt_url1[yt_pick], sel_c);
+            draw_url_c(268.0f, yt_url2[yt_pick], sel_c);
+            draw_text_c(310.0f, "LAS LETRAS CHICAS SON MINUSCULAS", 1, hint_c);
+            draw_text_c(H - 34.0f, "X / O: VOLVER", 2, hint_c);
+        }
     }
     if (screen == SC_MAIN) { ui_cx = W * 0.31f; draw_text_c(H - 34.0f, "ARRIBA/ABAJO: MOVER   X: ELEGIR", 2, hint_c); ui_cx = -1.0f; }      // a la izquierda: a la derecha van los logos
     if (screen != SC_NETIP && screen != SC_NETWAIT && screen != SC_LOBBY && screen != SC_NETLIST && screen != SC_NAME && screen != SC_SECRET && screen != SC_NETCAP && screen != SC_LINK && screen != SC_MAIN)
@@ -96460,7 +96529,7 @@ static void player_post(int notes)
     if (pl_dn[pl_cur]) return;                              // caido: el monstruo ya no lo toca
     float ddx = sx_ - px, ddz = sz_ - pz;
     float catch_r2 = hide_id >= 0 ? (hide_exp ? 7.8f : -1.0f) : (STK_ON() ? 14.4f : 3.6f);      // escondido: solo te alcanza si te vio entrar
-    if (mon_blind_t <= 0.0f && mlayer == cur_layer && !climbing && ddx * ddx + ddz * ddz < catch_r2) { js_begin(); return; }   // alcance de sus garras (1.9 m)
+    if (mon_blind_t <= 0.0f && mlayer == cur_layer && !climbing && ddx * ddx + ddz * ddz < catch_r2 && !(STK_ON() && stk_mode == SK_SCARE)) { js_begin(); return; }   // alcance de sus garras (1.9 m)
     if (cur_layer == 1 && !climbing && door_open[DOOR_FINAL] && (px - END_X) * (px - END_X) + (pz - END_Z) * (pz - END_Z) < 1.7f) { state = 2; state_timer = 900; end_alt = 0; }   // te metiste en el circulo verde del pasillo final: FIN
 }
 
@@ -96708,6 +96777,7 @@ int main(void)
                     int ps = ps_a[mi_], pb = pb_a[mi_];
                     int lp = net_online ? net_local : 0;
                     if (mi_ == 0) br_want = 0.0f;
+                    if (stk_scare_ev) { stk_scare_ev = 0; sfx_play3(SFX_ROAR, 0.55f, sx_, sz_, 0, 45.0f); }       // susto de puerta
                     float edx = sx_ - P[lp].px, edz = sz_ - P[lp].pz, ed = sqrtf(edx * edx + edz * edz);
                     if (frenzy_go) frenzy_go = 0;                                                                                          // (ya suena EVIL)                                 // enloquece: ruge
                     if (mon_seen && !ps && !STK_ON()) sfx_play3(SFX_ROAR, 1.0f, sx_, sz_, mlayer, 90.0f);          // te vio: ruge
