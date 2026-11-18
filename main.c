@@ -7612,14 +7612,14 @@ static void draw_supermarket(float t)
     // (rayas hechas con planos sueltos arriba y abajo, sin caras que coincidan con la pared ni con la vecina: antes parpadeaban al moverte)
     for (int i = 0; i < 10; i++) {
         const float *rc = (i & 1) ? white : red;
-        hquad(229.0f + (float)i, zf + 0.03f, 230.0f + (float)i, zf + 2.39f, 2.70f, rc, 2);
-        hquad(229.0f + (float)i, zf + 0.03f, 230.0f + (float)i, zf + 2.39f, 2.55f, rc, 2);
+        hquad(229.0f + (float)i, zf + 0.03f, 230.0f + (float)i, zf + 2.39f, 3.25f, rc, 2);
+        hquad(229.0f + (float)i, zf + 0.03f, 230.0f + (float)i, zf + 2.39f, 3.10f, rc, 2);
     }
-    box_rot(229.0f, zf + 1.21f, 0, 0, 0, 0.01f, 1.18f, 2.55f, 2.69f, red, 0.0f);       // cantos de los extremos
-    box_rot(239.0f, zf + 1.21f, 0, 0, 0, 0.01f, 1.18f, 2.55f, 2.69f, red, 0.0f);
-    box_rot(234.0f, zf + 2.45f, 0, 0, 0, 5.0f, 0.06f, 2.3f, 2.7f, red, 0.0f);
-    box_rot(229.1f, zf + 2.3f, 0, 0, 0, 0.06f, 0.06f, 0.0f, 2.55f, frame, 0.0f);
-    box_rot(238.9f, zf + 2.3f, 0, 0, 0, 0.06f, 0.06f, 0.0f, 2.55f, frame, 0.0f);
+    box_rot(229.0f, zf + 1.21f, 0, 0, 0, 0.01f, 1.18f, 3.10f, 3.24f, red, 0.0f);       // cantos de los extremos
+    box_rot(239.0f, zf + 1.21f, 0, 0, 0, 0.01f, 1.18f, 3.10f, 3.24f, red, 0.0f);
+    box_rot(234.0f, zf + 2.45f, 0, 0, 0, 5.0f, 0.06f, 2.85f, 3.25f, red, 0.0f);
+    box_rot(229.1f, zf + 2.3f, 0, 0, 0, 0.06f, 0.06f, 0.0f, 3.10f, frame, 0.0f);
+    box_rot(238.9f, zf + 2.3f, 0, 0, 0, 0.06f, 0.06f, 0.0f, 3.10f, frame, 0.0f);
     // "ABIERTO" no cabe: un cartel verde pequeno junto a la puerta
     box_rot(236.5f, zf + 0.1f, 0, 0, 0, 0.3f, 0.05f, 1.5f, 1.9f, green, 0.9f);
     // vitrinas con marco a cada lado de la puerta
@@ -9258,7 +9258,9 @@ static void stk_tex_tri(const V *a, const V *b, const V *c, const unsigned short
     gsKit_prim_triangle_goraud_texture_3d(gsGlobal, &stk_gtex, X[0], Y[0], Z[0], U[0], Vv[0], X[1], Y[1], Z[1], U[1], Vv[1], X[2], Y[2], Z[2], U[2], Vv[2], col[0], col[1], col[2]);
 }
 
-#define STK_K 2.0f                                   // el acechador mide el doble
+#define STK_K_BASE 2.0f                              // el acechador mide el doble
+static float stk_kk = 2.0f;                          // escala del dibujo (mas chico al asomarse en paredes: las casas son bajas)
+#define STK_K stk_kk
 static void draw_stalker(void)
 {
     float ddx = sx_ - px, ddz = sz_ - pz;
@@ -9269,6 +9271,7 @@ static void draw_stalker(void)
     if (mon_blind_t > 0.0f) a = mon_blind_yaw;
     const float sn = sinf(a), cs = cosf(a);
     const float mm = clampf(mon_spd * 0.8f, 0.0f, 1.0f), ph = mon_phase;
+    stk_kk = (play && stk_kind == 1 && (stk_mode == SK_PEEK || stk_mode == SK_SCARE)) ? 1.45f : STK_K_BASE;
     const int peek = play && (stk_mode == SK_PEEK || stk_mode == SK_SCARE);
     const float lean = peek ? stk_lean : 0.0f, side = (float)stk_side;
     const float cov = mon_cover;
@@ -27454,6 +27457,28 @@ static void stk_anchor(void)           // sitio detras del arbol, segun donde es
     stk_az = stk_cz - uz * 0.9f - ux * (float)stk_side * 0.2f;
 }
 
+// pega el sitio de escondite a la pared REAL (las paredes son delgadas, la rejilla es de 4 m): a 0.5 m de la cara y justo detras del borde de la esquina
+static void stk_wall_anchor(int ix, int iz, int ex_, int ez_, int lx, int lz, int sd, float *ax, float *az)
+{
+    const float cx = (ix + 0.5f) * CS, cz = (iz + 0.5f) * CS;
+    float dx = cx + ex_ * (CS * 0.5f + 0.7f) + lx * sd * (CS * 0.5f - 0.3f), dz = cz + ez_ * (CS * 0.5f + 0.7f) + lz * sd * (CS * 0.5f - 0.3f);
+    *ax = dx; *az = dz;
+    const int sl = cur_layer; cur_layer = 0;
+    const float bx = dx - ex_ * 2.2f, bz = dz - ez_ * 2.2f;
+    float t = 0.0f; int hit = 0;
+    for (t = 0.0f; t <= 9.0f; t += 0.05f) if (solid(bx + ex_ * t, bz + ez_ * t)) { hit = 1; break; }
+    if (hit) {
+        const float fx = bx + ex_ * (t - 0.55f), fz = bz + ez_ * (t - 0.55f);          // a 0.55 m de la cara de la pared
+        const float wx = fx + ex_ * 0.7f, wz = fz + ez_ * 0.7f;                           // punto 0.15 m dentro de la pared
+        const float u0 = (wx - cx) * (float)(lx * sd) + (wz - cz) * (float)(lz * sd);   // posicion lateral respecto al centro de la celda
+        float u = u0 - 2.5f;
+        for (; u <= u0 + 4.5f; u += 0.05f) if (!solid(wx + lx * sd * (u - u0), wz + lz * sd * (u - u0))) break;   // fin de la pared (el borde de la esquina)
+        if (u > u0 - 2.4f && u < u0 + 4.4f) { float ue = u - u0 - 0.5f; *ax = fx + lx * sd * ue; *az = fz + lz * sd * ue; }
+        else { *ax = fx; *az = fz; }
+    }
+    cur_layer = sl;
+}
+
 static int stk_choose(void)            // elige un arbol o una esquina de pared donde esconderse (cada vez mas cerca)
 {
     float dmin = 20.0f - 2.0f * (float)stk_n; if (dmin < 8.0f) dmin = 8.0f;
@@ -27483,8 +27508,7 @@ static int stk_choose(void)            // elige un arbol o una esquina de pared 
             int lx = ez_, lz = -ex_;                                           // eje lateral
             int nx = ix + lx * sd, nz = iz + lz * sd;
             if (nx < 0 || nz < 0 || nx >= MW || nz >= MH || AI_SOLID(0, nz, nx)) continue;     // tiene que ser una esquina (abierto al lado)
-            float ax = (ix + 0.5f) * CS + ex_ * (CS * 0.5f + 0.7f) + lx * sd * (CS * 0.5f - 0.3f);
-            float az = (iz + 0.5f) * CS + ez_ * (CS * 0.5f + 0.7f) + lz * sd * (CS * 0.5f - 0.3f);
+            float ax, az; stk_wall_anchor(ix, iz, ex_, ez_, lx, lz, sd, &ax, &az);
             if (blocked(ax, az, 0.3f)) continue;
             stk_kind = 1; stk_side = sd; stk_ax = ax; stk_az = az; stk_cx = (ix + 0.5f) * CS; stk_cz = (iz + 0.5f) * CS;
         } else continue;
@@ -27564,8 +27588,78 @@ static void stk_scare_door(int i, float sgn)
     stk_scare_go(d->x + sgn * (d->hw + 0.85f), d->z, -sgn, 0.0f, 1);
 }
 // esquinas de pared cerca de ti (afuera o dentro de las estructuras): el acechador se asoma por el borde
+// ---- ESQUINAS POR ESTRUCTURA: cada estructura (grupo de celdas de pared) es un rectangulo y cada rectangulo tiene 4 esquinas x 2 caras ----
+typedef struct { float ax, az, lx, lz, nx, nz; } SCorner;
+#define SC_MAXC 640
+static SCorner scn[SC_MAXC]; static int scn_n, scn_done;
+static unsigned int scn_t[SC_MAXC];
+static unsigned char scn_vis[MH][MW];
+static struct { short x0, z0, x1, z1; } scn_comp[96]; static int scn_nc, scn_ci;
+static void scn_find(void)                         // grupos de celdas de pared conectados (8 vecinos)
+{
+    static short stk_[MW * MH][2];
+    for (int z = 1; z < MH - 1; z++) for (int x = 1; x < MW - 1; x++) {
+        if (scn_vis[z][x] || !AI_SOLID(0, z, x)) continue;
+        int sp = 0, cnt = 0, x0 = x, x1 = x, z0 = z, z1 = z;
+        stk_[sp][0] = (short)x; stk_[sp][1] = (short)z; sp++; scn_vis[z][x] = 1;
+        while (sp > 0) {
+            sp--; int cx = stk_[sp][0], cz = stk_[sp][1]; cnt++;
+            if (cx < x0) x0 = cx; if (cx > x1) x1 = cx; if (cz < z0) z0 = cz; if (cz > z1) z1 = cz;
+            for (int dz = -1; dz <= 1; dz++) for (int dx = -1; dx <= 1; dx++) {
+                int nx = cx + dx, nz = cz + dz;
+                if (nx < 1 || nz < 1 || nx >= MW - 1 || nz >= MH - 1 || scn_vis[nz][nx] || !AI_SOLID(0, nz, nx)) continue;
+                scn_vis[nz][nx] = 1; stk_[sp][0] = (short)nx; stk_[sp][1] = (short)nz; sp++;
+            }
+        }
+        if (cnt >= 3 && x1 - x0 <= 30 && z1 - z0 <= 30 && scn_nc < 96) { scn_comp[scn_nc].x0 = (short)x0; scn_comp[scn_nc].z0 = (short)z0; scn_comp[scn_nc].x1 = (short)x1; scn_comp[scn_nc].z1 = (short)z1; scn_nc++; }
+    }
+}
+static void scn_build_one(void)                    // una estructura por cuadro (sin tirones)
+{
+    if (scn_done) return;
+    if (scn_nc == 0 && scn_ci == 0) { scn_find(); if (scn_nc == 0) { scn_done = 1; return; } }
+    if (scn_ci >= scn_nc) { scn_done = 1; return; }
+    const float X0 = (float)scn_comp[scn_ci].x0 * CS, X1 = (float)(scn_comp[scn_ci].x1 + 1) * CS, Z0 = (float)scn_comp[scn_ci].z0 * CS, Z1 = (float)(scn_comp[scn_ci].z1 + 1) * CS;
+    scn_ci++;
+    const int sl = cur_layer; cur_layer = 0;
+    for (int c = 0; c < 4; c++) for (int f = 0; f < 2; f++) {
+        const float ox = (c & 1) ? 1.0f : -1.0f, oz = (c & 2) ? 1.0f : -1.0f;
+        const float cx = (c & 1) ? X1 : X0, cz = (c & 2) ? Z1 : Z0;
+        const float nx = f == 0 ? ox : 0.0f, nz = f == 0 ? 0.0f : oz;                    // hacia afuera de la cara
+        const float lx = f == 0 ? 0.0f : ox, lz = f == 0 ? oz : 0.0f;                    // hacia el extremo de la pared (el borde de la esquina)
+        for (float s_ = 0.0f; s_ <= 10.0f; s_ += 1.0f) {                                // estaciones de afuera hacia adentro: la primera con pared es el extremo
+            const float bx = cx - lx * s_ + nx * (CS + 1.5f), bz = cz - lz * s_ + nz * (CS + 1.5f);
+            int hit = 0; float t = 0.0f;
+            for (t = 0.0f; t <= 2.0f * CS + 3.0f; t += 0.2f) if (solid(bx - nx * t, bz - nz * t)) { hit = 1; break; }
+            if (!hit) continue;
+            if (scn_n < SC_MAXC) {
+                SCorner *q = &scn[scn_n++];
+                q->ax = bx - nx * (t - 0.55f) - lx * 0.6f; q->az = bz - nz * (t - 0.55f) - lz * 0.6f;      // pegado a la cara y un poco detras del borde
+                q->lx = lx; q->lz = lz; q->nx = nx; q->nz = nz;
+            }
+            break;
+        }
+    }
+    cur_layer = sl;
+}
 static int stk_corner_scan(int force)
 {
+    scn_build_one();
+    for (int k = 0; k < scn_n; k++) {
+        const SCorner *q = &scn[k];
+        float qx = q->ax - px, qz = q->az - pz, qd = sqrtf(qx * qx + qz * qz);
+        if (qd < 3.0f || qd > (force ? 14.0f : 8.5f)) continue;
+        if (qx * q->nx + qz * q->nz > 0.0f) continue;                                    // tu tienes que estar de su lado de la pared (no detras de ella)
+        if (blocked(q->ax, q->az, 0.3f)) continue;
+        if (!force) {
+            if (scn_t[k] && (unsigned int)frame_no + 1u - scn_t[k] < 2400u) continue;          // cada esquina tira el dado cada ~40 s
+            scn_t[k] = (unsigned int)frame_no + 1u;
+            if (hash2(frame_no * 7 + k * 13, 313) % 100u >= 25u) continue;                  // 25 % de probabilidad
+        }
+        stk_scare_go(q->ax, q->az, q->lx, q->lz, 1);
+        return 1;
+    }
+
     int pix = (int)floorf(px / CS), piz = (int)floorf(pz / CS), R = force ? 4 : 2;
     for (int dz = -R; dz <= R; dz++) for (int dx = -R; dx <= R; dx++) {
         int ix = pix + dx, iz = piz + dz;
@@ -27579,8 +27673,7 @@ static int stk_corner_scan(int force)
             const int sd = k ? -1 : 1;
             int nx = ix + lx * sd, nz = iz + lz * sd;
             if (nx < 0 || nz < 0 || nx >= MW || nz >= MH || AI_SOLID(0, nz, nx)) continue;     // abierto al lado = es una esquina
-            float ax = (ix + 0.5f) * CS + ex_ * (CS * 0.5f + 0.7f) + lx * sd * (CS * 0.5f - 0.3f);
-            float az = (iz + 0.5f) * CS + ez_ * (CS * 0.5f + 0.7f) + lz * sd * (CS * 0.5f - 0.3f);
+            float ax, az; stk_wall_anchor(ix, iz, ex_, ez_, lx, lz, sd, &ax, &az);
             float qx = ax - px, qz = az - pz, qd = sqrtf(qx * qx + qz * qz);
             if (qd < 3.0f || qd > (force ? 14.0f : 8.5f) || blocked(ax, az, 0.3f)) continue;
             if (!force) {
