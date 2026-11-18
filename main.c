@@ -5320,7 +5320,8 @@ static int   crouched, blend_flip;
 static int   opt_cull, optz_sel;                           // OPTIMIZACION > CULLING (caras traseras / fuera de camara / ocultos tras paredes)
 static int   opt_fastm, opt_early;                         // OPTIMIZACION: matematica rapida / descarte temprano de triangulos
 static int   opt_png;                                      // OPTIMIZACION: arboles PNG (laminas planas que miran a la camara)
-#define OPTZ_N 13                                          // cantidad de optimizaciones en el menu
+#define OPTZ_N 14                                          // cantidad de optimizaciones en el menu
+static int   opt_spng;                           // OPTIMIZACION: skins PNG (cada parte del cuerpo es una lamina con la cara que ves: frente, espalda o lado)
 static int   opt_stex = 1;                       // OPTIMIZACION: la cabeza del acechador usa textura PSMT8 (pocos triangulos) en vez de colores horneados
 static int   opt_novl;                           // OPTIMIZACION: sin luz por vertice (luz plana + circulo de la linterna en pantalla)
 static int   opt_bake, opt_vlit;                // OPTIMIZACION: luz precocinada de lamparas / luz por vertice rapida / particion espacial
@@ -6330,10 +6331,11 @@ static void cg_build(void)
     }
     cg_state = 1;
 }
+static int force_cg;                                                      // 1: usa siempre la rejilla de colisiones (deteccion de esquinas)
 static int col_hit(float x, float z, float r)
 {
     int lo_ = 0, hi_ = NCOL; const unsigned short *lst = 0;
-    if ((opt_colg || opt_spart) && r <= 0.5f) {                                          // OPTIMIZACION: solo los obstaculos de esta zona
+    if ((opt_colg || opt_spart || force_cg) && r <= 0.5f) {                                          // OPTIMIZACION: solo los obstaculos de esta zona
         if (cg_state == 0) cg_build();
         if (cg_state == 1) {
             int gx = (int)floorf(x / CG_CS), gz = (int)floorf(z / CG_CS);
@@ -6940,6 +6942,12 @@ static void quad_sub(const float p[4][3], const float *col, int n, float emit)
 {
     if (state == 0 && n > 1) n = quad_lit(p) ? (n > gfx_nl[gfx] ? n : gfx_nl[gfx]) : 1;   // detalle solo donde hay luz
     if (n > 6) n = 6;
+    if (n <= 1) {                                              // OPTIMIZACION: un cuadrado sin subdividir (el caso comun): 4 vertices y 2 triangulos, sin rejilla
+        V a_ = mk(p[0][0], p[0][1], p[0][2], col, emit), b_ = mk(p[1][0], p[1][1], p[1][2], col, emit);
+        V c_ = mk(p[2][0], p[2][1], p[2][2], col, emit), d_ = mk(p[3][0], p[3][1], p[3][2], col, emit);
+        tri_cam(a_, b_, c_); tri_cam(a_, c_, d_);
+        return;
+    }
     V g[7][7];
     for (int j = 0; j <= n; j++)
         for (int i = 0; i <= n; i++) {
@@ -7114,6 +7122,7 @@ static void box_rot(float cx, float cz, float a, float lx, float lz, float hx, f
         q[3][0] = X[i]; q[3][1] = y1; q[3][2] = Z[i];
         quad_sub(q, col, 1, emit);
     }
+    if (y0 <= 0.3f && y0 >= -0.5f && y1 - y0 >= 1.0f && cam_y < y1) return;                    // OPTIMIZACION: la tapa de una caja apoyada en el suelo, vista desde abajo, queda siempre tras sus costados (paredes, estantes altos...)
     for (int i = 0; i < 4; i++) { q[i][0] = X[i]; q[i][1] = y1; q[i][2] = Z[i]; }
     quad_sub(q, col, 1, emit);
 }
@@ -7577,6 +7586,9 @@ static void draw_supermarket(float t)
     const float zf = 292.0f, XL = 228.0f, XR = 240.0f, ZN = 280.0f, WH = 3.3f;
     float ddx = px - 234.0f, ddz = pz - 288.0f;
     int near_ = (ddx * ddx + ddz * ddz) < 40.0f * 40.0f;
+    // OPTIMIZACION: lo que solo se ve desde afuera (techo, letrero, toldo, vitrinas...) no se procesa si estas dentro o detras del edificio
+    const int in_sm = (px > XL && px < XR && pz > ZN && pz < zf);
+    const int front = (pz > zf - 0.2f);
     // paredes delgadas (la puerta ocupa el hueco x 232..236)
     box_rot(XL, 286.0f, 0, 0, 0, 0.2f, 6.0f, 0.0f, WH, wall, 0.0f);
     box_rot(XR, 286.0f, 0, 0, 0, 0.2f, 6.0f, 0.0f, WH, wall, 0.0f);
@@ -7585,12 +7597,15 @@ static void draw_supermarket(float t)
     box_rot(238.0f, zf, 0, 0, 0, 2.0f, 0.2f, 0.0f, WH, wall, 0.0f);
     // techo plano con parapeto y dos unidades de aire
     box_rot(234.0f, 286.0f, 0, 0, 0, 6.2f, 6.2f, 3.05f, WH - 0.02f, roofc, 0.0f);
+    if (!in_sm) {
     box_rot(234.0f, ZN - 0.1f, 0, 0, 0, 6.2f, 0.1f, WH, WH + 0.35f, stone, 0.0f);
     box_rot(XL - 0.1f, 286.0f, 0, 0, 0, 0.1f, 6.2f, WH, WH + 0.35f, stone, 0.0f);
     box_rot(XR + 0.1f, 286.0f, 0, 0, 0, 0.1f, 6.2f, WH, WH + 0.35f, stone, 0.0f);
     box_rot(231.5f, 283.0f, 0, 0, 0, 0.9f, 0.7f, WH, WH + 0.7f, ac, 0.0f);
     box_rot(237.0f, 284.0f, 0, 0, 0, 0.9f, 0.7f, WH, WH + 0.7f, ac, 0.0f);
+    }
     // (sin ventanas ni doble pared atras: el fondo es una sola pared limpia)
+    if (front) {
     // letrero (panel oscuro sobre la fachada) con marco de neon
     box_rot(234.0f, zf + 0.2f, 0, 0, 0, 5.9f, 0.2f, WH, 5.2f, dark, 0.0f);
     box_rot(234.0f, zf + 0.5f, 0, 0, 0, 5.9f, 0.06f, 5.1f, 5.2f, pink, 1.0f);
@@ -7605,7 +7620,6 @@ static void draw_supermarket(float t)
         if (i == 3 && sinf(t * 23.0f) + sinf(t * 7.3f) > 1.55f) e = 0.12f;
         if (i == 11 && sinf(t * 17.0f + 1.0f) + sinf(t * 5.1f) > 1.6f) e = 0.12f;
         float lcx = 234.0f - ((float)i - 5.5f) * 0.95f;
-        neon_letter_now(txt[i], lcx, 3.78f, i < 5 ? pink : cyan, e, zf + 0.7f, 0.7f, 0.9f, 0.11f);   // directo (con z real)
         neon_letter(txt[i], lcx, 3.78f, i < 5 ? pink : cyan, e, zf + 0.7f, 0.7f, 0.9f, 0.11f);       // y encima de la oscuridad
     }
     // toldo rayado sobre la puerta, con dos postes
@@ -7622,6 +7636,8 @@ static void draw_supermarket(float t)
     box_rot(238.9f, zf + 2.3f, 0, 0, 0, 0.06f, 0.06f, 0.0f, 3.10f, frame, 0.0f);
     // "ABIERTO" no cabe: un cartel verde pequeno junto a la puerta
     box_rot(236.5f, zf + 0.1f, 0, 0, 0, 0.3f, 0.05f, 1.5f, 1.9f, green, 0.9f);
+    }
+    if (front) {
     // vitrinas con marco a cada lado de la puerta
     for (int s = 0; s < 2; s++) {
         float cx = s ? 238.0f : 230.0f;
@@ -7639,6 +7655,7 @@ static void draw_supermarket(float t)
     box_rot(237.8f, zf + 1.6f, 0, 0, 0, 0.8f, 0.45f, 0.0f, 0.6f, (const float[3]){ 150.f, 105.f, 60.f }, 0.0f);
     box_rot(230.2f, zf + 1.6f, 0, 0, 0, 0.7f, 0.35f, 0.6f, 0.75f, (const float[3]){ 200.f, 60.f, 40.f }, 0.0f);
     box_rot(237.8f, zf + 1.6f, 0, 0, 0, 0.7f, 0.35f, 0.6f, 0.75f, (const float[3]){ 230.f, 190.f, 50.f }, 0.0f);
+    }
 }
 
 #define GA_NV 64
@@ -9281,11 +9298,11 @@ static void draw_stalker(void)
     const float cr = (scare ? 0.0f : mon_runf * mm);         // intensidad de la carrera de caza (0 = camina)
     const float g1 = scare ? clampf((float)js_t / 14.0f, 0.0f, 1.0f) : 0.0f, g2 = scare ? clampf((float)(js_t - 14) / 12.0f, 0.0f, 1.0f) : 0.0f, g3 = scare ? clampf((float)(js_t - 26) / 8.0f, 0.0f, 1.0f) : 0.0f;
     float pit = 0.10f + 0.58f * cr + 0.30f * g3;                 // encorvado hacia adelante, casi a cuatro patas
-    rot_pitch(Rp, pit); rot_roll(Rr, side * 0.50f * lean + 0.16f * cr * sinf(ph * 0.5f));            // el tronco se bambolea de lado a lado al correr
+    rot_pitch(Rp, pit); rot_roll(Rr, side * (stk_kind == 1 ? 0.62f : 0.50f) * lean + 0.16f * cr * sinf(ph * 0.5f));            // el tronco se bambolea de lado a lado al correr
     for (int i = 0; i < 3; i++) for (int j = 0; j < 3; j++) Rt[i * 3 + j] = Rr[i * 3] * Rp[j] + Rr[i * 3 + 1] * Rp[3 + j] + Rr[i * 3 + 2] * Rp[6 + j];
     Tf root;
     tf_rot(&root, Rt, stk_piv[0], 1.0f);
-    root.t[0] += side * 0.22f * lean;                           // y da un paso al costado
+    root.t[0] += side * (stk_kind == 1 ? 0.42f : 0.22f) * lean;                           // y da un paso al costado (en paredes sale mas: se le ve mas el cuerpo)
     Tf P[8];
     for (int i = 0; i < 8; i++) tf_id(&P[i]);                   // 0 cuerpo 1 cabeza 2 brazoR sup 3 brazoR inf 4 brazoL sup 5 brazoL inf 6 piernaR 7 piernaL
     // ---- cabeza ----
@@ -9319,7 +9336,7 @@ static void draw_stalker(void)
         }
         int grip = peek && ((side > 0.0f) == (sd == 1));         // el brazo del lado en que se asoma agarra el arbol / la pared
         if (grip && lean > 0.02f) {
-            float hx = side * (stk_kind ? 0.22f : 0.35f), hy = 1.28f, hz = 0.85f;      // el borde del arbol / pared
+            float hx = side * (stk_kind ? 0.30f : 0.35f), hy = stk_kind ? 1.10f : 1.28f, hz = stk_kind ? -0.30f : 0.85f;      // el borde del arbol / la mano apoyada en la cara de la pared (no la atraviesa)
             { float R_[9], q_[3] = { hx - side * 0.22f * lean, hy - stk_piv[0][1], hz - stk_piv[0][2] };           // al marco del tronco (deshace la inclinacion)
               float IR[9]; for (int i = 0; i < 3; i++) for (int j = 0; j < 3; j++) IR[i * 3 + j] = Rt[j * 3 + i];
               float w3[3]; for (int i = 0; i < 3; i++) w3[i] = IR[i * 3] * q_[0] + IR[i * 3 + 1] * q_[1] + IR[i * 3 + 2] * q_[2];
@@ -27017,6 +27034,149 @@ static int fp_arm(const float g[3], int left)
     return 1;
 }
 
+// ---------------- SKINS PNG (OPTIMIZACION): cada parte del cuerpo es UNA lamina con la cara que ves (frente / espalda / lado derecho / lado izquierdo) ----------------
+// La textura es la propia skin (o una hecha con sus colores). Las laminas siguen la pose del cuerpo: brazos, piernas y cabeza se mueven igual.
+static GSTEXTURE spng_tex[MAXP];
+static int spng_skin[MAXP] = { -1, -1, -1, -1 }, spng_ok[MAXP];
+static u32 spng_img[MAXP][128 * 64] __attribute__((aligned(64)));
+static void spng_px(u32 *im, int w, int x, int y, const float *c, float k)
+{
+    int r = (int)clampf(c[0] * k, 0, 255), g = (int)clampf(c[1] * k, 0, 255), b = (int)clampf(c[2] * k, 0, 255);
+    im[y * w + x] = (u32)r | ((u32)g << 8) | ((u32)b << 16) | (0x80u << 24);
+}
+static void spng_rect(u32 *im, const TexRect *R, const float *c, float k)
+{
+    for (int y = 0; y < R->h; y++) for (int x = 0; x < R->w; x++) spng_px(im, 64, R->u + x, R->v + y, c, k);
+}
+static void spng_fill(int slot, int ski)
+{
+    const SkinDef *K = &skins[ski];
+    u32 *im = spng_img[slot];
+    GSTEXTURE *t = &spng_tex[slot];
+    if (K->tex) {                                                      // la skin real (64x32, o 128x64 en las de 'Kenney')
+        const int k = K->geo ? 2 : 1, w = 64 * k, h = 32 * k;
+        for (int i = 0; i < w * h; i++) { const unsigned char *q = &K->tex[i * 3]; im[i] = (u32)q[0] | ((u32)q[1] << 8) | ((u32)q[2] << 16) | (0x80u << 24); }
+        t->Width = w; t->Height = h; t->TBW = k;
+        return;
+    }
+    for (int i = 0; i < 64 * 32; i++) im[i] = 0x80000000u;               // skin hecha con los colores: cabeza, torso, brazos y piernas
+    static const float white[3] = { 235.f, 235.f, 240.f }, iris[3] = { 70.f, 50.f, 130.f };
+    const float nose[3] = { K->skin[0] * 0.84f, K->skin[1] * 0.77f, K->skin[2] * 0.77f }, mouth[3] = { K->skin[0] * 0.60f, K->skin[1] * 0.47f, K->skin[2] * 0.48f };
+    for (int f = 0; f < 6; f++) {
+        spng_rect(im, &tx_head[f], K->skin, 1.0f);
+        spng_rect(im, &tx_body[f], K->shirt, 1.0f);
+        spng_rect(im, &tx_arm[f], K->skin, 1.0f);
+        spng_rect(im, &tx_leg[f], K->pants, 1.0f);
+    }
+    for (int f = 0; f < 4; f++) {
+        const TexRect *R = &tx_arm[f];
+        for (int y = 0; y < 4; y++) for (int x = 0; x < R->w; x++) spng_px(im, 64, R->u + x, R->v + y, K->shirt, 1.0f);       // manga
+        R = &tx_leg[f];
+        for (int y = 10; y < 12; y++) for (int x = 0; x < R->w; x++) spng_px(im, 64, R->u + x, R->v + y, K->shoe, 1.0f);      // zapatos
+    }
+    for (int f = 0; f < 6; f++) {                                       // pelo: arriba, nuca, flequillo y patillas
+        const TexRect *R = &tx_head[f];
+        int rows = (f == 4) ? 8 : (f == 1 ? 8 : (f == 0 ? 2 : 3));
+        for (int y = 0; y < rows; y++) for (int x = 0; x < R->w; x++) spng_px(im, 64, R->u + x, R->v + y, K->hair, 1.0f);
+    }
+    { const TexRect *R = &tx_head[0];                                  // cara: ojos, nariz y boca
+      spng_px(im, 64, R->u + 1, R->v + 4, white, 1.0f); spng_px(im, 64, R->u + 2, R->v + 4, iris, 1.0f);
+      spng_px(im, 64, R->u + 5, R->v + 4, iris, 1.0f); spng_px(im, 64, R->u + 6, R->v + 4, white, 1.0f);
+      spng_px(im, 64, R->u + 3, R->v + 5, nose, 1.0f); spng_px(im, 64, R->u + 4, R->v + 5, nose, 1.0f);
+      for (int x = 2; x < 6; x++) spng_px(im, 64, R->u + x, R->v + 6, mouth, 1.0f); }
+    t->Width = 64; t->Height = 32; t->TBW = 1;
+}
+static int spng_prepare(int slot, int ski)
+{
+    GSTEXTURE *t = &spng_tex[slot];
+    if (spng_ok[slot] < 0) return 0;
+    if (spng_ok[slot] == 0) {
+        t->PSM = GS_PSM_CT32; t->Clut = 0; t->ClutPSM = 0; t->Filter = GS_FILTER_NEAREST; t->Delayed = 0; t->Mem = (u32 *)spng_img[slot];
+        t->Vram = gsKit_vram_alloc(gsGlobal, gsKit_texture_size(128, 64, GS_PSM_CT32), GSKIT_ALLOC_USERBUFFER);
+        if (t->Vram == GSKIT_ALLOC_ERROR) { spng_ok[slot] = -1; return 0; }
+        spng_ok[slot] = 1;
+    }
+    if (spng_skin[slot] != ski) { spng_fill(slot, ski); gsKit_texture_upload(gsGlobal, t); spng_skin[slot] = ski; }
+    return 1;
+}
+static void spng_tri(GSTEXTURE *tx, const V *a, const V *b, const V *c, const float *ua, const float *ub, const float *uc)
+{
+    const V *t[3] = { a, b, c };
+    const float *uv[3] = { ua, ub, uc };
+    float X[3], Y[3];
+    int Z[3];
+    u64 col[3];
+    if (opt_prof) prof_tri[prof_cat]++;
+    for (int i = 0; i < 3; i++) {
+        if (t[i]->z < NEAR_Z) return;
+        float qx = t[i]->x, qy = t[i]->y;
+        float rx_ = qx * cam_rc - qy * cam_rs; qy = qx * cam_rs + qy * cam_rc; qx = rx_;
+        X[i] = clampf(W * 0.5f + qx / t[i]->z * FOCAL, -1000.0f, W + 1000.0f) + VX;
+        Y[i] = clampf(H * 0.5f - qy / t[i]->z * FOCAL, -1000.0f, H + 1000.0f) + VY;
+        Z[i] = (int)(16777000.0f * (NEAR_Z / t[i]->z) * z_bias_k);
+        if (Z[i] < 1) Z[i] = 1; else if (Z[i] > 16777215) Z[i] = 16777215;
+        col[i] = GS_SETREG_RGBAQ((int)clampf(t[i]->r * 0.5f, 0, 255), (int)clampf(t[i]->g * 0.5f, 0, 255), (int)clampf(t[i]->b * 0.5f, 0, 255), 0x80, 0x00);
+    }
+    float ar = (X[1] - X[0]) * (Y[2] - Y[0]) - (X[2] - X[0]) * (Y[1] - Y[0]);
+    if (ar < 0.6f && ar > -0.6f) return;
+    gsKit_prim_triangle_goraud_texture_3d(gsGlobal, tx, X[0], Y[0], Z[0], uv[0][0], uv[0][1], X[1], Y[1], Z[1], uv[1][0], uv[1][1], X[2], Y[2], Z[2], uv[2][0], uv[2][1], col[0], col[1], col[2]);
+}
+// una parte del cuerpo: la cara (frente / espalda / derecha / izquierda) que mira hacia ti, como una sola lamina
+static void spng_part(const StCtx *C, const StPart *p, GSTEXTURE *tx, int kind, int mirror, int K,
+                      float x0, float x1, float y0, float y1, float z0, float z1, float em)
+{
+    static const TexRect *tabs[4] = { tx_head, tx_body, tx_arm, tx_leg };
+    const float cdx = px - C->x, cdz = pz - C->z;
+    const float mv = cdx * C->fwx + cdz * C->fwz, rv = cdx * C->rtx + cdz * C->rtz;     // donde estas tu, en el espacio del modelo
+    int f = (fabsf(mv) >= fabsf(rv)) ? (mv >= 0.0f ? 0 : 1) : (rv >= 0.0f ? 2 : 3);
+    int tf = f, flipc = 0;
+    if (mirror) { if (f == 2) tf = 3; else if (f == 3) tf = 2; else flipc = 1; }
+    const TexRect *R = &tabs[kind][tf];
+    float uL = (float)(R->u * K), uR = (float)((R->u + R->w) * K), vT = (float)(R->v * K), vB = (float)((R->v + R->h) * K);
+    if (flipc) { float q = uL; uL = uR; uR = q; }
+    float P[4][3];
+    for (int k = 0; k < 4; k++) {                                       // 0 arriba-izq, 1 arriba-der, 2 abajo-der, 3 abajo-izq (vistos desde ti)
+        const int h = (k == 1 || k == 2), v = (k >= 2);
+        float x, y = v ? y0 : y1, z;
+        if (f == 0)      { x = x1; z = h ? z0 : z1; }
+        else if (f == 1) { x = x0; z = h ? z1 : z0; }
+        else if (f == 2) { z = z1; x = h ? x1 : x0; }
+        else             { z = z0; x = h ? x0 : x1; }
+        st_pt(C, p, x, y, z, P[k]);
+    }
+    static const float wh[3] = { 255.f, 255.f, 255.f };
+    V a = mk(P[0][0], P[0][1], P[0][2], wh, em), b = mk(P[1][0], P[1][1], P[1][2], wh, em), c = mk(P[2][0], P[2][1], P[2][2], wh, em), d = mk(P[3][0], P[3][1], P[3][2], wh, em);
+    const float ua[2] = { uL, vT }, ub[2] = { uR, vT }, uc[2] = { uR, vB }, ud[2] = { uL, vB };
+    spng_tri(tx, &a, &b, &c, ua, ub, uc);
+    spng_tri(tx, &a, &c, &d, ua, uc, ud);
+}
+static int spng_draw(const Player *Q, int pidx, const StPose *S, float em, const float *lens)
+{
+    const int ski = skin_of(pidx), slot = pidx & (MAXP - 1);
+    if (!spng_prepare(slot, ski)) return 0;
+    GSTEXTURE *tx = &spng_tex[slot];
+    const StCtx *C = &S->C;
+    const SkinDef *K = &skins[ski];
+    const int k = K->tex && K->geo ? 2 : 1;
+    if (K->geo) {
+        spng_part(C, &S->legA, tx, 3, 1, k, -0.60f, 0.60f, 0.50f, 3.50f, -1.20f, -0.01f, em);
+        spng_part(C, &S->legB, tx, 3, 0, k, -0.60f, 0.60f, 0.50f, 3.50f,  0.01f,  1.20f, em);
+        spng_part(C, &S->body, tx, 1, 0, k, -0.90f, 0.90f, 3.49f, 6.20f, -1.20f,  1.20f, em);
+        spng_part(C, &S->armL, tx, 2, 1, k, -0.90f, 0.30f, 2.90f, 6.20f, -2.40f, -1.21f, em);
+        spng_part(C, &S->armR, tx, 2, 0, k, -0.90f, 0.30f, 2.90f, 6.20f,  1.21f,  2.40f, em);
+        spng_part(C, &S->head, tx, 0, 0, k, -1.20f, 1.20f, 6.20f, 8.60f, -1.20f,  1.20f, em);
+    } else {
+        spng_part(C, &S->legA, tx, 3, 1, k, -0.52f, 0.52f, 0.50f, 3.50f, -1.14f, -0.01f, em);
+        spng_part(C, &S->legB, tx, 3, 0, k, -0.52f, 0.52f, 0.50f, 3.50f,  0.01f,  1.14f, em);
+        spng_part(C, &S->body, tx, 1, 0, k, -0.52f, 0.52f, 3.49f, 6.49f, -1.13f,  1.16f, em);
+        spng_part(C, &S->armL, tx, 2, 1, k, -0.52f, 0.52f, 3.49f, 6.49f, -2.29f, -1.15f, em);
+        spng_part(C, &S->armR, tx, 2, 0, k, -0.52f, 0.52f, 3.49f, 6.49f,  1.17f,  2.32f, em);
+        spng_part(C, &S->head, tx, 0, 0, k, -1.00f, 1.00f, 6.47f, 8.49f, -1.01f,  1.01f, em);
+    }
+    st_plane(C, &S->armR, 0, 1, 0.29f, 2.38f, 2.55f, 1.43f, 2.06f, lens, (Q->flash_on ? 0.85f : 0.05f));        // el cristal de la linterna (se ve si la tiene encendida)
+    return 1;
+}
+
 static void draw_player_model(const Player *Q, int pidx)
 {
     if (state != 0 || Q->hide_id >= 0) return;
@@ -27034,6 +27194,7 @@ static void draw_player_model(const Player *Q, int pidx)
     if (Q->uv_on) { lens[0] = 190.f; lens[1] = 110.f; lens[2] = 255.f; }
     if (!Q->flash_on) { lens[0] = 90.f; lens[1] = 90.f; lens[2] = 92.f; }
     const float em = 0.07f;
+    if (opt_spng && spng_draw(Q, pidx, &S, em, lens)) return;                      // OPTIMIZACION: skins PNG
     if (skin_of(pidx) == KIRBY_IDX) { StPose Sk = S; Sk.legA.lo = Sk.legB.lo = Sk.armL.lo = Sk.armR.lo = 0; kirby_draw(Q, &Sk, em); return; }   // Kirby (modelo low poly)
     if (skin_of(pidx) >= KC0) { kc_draw(Q, &S, skin_of(pidx) - KC0, em); return; }   // personajes Kenney (mallas reales)
     if (K->tex) {                                              // skin con textura (STEVE ORIGINAL, SANTA...)
@@ -27457,6 +27618,60 @@ static void stk_anchor(void)           // sitio detras del arbol, segun donde es
     stk_az = stk_cz - uz * 0.9f - ux * (float)stk_side * 0.2f;
 }
 
+// ---- ESQUINAS DE ESTRUCTURAS: se detectan sobre las paredes REALES (celdas solidas + paredes delgadas): un tramo largo de pared (>= 3 m) que TERMINA = una esquina ----
+typedef struct { float ax, az, lx, lz, nx, nz; } SCorner;
+#define SC_MAXC 700
+static SCorner scn[SC_MAXC]; static int scn_n;
+static unsigned int scn_t[SC_MAXC];
+static unsigned char scn_blk[MH][MW];                                        // bloques de 4 m ya revisados
+static int wallp(float x, float z) { return solid(x, z) || col_hit(x, z, 0.0f); }
+static void scn_add(float sx0, float sz0, float ex, float ez, float lx, float lz)
+{
+    // acerca al punto a 0.55 m de la cara de la pared
+    float t = 0.0f; for (t = 0.0f; t <= 1.4f; t += 0.05f) if (wallp(sx0 + ex * t, sz0 + ez * t)) break;
+    if (t > 1.4f) return;
+    float fx = sx0 + ex * (t - 0.55f), fz = sz0 + ez * (t - 0.55f);
+    float wx = sx0 + ex * (t + 0.1f), wz = sz0 + ez * (t + 0.1f), ue = 0.0f;
+    for (ue = -0.5f; ue <= 1.6f; ue += 0.05f) if (!wallp(wx + lx * ue, wz + lz * ue)) break;       // donde termina la pared
+    if (ue > 1.55f) return;
+    fx += lx * (ue - 0.5f); fz += lz * (ue - 0.5f);                                    // 0.5 m antes del borde
+    for (int k = 0; k < scn_n; k++) { float dx = scn[k].ax - fx, dz = scn[k].az - fz; if (dx * dx + dz * dz < 1.2f && scn[k].nx == -ex && scn[k].nz == -ez) return; }
+    if (scn_n >= SC_MAXC) return;
+    SCorner *q = &scn[scn_n++]; q->ax = fx; q->az = fz; q->lx = lx; q->lz = lz; q->nx = -ex; q->nz = -ez;
+}
+static void scn_block(int bx, int bz)
+{
+    scn_blk[bz][bx] = 1;
+    const int sl = cur_layer; cur_layer = 0; force_cg = 1;
+    for (int iz = 0; iz < 8; iz++) for (int ix = 0; ix < 8; ix++) {
+        const float x = (float)bx * CS + (float)ix * 0.5f, z = (float)bz * CS + (float)iz * 0.5f;
+        if (wallp(x, z)) continue;
+        for (int d = 0; d < 4; d++) {
+            const float ex = d == 0 ? 1.0f : (d == 1 ? -1.0f : 0.0f), ez = d == 2 ? 1.0f : (d == 3 ? -1.0f : 0.0f);
+            if (!wallp(x + ex * 0.7f, z + ez * 0.7f) || wallp(x + ex * 0.35f, z + ez * 0.35f)) continue;      // pared de frente a 0.7 m
+            for (int k = 0; k < 2; k++) {
+                const float lx = (k ? -1.0f : 1.0f) * ez, lz = (k ? -1.0f : 1.0f) * ex;                         // eje a lo largo de la pared (hacia el borde)
+                int ok = 1;
+                for (int m = 1; m <= 6 && ok; m++) if (!wallp(x + ex * 0.7f - lx * 0.5f * (float)m, z + ez * 0.7f - lz * 0.5f * (float)m)) ok = 0;   // pared continua >= 3 m
+                if (!ok) continue;
+                if (wallp(x + ex * 0.7f + lx * 0.9f, z + ez * 0.7f + lz * 0.9f) || wallp(x + lx * 1.0f, z + lz * 1.0f)) continue;   // termina: hueco al lado
+                scn_add(x, z, ex, ez, lx, lz);
+            }
+        }
+    }
+    cur_layer = sl; force_cg = 0;
+}
+static void scn_build_near(int budget)
+{
+    const int pix = (int)floorf(px / CS), piz = (int)floorf(pz / CS);
+    for (int r = 0; r <= 3 && budget > 0; r++)
+        for (int dz = -r; dz <= r && budget > 0; dz++) for (int dx = -r; dx <= r && budget > 0; dx++) {
+            if (dx > -r && dx < r && dz > -r && dz < r) continue;
+            int bx = pix + dx, bz = piz + dz;
+            if (bx < 1 || bz < 1 || bx >= MW - 1 || bz >= MH - 1 || scn_blk[bz][bx]) continue;
+            scn_block(bx, bz); budget--;
+        }
+}
 // pega el sitio de escondite a la pared REAL (las paredes son delgadas, la rejilla es de 4 m): a 0.5 m de la cara y justo detras del borde de la esquina
 static void stk_wall_anchor(int ix, int iz, int ex_, int ez_, int lx, int lz, int sd, float *ax, float *az)
 {
@@ -27508,9 +27723,16 @@ static int stk_choose(void)            // elige un arbol o una esquina de pared 
             int lx = ez_, lz = -ex_;                                           // eje lateral
             int nx = ix + lx * sd, nz = iz + lz * sd;
             if (nx < 0 || nz < 0 || nx >= MW || nz >= MH || AI_SOLID(0, nz, nx)) continue;     // tiene que ser una esquina (abierto al lado)
-            float ax, az; stk_wall_anchor(ix, iz, ex_, ez_, lx, lz, sd, &ax, &az);
-            if (blocked(ax, az, 0.3f)) continue;
-            stk_kind = 1; stk_side = sd; stk_ax = ax; stk_az = az; stk_cx = (ix + 0.5f) * CS; stk_cz = (iz + 0.5f) * CS;
+            for (int bz = iz - 1; bz <= iz + 1; bz++) for (int bx = ix - 1; bx <= ix + 1; bx++) if (bx >= 1 && bz >= 1 && bx < MW - 1 && bz < MH - 1 && !scn_blk[bz][bx]) scn_block(bx, bz);
+            int bk = -1; float bd2 = 36.0f;
+            for (int q_ = 0; q_ < scn_n; q_++) {                                  // la esquina real mas cercana, del lado donde estas tu
+                float qx = scn[q_].ax - (ix + 0.5f) * CS, qz = scn[q_].az - (iz + 0.5f) * CS, d2 = qx * qx + qz * qz;
+                if (d2 < bd2 && (px - scn[q_].ax) * scn[q_].nx + (pz - scn[q_].az) * scn[q_].nz > 0.0f && !blocked(scn[q_].ax, scn[q_].az, 0.3f)) { bd2 = d2; bk = q_; }
+            }
+            if (bk < 0) continue;
+            { const float ax = scn[bk].ax, az = scn[bk].az, flx = scn[bk].lx, flz = scn[bk].lz;
+              float fc = atan2f(px - ax, pz - az);
+              stk_kind = 1; stk_side = (flx * cosf(fc) - flz * sinf(fc) > 0.0f) ? 1 : -1; stk_ax = ax; stk_az = az; stk_cx = ax - scn[bk].nx * 0.55f; stk_cz = az - scn[bk].nz * 0.55f; }
         } else continue;
         stk_dur = 7.0f + (float)((h >> 21) & 7);
         mon_wpx = stk_ax; mon_wpz = stk_az; mon_wp_ok = 1; need_flow = 1; mon_has = 0;
@@ -27585,71 +27807,17 @@ static void stk_scare_go(float x, float z, float lx, float lz, int kind)      //
 static void stk_scare_door(int i, float sgn)
 {
     const Door *d = &doors[i];
-    stk_scare_go(d->x + sgn * (d->hw + 0.85f), d->z, -sgn, 0.0f, 1);
+    stk_scare_go(d->x + sgn * (d->hw + 0.85f), d->z + (pz < d->z ? -0.62f : 0.62f), -sgn, 0.0f, 1);       // delante de la pared (del lado donde estas), no dentro de ella
 }
 // esquinas de pared cerca de ti (afuera o dentro de las estructuras): el acechador se asoma por el borde
-// ---- ESQUINAS POR ESTRUCTURA: cada estructura (grupo de celdas de pared) es un rectangulo y cada rectangulo tiene 4 esquinas x 2 caras ----
-typedef struct { float ax, az, lx, lz, nx, nz; } SCorner;
-#define SC_MAXC 640
-static SCorner scn[SC_MAXC]; static int scn_n, scn_done;
-static unsigned int scn_t[SC_MAXC];
-static unsigned char scn_vis[MH][MW];
-static struct { short x0, z0, x1, z1; } scn_comp[96]; static int scn_nc, scn_ci;
-static void scn_find(void)                         // grupos de celdas de pared conectados (8 vecinos)
-{
-    static short stk_[MW * MH][2];
-    for (int z = 1; z < MH - 1; z++) for (int x = 1; x < MW - 1; x++) {
-        if (scn_vis[z][x] || !AI_SOLID(0, z, x)) continue;
-        int sp = 0, cnt = 0, x0 = x, x1 = x, z0 = z, z1 = z;
-        stk_[sp][0] = (short)x; stk_[sp][1] = (short)z; sp++; scn_vis[z][x] = 1;
-        while (sp > 0) {
-            sp--; int cx = stk_[sp][0], cz = stk_[sp][1]; cnt++;
-            if (cx < x0) x0 = cx; if (cx > x1) x1 = cx; if (cz < z0) z0 = cz; if (cz > z1) z1 = cz;
-            for (int dz = -1; dz <= 1; dz++) for (int dx = -1; dx <= 1; dx++) {
-                int nx = cx + dx, nz = cz + dz;
-                if (nx < 1 || nz < 1 || nx >= MW - 1 || nz >= MH - 1 || scn_vis[nz][nx] || !AI_SOLID(0, nz, nx)) continue;
-                scn_vis[nz][nx] = 1; stk_[sp][0] = (short)nx; stk_[sp][1] = (short)nz; sp++;
-            }
-        }
-        if (cnt >= 3 && x1 - x0 <= 30 && z1 - z0 <= 30 && scn_nc < 96) { scn_comp[scn_nc].x0 = (short)x0; scn_comp[scn_nc].z0 = (short)z0; scn_comp[scn_nc].x1 = (short)x1; scn_comp[scn_nc].z1 = (short)z1; scn_nc++; }
-    }
-}
-static void scn_build_one(void)                    // una estructura por cuadro (sin tirones)
-{
-    if (scn_done) return;
-    if (scn_nc == 0 && scn_ci == 0) { scn_find(); if (scn_nc == 0) { scn_done = 1; return; } }
-    if (scn_ci >= scn_nc) { scn_done = 1; return; }
-    const float X0 = (float)scn_comp[scn_ci].x0 * CS, X1 = (float)(scn_comp[scn_ci].x1 + 1) * CS, Z0 = (float)scn_comp[scn_ci].z0 * CS, Z1 = (float)(scn_comp[scn_ci].z1 + 1) * CS;
-    scn_ci++;
-    const int sl = cur_layer; cur_layer = 0;
-    for (int c = 0; c < 4; c++) for (int f = 0; f < 2; f++) {
-        const float ox = (c & 1) ? 1.0f : -1.0f, oz = (c & 2) ? 1.0f : -1.0f;
-        const float cx = (c & 1) ? X1 : X0, cz = (c & 2) ? Z1 : Z0;
-        const float nx = f == 0 ? ox : 0.0f, nz = f == 0 ? 0.0f : oz;                    // hacia afuera de la cara
-        const float lx = f == 0 ? 0.0f : ox, lz = f == 0 ? oz : 0.0f;                    // hacia el extremo de la pared (el borde de la esquina)
-        for (float s_ = 0.0f; s_ <= 10.0f; s_ += 1.0f) {                                // estaciones de afuera hacia adentro: la primera con pared es el extremo
-            const float bx = cx - lx * s_ + nx * (CS + 1.5f), bz = cz - lz * s_ + nz * (CS + 1.5f);
-            int hit = 0; float t = 0.0f;
-            for (t = 0.0f; t <= 2.0f * CS + 3.0f; t += 0.2f) if (solid(bx - nx * t, bz - nz * t)) { hit = 1; break; }
-            if (!hit) continue;
-            if (scn_n < SC_MAXC) {
-                SCorner *q = &scn[scn_n++];
-                q->ax = bx - nx * (t - 0.55f) - lx * 0.6f; q->az = bz - nz * (t - 0.55f) - lz * 0.6f;      // pegado a la cara y un poco detras del borde
-                q->lx = lx; q->lz = lz; q->nx = nx; q->nz = nz;
-            }
-            break;
-        }
-    }
-    cur_layer = sl;
-}
 static int stk_corner_scan(int force)
 {
-    scn_build_one();
+    scn_build_near(force ? 9 : 1);
     for (int k = 0; k < scn_n; k++) {
         const SCorner *q = &scn[k];
         float qx = q->ax - px, qz = q->az - pz, qd = sqrtf(qx * qx + qz * qz);
         if (qd < 3.0f || qd > (force ? 14.0f : 8.5f)) continue;
-        if (qx * q->nx + qz * q->nz > 0.0f) continue;                                    // tu tienes que estar de su lado de la pared (no detras de ella)
+        if (qx * q->nx + qz * q->nz > 0.0f) continue;                                    // tu estas del lado de su cara de la pared
         if (blocked(q->ax, q->az, 0.3f)) continue;
         if (!force) {
             if (scn_t[k] && (unsigned int)frame_no + 1u - scn_t[k] < 2400u) continue;          // cada esquina tira el dado cada ~40 s
@@ -27659,35 +27827,11 @@ static int stk_corner_scan(int force)
         stk_scare_go(q->ax, q->az, q->lx, q->lz, 1);
         return 1;
     }
-
-    int pix = (int)floorf(px / CS), piz = (int)floorf(pz / CS), R = force ? 4 : 2;
-    for (int dz = -R; dz <= R; dz++) for (int dx = -R; dx <= R; dx++) {
-        int ix = pix + dx, iz = piz + dz;
-        if (ix < 1 || iz < 1 || ix >= MW - 1 || iz >= MH - 1 || !AI_SOLID(0, iz, ix)) continue;
-        if (!force && corner_t[iz][ix] && frame_no + 1 - corner_t[iz][ix] < 2400) continue;      // cada esquina vuelve a tirar el dado cada ~40 s
-        float ex = (ix + 0.5f) * CS - px, ez = (iz + 0.5f) * CS - pz;
-        int ex_ = 0, ez_ = 0;
-        if (fabsf(ex) > fabsf(ez)) ex_ = ex > 0.0f ? 1 : -1; else ez_ = ez > 0.0f ? 1 : -1;
-        const int lx = ez_, lz = -ex_;
-        for (int k = 0; k < 2; k++) {
-            const int sd = k ? -1 : 1;
-            int nx = ix + lx * sd, nz = iz + lz * sd;
-            if (nx < 0 || nz < 0 || nx >= MW || nz >= MH || AI_SOLID(0, nz, nx)) continue;     // abierto al lado = es una esquina
-            float ax, az; stk_wall_anchor(ix, iz, ex_, ez_, lx, lz, sd, &ax, &az);
-            float qx = ax - px, qz = az - pz, qd = sqrtf(qx * qx + qz * qz);
-            if (qd < 3.0f || qd > (force ? 14.0f : 8.5f) || blocked(ax, az, 0.3f)) continue;
-            if (!force) {
-                corner_t[iz][ix] = frame_no + 1;
-                if (hash2(frame_no * 7 + ix * 13 + iz, 313) % 100u >= 25u) continue;           // 25 % de probabilidad
-            }
-            stk_scare_go(ax, az, (float)(lx * sd), (float)(lz * sd), 1);
-            return 1;
-        }
-    }
     return 0;
 }
 static int stk_scare_try(void)
 {
+    scn_build_near(1);
     int fire = -1;                                                              // puerta que acabas de cruzar (entrando o saliendo)
     for (int i = 0; i < ND; i++) {
         const Door *d = &doors[i];
@@ -41930,6 +42074,355 @@ static const char brt_b64[] =
 "/Pz7+/v7+/v8+/v7+/v8/Pz8/Pz8/f39/f7+/v7//////wAAAQEBAQEBAQEAAAAA///+/v7+/f39/Pz8+/v7+/v7+/v7+/v7+/v7/Pz8/f39/f7/////AAAAAQABAQEBAQEBAQAAAAD///////7+/v7+/v7+/v7+"
 "/v//////AAABAQECAgMDAwMDAwMDAwMDAwMDAwICAgEBAQEAAAAA/////////////wAAAAAAAQEBAQECAgICAgICAgICAgICAgEBAQEBAAD////+/v79/f38/Pz8/Pv7+/v7+/v7+/v7+/z8/Pz8/Pz9/f39/f3+"
 "/v7+/v///////wAAAAABAQEBAQICAgICAgMDAwMDAwMDAwMDAwMCAgICAgICAgICAQEBAQEBAQEBAQEBAgICAgICAgIDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwICAgEB";
+#define N_JSC 46592
+static const char jsc_b64[] =
+"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA//8AAQABAAAAAAEAAP8A//8BAAABAf///wICAAD//wAAAgL///4AAgIB//3+AQIDAf39/QAFBP/9/QMBAQUG+PgJ/Q4IEunv+vYU7w39"
+"Ghj2/vDt5xQR/P0F7xAfECMtLA7Y0v32Je/m0BdLY25qWVzvJmZmZ0DvXGFDR11NycXHP1TqNj24w2NSsVloY2NWWl1aWtpQX0pJyaWlp5SbLlY1rN0YKU9PrJWgrZKZt+XElZSdj42ev6zULS1SLhZPOMVUsqjbt6Sqr8tHX2hoX9mpo7ut"
+"q9zFrLXDUFSmpzpHPck+NKKyUTsoXFxeZETDQL+0YWRea25ub3BpWTdUWVtdV62joZOWm6yeol7cqlA4vNZIY1TJpbWhlqKTkI+JlaCmubaTjI6Rk4+XoaKco5OVmaS7oxNePaeiszJEKd1dZ1hPCTVeYmAaoNhib2ledXFKX19YYnB1ZmVF"
+"LF9iW021xGprQldrYE5TY2VlK7tLSWdJws5ecXZ1dndycGxlWltnXt+qvp+cp6rEQ1wspKdJK09Em5iWl5KXp9m9lJo6oJyrTFKusmdYvqGZnaaolY+UEUaYkrK4p6mSl6W9s6YZspSclZirGziippqbppqao6HmYVg/SGNpX2FeYmRNPKK2"
+"TlaxtE5tbGdZtLVXZETBFV1Ivcfcqz1dyrpAWlpVCS/BqNJPTEnBre26ymduaVtjbHRtX1tFX1xoZmBlbXJnVVJwcmFcYWVrcHNucXd5dnN1cXV2Z1Rpa1RoYVxbWWBbMUQtFVW8O18+q7O4NFpOt6en3rWYkYmNhoSEiJOSh4GGiYqTlYiL"
+"lpiSi4mJjImVt5aLi5WNhpORjpaevO7GtkC7lpCVo7HYSK+kpKm+zTtWY1VLW0qynJ6h40fCqry2lqitmaI2Sj9TXGVfLyI+REpabmdDV1w5QFllaO1EYU1NV11MaXR2bWdrV1RIp5mqUk5QSdm3oKGkNVRJX2BlXlZbSEVHXm1wanJrWFRQ"
+"WlhOZ3JwcF1hU0lQQTlPb3BkWl9RrKrGA1BMvLatq7CfoqKco6SYmp+0p5+drbPXnJCbk4yNkY+apqChqKKUmJOUl52yq6ainZiUl7OjtpmRkY6Sj6uqqChTPTnPs8CgwA5WTEJiY1tqb11MZnJvcGxwbmVrcnVsZmNpaWxwXlthYWBrZlBn"
+"bmHjPF9KYm5iWF1lUbpATVxfZmRRLVRcoZOb2l1eQtSdkpaTkIqTpqOYm5qPjJaQlrG5qZyvuKeknZuamaW4tbA2TUu/6e8nW0GlvqmyNcLFWWphTlc6HTq/pqIlxaSqkYuPk4mKlpW1UEirjY2PjJWlqt68+EgxSj1GGUhLYGEhQFJNVWBH"
+"U1pfY2pauktZW2lvZ1pSO6OoLl5oaW11cGdJR0laX1tQTFxjb0ufnrK4y1LGUEynoKfFFDmmp1tcVjU1Mlxycm9qZllQYldeY1tCQ9KesrafppqboDlcWFEs88W8xqq8X1c4xpmSlJOkv0dTU2FWPC6kxr2sQVRQRLiio6eclqXL6UG6kYyM"
+"kqqimqm5ubWjnJabotFkbHh1Xlm4nuexsK/ET+FZPci2tzBHY3JrQOK1rO5TRlVpY2JPUEAkTaPeW11qZmVmW2VgXlltc2hkYFs+urAbwLBCV0Qzxq+jrM80YGJA2PixpZqWrB5XWj1YYlk9Uk6w4E6woqCerdGxqp+enpyqoJaYnZmgv74h"
+"qK1QppudlJq/SVNaTVRcW02vpazEv6i2pqOowiWuVFLYrJ2kprjQF1U5QOWrpJuYi5GfvNqovDqwpbe2natUWmNZR11huONNWmBWYVEr06GfmpOeqqmmR0i/yShPKUhnZ1ZYZWhpYFpHuuVpdWxdW0dUZG1paHFvc25pcm1obnR1cXN3cl09"
+"TljHw0bDt5maraCisO6koB4Wo5mhm7JXW0XMqpuTjpGepZ66uJuTnqKWk5WamJSkqKCakImMjouNlZaPkpSLh4mPlJ6ns5SSmKCrl68JRVBLWlO9V2hfXk5F4LYxRM1HXlpoY19K4Su6q7a+Rl9nalhSTUpkWVFgVVhgYFpaY2xpZGJda3Fq"
+"anZ2ZmZ1c2FjbVVUXkpaXVpdaGBDTjqjpsaimZ+2oKxLrLdERROmmJKaxcXQvquXl6mspq3Qub1OU2FUT1BcXsmstJ2ZwEm2MGxjQkVmPM1QZG5fvUAnqZuct5aZraudk52Vk5ugs66noJmTkIiJiYaIko2Mm5+klpiSjo6Yop2es7Who56Z"
+"mp2krp+knpimqkNXKBbGZmpR37u8mJznTRo8WEpAYHFxUyVeXlhPVGNjZGFrWjdYYGliUFdSS0VeYWdsYFtZX2NnbmxjUVheWSzEwy21Nk5jb213cWVfUEzlxFZO7K6pqaOvu6q7q8pSB0lT07Y+XUSpt9zMxbLF0rRPRtNPY15nYVBAFslD"
+"XklJYmBWVVpLUFdLSlljYlsDz1diXFrypqOotq6ropqpQ1k4usQpp6rINb6mn6KexUqumY+UmsU8PcKfmZqVk5qYkY2Oj4qRjY6KioqgpZaXmJmVnKmknKCyGqiqu82nj5CepKCdoZWKk5qboKqol5iUnJ2huzM+P1JZq5merTQhVk9LWS2t"
+"AzJOyTZeW1ZnbWBpamJjXV9EXU0ZYmNiZmtzbmFpbHBmYnZ1dXFpZVFYXmpqamRhZmdqZGZhXmJGTVtXV2Fm2q3CVdrGJblOTlhB/EdUWEHBYWhHHhiinsJYUbzBKku/CmVnYVcvT21pZF5GPlBiX03A7Uwa07z0wlRhKKvDYF9Mr5y17DlF"
+"yPlkYbKwr62epjvFQ0M60KOl0c28sqKhlJKYkJGSkpSlvKaYl5SVmaWrzB+rmZaalZONjpmgnKDQuZyrRENE2g+0y2NYuvPMwDGhqaS6P7PqzBs1vrciW0G0qKmXokJKu7K1rKybmqKrqKoOzaS3rqWfnrOxyrawQlj98VJEJyhiUFJkYmJY"
+"NlpPSGtsbGNdZVlXaGxnbG1pVERiWr5Za2lpa2lhaHBsa2lxb3Jwb3VzcnFsb29ubW5vbXFtZ2toZlkzPyO7wJmeONajqD7Doaupo7PhvaGrsKS4TcupqbvKQDvJRUHLR8qwv1Y1qygZM7DBSU3fO1AmpKTswDPFrBHPk46LjY6Nk5mblZOu"
+"nJOOlKebl6OmkIyOjIuUnZyNioyVjYeFg4iJi4uPlYyHhoeJjY+Pk5SUqKGalZeUm0ZJXEaszbStU2NWWF1lZWFbYm9mX2hvcm1qdHlwa3BvamZycmxsZV9YRWRwYmFwb2dnalpiblxlcmpuZWJnWmtwbmpBUVtZSc5WaV5mamRhXGBsamtk"
+"Y29kUlxfWBi0PVNJS2BlX15eS0lMVl5NVWgtvLCvSKfUSkMrpKOpnZ2yW2NMXV+skZCYmpWQmq+qoaudkJajFPrJqKAvIZ6ku72hnJifq5uhlY6Yn8cLqLGmsJaVNtqqu6/DtLOgm7yiprfG1aiom4uMlaOhnaehqZyXqKC34Lqem+/3oqOY"
+"kpOZt7S/S1JO4cy7oclCQEg+UMnHxMQ1HmJkXFhea1pRZUtTXD5HYmJlZmtjZ3BlYGBGUWJqZlpgYU46VV5SSFhPTV1jQlZELFxawqipU05IV0xLsqsvR1teZ2VgYmFLPThIX1xdYEpUaW1mTmNhVmhkX2tbTVdYW1JWNLpUSi1bOqdASUVO"
+"RUSopJ6ZqqensKKblpOVoaicn7mxr7qdnr+ko7qrpaGflJe1opudlZWal42RlpeVkpSYnpqn1LCrnpykraGgpsOypqaxvayepauwxlZeMtdMTkY+U15bXGlraGNLO9DXR0tgW01pUeZTRylVamxfT1LFD0/PwbKqsrLAz2FmZFRMTEtdV05b"
+"W11IRzA6QwwWvhhdamxgYl1eaF9fYES/TlNOVlBMSkpNX2tmYG9oVkTfTWNpaWhVT0JTYWFkWVxoW1ttaGdsY1tkbF9H5kdNYVtPSFTSpaKzM6mbry412se/0rSnmrCuoZ6xpZmYpKqfmae+r64NS7KhN14uqh9PzKWvyM3R0K22sqCsyLSq"
+"q7CinaqoIFxOQNippaW7xcGwr6qmnqaumZGXo6ibnqinm5KVl5aixr6uqqapn52ls82fmKael5eiqJ2qxC3OyUJcWiIcQRPIp6memJ2sxzlXIqKsw8HRWVNAYFz1NlYONNKt49GosFFnTTFcXVZNXW1ubmhpaVdRVmRgZm1ybGhpamNcaWts"
+"a2Bvc2hwdHd3cW9wcG1udXFkW15PN97sWU66TFNDqrJVRrs+TGBZNlFVSbnJYV8loZ6gnpiVwirlU1oxrKU05Lg+yrWpr768yb/CRLe5xaegnJiWoJ6btaqmqpebqJSQlZqXlKCdmpSXo5ORmZSVi4qTmaCgnZiZl5GYoZiap6ippJ6fmped"
+"oZyr7bSoqqSmsKXGTSXHT0hVXmFqXF9oUkxobWttcmdWZWttZmtucXNuaGFgYllkZ1ldaGVmYlVnaFxfamVbYGdlZ2hnZl1OS2FUUSTLMR5YaltbZGVoa2NKZGM3PlxVLPwpKr+qs8y4u0xSWV5KRlZYOFJdQq3cN05eF7pPTa6tOlnnu0zO"
+"oL/LPEhMW1pcUE/2rKqio6acm6Wmq6uemZ2cmJuWl5agq6uelI+Rj42hmpaVjo2Nj5ynq6mbt7ejmKGgm6mqpaadlpiVlJyanbSup7bMtrHYG0xBxkPQNU/a0bPrMuJgWVgR5VdPZ2pudXVyb2lgXl5haGlkX2plWGprZW5nZmFCN2BsZGVo"
+"bWlqZ2ReTzQ6MDOzrcBQTMxNUzSrndtGU2piVCTWw9dcSlhkWVRbV0bOPV1fYmRqUl1bT0QoWkBFTBO0ucLBS0s6QTS1vCUNrK+snairrrAlx7c6sq2uxbKdrdjStbSqosAdw+TFsq+imalJNkhLO7qfp6CYnJuhnaWanaedmJ6olJiwop+w"
+"opmfoJenw7bLvq+ooaGdm6G0z6e2oJagvEBCL084ssg5RtLANUteV0xiYNJXWVZRZ21OSmNiUPNRUVhhYFZYW1tMTxq4S1JFWlzNpsz6vEPAurGrr7SxUmhWxbwuMLXpR87auzQSqaetRUZSUFQpsdshV1BbVEEs38u2PWxsZ2JXRcdNT01Z"
+"YV0tNjNBRD8yI84vWFlcVTtQYFHeOR5EV03+B1cktMe9opqpxtO0sK+clZrAtKCZlZiVjpegqKeotqmZqaantElRIh3AqqSzt7QcoZ6tq6Smr723npy2qKJAZVI4NUw9tbRAOeRSVTVRz5qjra7jTlDPK8PVvSLDK0zG2rzCuqCdtao5WzJP"
+"VFhVXmpIrtDRREksV1hKSFRB51ppZ1Uys0RiVz1SZmNiZmNWWFtdWFtoaGRS2T9LvLBWWzSvyWViT0ZXV0TQO0LKu05CurCoo6mqm5+swKmjvKifsNcwyKCepbK8q71PwcFDRBKzR0lCxKbKPLIzTTzYP2FLwauwTk9NVceXlZihxUpKP7yg"
+"mZihxLO7WkZNXVJhaFVEVFhNUkVPVFVjYFdSREs6/k00NzgxF7mqqcrFvL+/tcjen52hmKKspJmSlqPBtKmmqaSitUpbUjv2sqafqB7GusG5xr/SKbGqprS5np6bk5euQ/m1wJ6RqUNXXFRZGaWpPFtWP0xKJLnRQ8nhIUFQTEawyzRHZWdn"
+"ZVj84RQ2WltMO1A3EEdFRFdQW2JWVFhVTF9naVpPXT61R1tVZGlmXFdC5EdfXj0/ViXAGVA8N1AkQlhBC15oXWFV4EpXYWRcUlJNx0Q4U1Cpp7KytUBHsK2uoLqsnaWiqqSwt56anJeYo9pFtamel5mVmqamxeOlnbP2vU5MHEDAv7SqpKSz"
+"CMG0pZeepqrCKb6xpqfCyrC6zUVeWNK11kE5T1lAxK6yvkRiZlxPXWdaUVpeZWZXVmBRY2diWjBEWWNqYlphVL07Zl1DTRC530o/QUQyRVFUMbKjtkZFUVZK7p+dxT29UDOsp/bmOUfALUu91FI8Sl5XTUdLWlIs/77QMl9JtE1IvRkMSF9d"
+"XWVeRTXaNmBpYV1T2K2tSGFX3uXAo7pKUkneD0LFqK6trK+goL+smZqfkpKXmpaQipCVlKiwn5qWkI2Sl6LNsqCnm5idn6Cms7CwvKuho6C2saKwOkZQMbbERjXbFMnSRVJcT0dPR01NWmloWldfYE5Sam9ubmdVV2VcYGZgZGtvb3JwbGdn"
+"ZmdeY2dMTTy8TGBWWVNWUVhgxrFGTFhaUtSntLiyySw7RLOvr9g3uUNWRTBHHuDJ3lA1u67BwqWoqx3Ar8ofM0JVQbiyOieorZ+WlJemJ8q0o5aYm8pTMMKmqaebsL2qrKKjsbWlnJeTkJOTnqujm5STmJSUoKWfr7Khop2bpKSbqyi8qvJR"
+"6bjDsLZOYlJLZFiysBZYZWtfXVk7KL/WJ0JfaV1fbGROQ1leXGduc2o/T2JFR2RoYVxYUldeVUU5S2VnZmdgXVxNUUFESSoVLkwEssTSOVxLTFC6pqWkrcRJW1XNo6a3wT60qkFAL0rAotnMpqevv8Sxqe4cp8xKSUpG3sLIyLu2I/K6sqqs"
+"zkNbM6Gbp0BAGVZSwK2jn7TRLitLWEcGt62xrbjCLERKNsSyQVBWWUU1zUtRK7uepj44taKfrq2pr8W5nJ+hnJ2mzTC0tsLeLR/FwMmnpsX+KE5Ps6qnnaiqnrtPRDvJI2FjNrWdqktZSTI+1Df91C9NPUNArqzKUF1TMts3Pk5lYE9LMC5h"
+"VD5fT+K0vS8lTEc0MaqksbouPsnLsM/M6aSl2aymq6auxM84PSzCr6emrZ2hNE0zRVZW1xNXU2FjZGtmV1RXVWJqbGtmXVVaW2VtamlgWmRjWFpjaFzWKlpZLslRXjfWSz3cryRSzNZWZlPPDDzKxeYrUx+zqqedpru1ua2jpaikpaCcnaCa"
+"n6icnZyXlZSTlp2ZlJ2cnp6dk5Ofq8qynaConZeYmZqZoKSmoZWVn8a2qTdTSFZByDxSTjYVD980PNI0SuxOY1Xa4UMMFlBeY1c0xkw7qK8xV0hSVUAvHL7RRFdna29lGOgxUF1eVz1AUldXOExeW2Rnal1RUE9STldfZGdoZmA5H1tcV1dX"
+"UEA210hJUmNXLOT2RLk8XVQsOFNBzNQ5JjRLV0U+0rJOTM7aydFBXE3DKiSfuVHBtVBYWE6zugUqT1tbXGNiLsTJr7KpoqupsrShm5yjubi2ySsyopuyq6csQ7+lmZOWlp8ON6Oj6biYlqqnnKKqpq+zq7yxoZycmZipK9W6urOkmZacrhAb"
+"EcGpqbtORlRkYFJYSMS/s67QW2JaQOjXKEf2J1tdT0ZES05cYTnFTFFGCUNmaDO0RDXGUWVkY2BZU721PVZWYGVmYTLNuLLDSGFpZ19LRrefz1LUT15SDcRXVk9KVmhkSGdtW1dXYmJSaHJraGFOycVWaGxpYGNkPt05v0drcWphVTzPqaAU"
+"XmFhWNGursLYJsOn0MufrSss2bWxr6nE4q2xsbu63LCp18efrb+ppKCfnKCalKC6lo+cl5CVpre598uppZueq8JCQ1da7b3OtbIdUR/ARVRDwcY+TRfDK1Aos+9KJOzgubejr9StRUGuxEZHxaOgqLGnqjlFyaqlx7Kgs87d07SgpLSntD66"
+"oaSknaSoqhcoR1BJyrXFo5+tzkxZrsrgp6Oupb1mbF1XWfC5+OtUaGRpalRHRVRfUm1zcXFmXkpMW2VoaGxjTb6ireNNXGRaXF9dD7rDQ11MTktXT0IosKxLVVBZSw/Buqq3QUNPSvzHIqqdoqmwrrm5oqOnqqWgvkn1zqCYoKq8C+dWW0a/"
+"oKXYtzVdWEWtmJWntbPn7Ly3pKfVvabTQbmxpKOjo7EtPiFEz6mkx0HG4Ucnw8SnoaKoyrejqDFMu8+yppqZszcu3ENSuqG6y6utyVFYWFlUVldLXWNiXFJKF7tKXPhCZFfiz7sqSs8vY2hlZF1PPDtIVWdvdXFeV1pgZGBjZmltZFpdXFBP"
+"QU1dV1pYPOBEVFxbXlErTFtQPlJdUR8zIiT/sMA4SjNLO6+qsamgrS4nID6vs7GtuLDC5LquCNKeosaqmJuqrK+tpainnqSzoaSxs67qD6epsS1Gzra7oZmksaisvbdQG6Csw7CrM1ZKR0vCpaCkprCxqLlWX7yfpaejuEtWOsA4I8LDMi/C"
+"tDBQJbSvSF1NSUGouFhP7D83wNpVRzVOyeY9wjhZVMC6MTTGwbSir8GmtDy/s8tSUbaxz/U0U2Bbya36TVpG2UgytLFPTu9LVTrSThczR8HX3bE/WVBGyseqqMVRUO7SWF7P3k9Ctr1WXlQ+R19Lrqw6VOzAQ1H0zUs6pKxHOqmbobanoctA"
+"G7mop6a9KOs9RkFKU8SzO1FE0UNC0kZHoqvVPRzCNDYiwMZeaVTTPFhKuiZLyb4vU1lJq52spqLSS1JUXmFXOzZGSx7EVWFVITtVSsYgWU9A1cIYucs24rOpx0XBth88ShVIYV9HxLitqR3orLjZ5Lyfmp6sqajg4rxHPMC+0TDHqbYwx6ut"
+"s7Wroq83N6y1uaKhuUQ81MWtr666T0XdOVhXsJil2L27M09YTkMqx6qs+FVAUVdD7bs7UBC1NlpPsjtTxcBDTiiwurrG20thYUtOYlyzsRlOJTdZSVJEGk5WP9wsTfhWYzVMVlpfSNjKVFkpWl1RUUZJSCk4RMKwSkw9VV5SRKunq6ejpc+z"
+"3E3Iq6eclJqtrCxfWkw2xrOgoKm8rLVGv6mupaCsvkAjsKjSsqTDQS/ANEnispyot9dFUFddULWfoqSo3jtJWk+toqqvsshRYl9aUERJKr25PTqx2kWyutncIEI4trarvlFZW2VqY1NGRFJHtTJMUVhNT1G+o8FNs7BVW0dVVFhXvLHFrKYu"
+"VDweUT3OsKaxF6ypzOo5yR4ow7qwq6KetbrBNTLCtKaxrqCerc29wjjBzuKypbDY5lLVu+tYVtfeHgHKr81DUl1YZF0lKjO4qkBeW19aW06+siJYTCRGTlFJOD9VQbO3ursWO70mWVRQLsfTHAg3S0RdYk0yHOYjrazAH8axtbvMuKnFFKqe"
+"t0G5zlBWVkQBzbOipju3tldWNLWlu1Q6rNFMwblLWEk14D0tKUdVVEhAUExEReGztqy4rajzOLKuwBbVsyZK4r1DYGFUDKnBtKKxQA7bMLygo7G3ua6pz0zgt0VMNL0qUzHL0ju7uTJaWlfi3Ej1sA5CzUdmZEc6FTUxucpZWzrct76yo7zB"
+"wshLRMvJUDGvuRJSVzrfBLSmuEVES00s7LGfty/H4FlbS+Mb1aifp0FOSmBiLKmgqbglRlRTREFURtUXD0BOPlFWMcsqUTTISVFITVBQ36u2z09YT09Mw6wNUUE4TlY8ra24x9rOG7zHwKacmaC5wqu4I8SspaPA6tNAUEO3uiXRFVJfWcKy"
+"3bW4wcg3PUEuFBm+/0u4r0ZdUS7BpaSurtlXUUlLsJ6lr7XKVGNeV109s7HAEjdNS1FRrp+inJ+tsztUO77I0rOrPU/8u8O5p5+ntqWs9D8qvb6soa3F2ltmVEBAvaKotz1bYV0/vK+orcw6SVBOUEzOsbiqqsE3SkMgTEG7vclWXlRdXlM0"
+"RVxbWVZJSyi1xzG3zDpAR1ZcRsa9oatNPVRtY9Ooqa6zQkhbYkXYvKegqKmsElVfWjKrqLHVMfAoSdCoop6tBcG1Pvmkoqir1zvoSFPNu7ijn6imtxDDrL+6oJidpLj6xiRJuZ+ruLg8Ns/Xusg40bnmQjtDPNhFM9AyPVNYVlNOM66epbfM"
+"UV5iZlCko7Wtt0leZWBXU1MkKlhTWWlqY2FSPU9YSlVhUb6ytrOyOWFmX1nhop2jtsdBWGJiM7Tct6avQV1fX15fQbnZ/88cUmRkXFldXUtCVjO4OU4/JkE1KRfAyEQ3y7m1uSg3Ok1MPjm+oJ67R0w/JECynaGdm6XGNjPIQUkcranSwbkz"
+"RUTqsay0w8TArqOenaKt1kNFSjTZraClq8S5ujdA6qqZlpWWm6Sy57WotrGhnKeorL/LyNs8LjM7ITRENd7RSuqxMT7Gv7GmpKGapz7eR11ZUDgx0Ps2RVpVVWJdK0pgSsC70EZhYl5eT0pNLzINM1hkWkpaVT3N4CvV1UBfWj5ZWUlMVVpW"
+"RTtFUVRTMSdVVhrWygRGP+/NTFE82ywow0BAy77bODrkrqXD8ra/Mu4xUkG6wSy3rcepr8qspa2tpKjCy6ump6ClqrM2NbutwLapuKqzJSz6x8G67eXBxyRExto9y7GrqaGlsbm1ta+ytaeuxdnCxq2goq8lRDpMU1ZJxK641McqUlRXTRLF"
+"synRylNVREDaxjxTVE0/LcbI0ba7VWVhYFHUw9nCuEdhYFxOy7G0tLw3SlNjWzpETVQh505YXl5dWUk5OUZJOk1XOjJJODRVV0tRRczFysgcS0dRYFldXdg5L/VEUF1bVE8kspuew7W9Oy7CqbiypKyr70Tdt73RuLXWtL/FxEpFrKKpqKSr"
+"wMvIrb/Cq6khSERLVTmzpKGrtb4nTEwpwKqboqqv0D1XUTIxPEE7OhXoRUNHTUM+QjPrKhzHSEQ2LExEGEJIxrKwr7iqu1lgSgRJKK6wsNRAS1ZYU0vFqKCirbTPQU1OGLWjna+9sbbUya2nx8/JurLG37Srtx5DUje73ujHtru7wUNSTVVO"
+"O7u2vba0tCBLJw48R1JBK0I4u8VMVkhXRNHUvtUYwrHSQ7y8QfXLwrlBU0NTYmJNRk1DUVlaWlBAIh44V1Y8UVM5zay9PkPus8wrQju8sbOoo7U12kBL4AjLs7KwwxxIR9lFTEY1PEBFK0daVUxN3NtJT0pAxMHNzr3AXFw6EcapoKOuvsHQ"
+"T0Kvo7K8sqm0Q0rGzDvFtAixqKunraWeoa2+wLWnr6uZmbUxO1RRRC0Zr6jFLOU6SE1QVUXzQy+ptSsbzkpGzjxHyDQuvTxItKZPXj9JTDz+sK3SMBgVPj5KUVA9rbg4yMdVZmBWT08YsqmxyyxTW1ldY2BZ1rhHVMhFamxdTltZJdwtONqw"
+"4FhcVVddLqezHdK7NkxMJLc1M7SvtLWotDBWVkZRWeKvus6xwQcwTVNWWRq4sbXCLVVbXVpfWB3Pw8HJ1MC1QEkTMsKlqaegwOaz30oO5THEp6Wdm6OopbHOu6ajpqGYmqCdpbCxtqmin5+Zmaa9t/9QNbGyzuK0pr4+Ire6MU0jtzz0pKGl"
+"rLs/WUxEGrispKXJQ1hTV2JRxCrLqrs06z1TV1pQKjtOPSVaZVpRZmxiU1VGJA3SUllKV2JOzkNLPhErUllIUl1iY1xQMBf9DD5RWVJUUk9ZQ7PHLsG5WWdQ7zq4oKCfo6y5sUBKtrS5r629ENfXUFVRA7XC0dy/wsq0zkDS7kg5wbexsK2t"
+"uQdNROjDsbW0pam1wiotSU81y8W4v7e0OSvPPzvmtuXSqdHdyyr0PyjBsay/tLO3xEMkxeASw8sgtb0zw6zERekqCLzCs6unsse31EwsrLGxp9xM2cFCVU9UCKwsSytDRNgQPTw9U1lIJ0U5IElIVF1hVSb8KU9aS0E9NMq5t7GytjE30kBM"
+"UlRJTF1T1EtJPlhUMFRaH8K7q8AuwsXrwbwIwu7btitFOMzcJjVONrjEKkZLPcDZTUQ2SUTKxS5ASNUdRMjGSUrGvzpQRr/GSVZaUDvJvMTQRzs3UE4s3d+wrr4gT1FFO0xOE9bAGFlYWkOrre+7sMe7pay0oaGprdM8IsOpo6Wloqemp9Y9"
+"Pr2dmKW4pKkqtrTDuLCppsQssK3FuMZKTruqtUFRwLMtNkRTWlVMLENRuqwHRzNIXVIl1TdXAqrHSDkjTkkSus5BJ7azOAS1QSTkPkxbQ7Sttc4uPe3YNlNUv6amsrsvWlM/TlVPx6e1SdW/GDMPyUxStqakt+08U1VNRVhWOjtIPcYiRTNI"
+"UFhaTMC1SkxLVUw6T15hYlVKT0c6RVA9S1RIS0ErQkZJ1AFIWmBeXiThLcRIVjPGSE0dOQjOwa+rr6m0T1Af0rOussizpauvtK+vsauoqs+yoqWmqZuYn6zYtriqm5ijxrHNJCDbs7ikobm83LauwEfJrbKsrc5RWkQBxk08RVhRH+xQzq4h"
+"T2RbSD7dOT9aTcTAMlNQVUK1sLpLQDQ6QVhQRsC8T1leSc/Du0VUR7GisTRKwrK9t7bWRxE+T1xXK9DUTE9aWenF0U5N1LS4wENgWtWzttPPuro8TEdQSrulr0xRy7/P2FFbWUAkP1NdWkI5S0hHSC0iSVJNKrSrz01HPTUdySBGLqymrLDA"
+"xdvEqLT7Pcu3P1E1wdjErig2y7StvCdM07GxpafSNcOpq7/EtbW0wry3+MWtsyIztre4qawlIa6orhlIF9C0qKjSVcmnu8zEwLm+xvJIRT89PjVFVrWfp7VNXlc0xzxSTsCtr+lYXlhcUElR7Kajrb5GWcassMBDR8KkqThUV1AvL0lRPMC/"
+"rsBUWU5QWlhcUraoqhFVW1xaUEhXUzy/rM9ASkpSWlFZVryuss9YYVxdXlAw2K2hsz9QYmlgNxFAz7XNR1I11D8Ro6Y3+LHELdiwOki4yzBKGq64rJqXw0WvvT4nu7Gvt7bAV1O/sgTOn5yipKGsKdysoaaop7OzxbTIOb+vr62ut7Crv7Cx"
+"r6WbmKe7QDqyvMjNvtHjugsKuqmit8eurbvU4RI3POfYPjQtV19NvLjPyLj6TUYVKxu3w0dBO1BVSkAw9jxCSFdRS1BfXEhKWFhZW087T1hcRzpOWV1XUlRRSFNcUVNdXUctSubDQFNTNTFEWFlKSAjLN0hMV19iWzpDPMMRWU/C0DIA0RAP"
+"vrbZNNbFub3R2sTAx+FB8rK4CEJMSTzMqsJBINzW90tMPz5NSFRHt7XGwcz0N+K9NFLQurPF1+MaHce0x7qqq70+yLPCsKGtEbiorauspKC2w7a88baioKSnqrS+JEQar6Cgpp+gxCKxsjjTrLCsqLW4009LSlFHw6yqt9sFLg4zT0Gypqu4"
+"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"
+"q6yoqqablZ2lqrKxvTdBMTnAsrGnrLC2wrGjoaSjsUFARVJgYFpYRz8vM09YV1VRJsPH0FRhXV1iZ19STUPHr74rS1NYV05MVVZOVF9dWWBbR0Ak08TMJDXjw7CyySg80zknq6iwpp6lsauiqbmyr6irsa2zwuDIsa+2u72xq7KzscPmNERP"
+"STZELSpZYGJaUEVHT0dMPR9HVElFUVZgSrS/PkFNWFdQQkpNO+AjRUlJUVhZWVpQvr81QkLIraOkq6Cjz8ajmpmcpbomJwW7uLyrpaKkr8YMvMLFqaKgrvdKUUEOzs67rrCzusny3LnNTU06RVBJQUhM473i+Na3vDZDROa5209UUEtDUVpf"
+"WUoF6jlENSdUVl5bPj9NUkdJU1VZYlrhsae10MXJLDTQw8UZIsrJIcCws8a/tsS2tsG5rLDKx7u41jbjw8fAwMjn58zZHj8zyiZNWlhNLMK0wzpEODRDOyTOusLQPlJRT1lbOc+8t8MxSVVWPSY4JtEjCubAtMTKwrWqqaept7yvq7W8sbK+"
+"LQ68squopauoo6mzuMK2s761p6axucYGF8Oxr9/psqm44xIuTVxfWFZRUlhWTE9TWFxbTEdDOUVSUFBVWmJlY1M32ec/SE5UXVU+Ef0+RDDTPVVSSsqtsbvQEtGwp7CknKGrzu7q1MnWNt+yq7MpNiDPubGxsKiorcIVxqmszixCSEUyQlVW"
+"KLK7JzW9uj1UVU0xH+FNUcG0P1RXTznVLTs2UFRWXWFTMcPETVtWWFxSPsiwn5yxQTgtVVDJraOhpLPiM9i2tcGvpqmws7Oz4CvEKUTJrcZKRLytvL6xuc6+xUdXWFRcX1JLWFlTW2dnYVlUQb/GPkZTYGdrYUBDTijCMU9YVVA3s6ivxxgt"
+"SVJOSU5KPistuqquraqhmJiamp+mpJ+jsLivoKfGwKGdqbuxqKShnqPDDcO4IksptLCyrLrj3y9NRdO1rbU9T1BdX1RXVkE9UVFUWlxiZl1OU1VUW2BkZmFZYV9G4EpYO7W6xbmwssrh6zhUT83N07OprtPdwqyoqaOempuepri8qqqooJiW"
+"nKa1t7qwpaWkn52hvElXX15URCTN0jVEVWNZOx87RUlQXWlmXl5ZOMcfP0NVXF1QQTJDRT9NWVxjaWFFJ01QVVJTWFlH1MKwwCDJtu9RShfBpJ2dmJyqray0vrqhmZ6lqaanxS3MuLWwrbKtrLXHua+0s8Es0s0wzs1FNx474tE4Kv82OVJb"
+"T/DaP0U0QldjYF5nYUw/P1JcVlhgWjfpw68OU1VcVClLTLSsvLG1xMC5tqukpaGfqL7Mw6mioZ6enaGtqaSwv7mvsK243+RKW1JJO7ypsrS2REHGRlNUXFlTXmZiZ2xmXlpNPjI3VGRgVllYVFVWXGBeXF5gX1RESUkcP1VPK8PkOMaz3j0s"
+"z72vtLysp6ejpKWor7KupqyroaChp7CjnKCkpKGcmpyip6ypscK/s7XOOjnatbG8v9Y3NS08R1JVUVJZW1hcYGJhXlxRSllhYV9gYGRjW15gXl1aU1RbWVBHNsPGLEA4KiIb3MriJgn1NEgjtraspJ6doqShpKignp6en6eupKjAuquwsKSg"
+"oKatqrC6tq+vqazOPkxMK7fFJ8O6xCVNS0VSUEM90wZTWl5jZ2ZiUBQD78PEU2JiY2NmYUnMOVRSUks03bWtq6246UM/uaav2sC54C07O821n5WXoKGjr7e1sqGdq760tLm9Fty8tKekp6yuwTxOUU45PVRWU1dWXV9QTE5DRlJMRU5XYmBD"
+"QFleYWNcWVtTSEItPlVXUExOUlVZVEZCRlNZRxsRJLqmo6WnqKamq7YG2qussbC0samtrqCcn6Ckssi+t88SMTM6QjY3J921sLzQ8cKur7qyqqyyz0FJQUA9+cC+3xnIwMfFusRIUUIsU1tIQFdXVlI+NizEub67sxFHSkXNuMIzRU1TUlVb"
+"Twi8tb/dJOu0tM499K+yO0sZJEwnsqmtE86vx0RGF9fvJy8SMNnM30ZTRubPyBZHRD9MUUki1v0aO05RSTDV9B7FvUFWVElAPzr6xB9VVE9TUkTGu9TGvtLVwry4ssa+q662ta+pvh0Mxb7HuLKzuic/MD5LTPC7wNXbx98x2bauwAfnPUlE"
+"O9C8wegpRFZYUyzJuaykpcJFSE5SWFpRSEtA9AU+PhjB1B69qrLuRTk1VV1ZPb25q6iusrWyra6zq6iytrfp0MfS4bypqLHDt6OhpKSu0Sc9SUVFMsPYPjcp5txFRt/kLU5RSUhKSkhVWldWVVhUMtokUFlVWVxcWFBTUExVV1tbV1NOUlFH"
+"GsXqHis5Q0L3v82+srLCNinLwrernZujqJ+esc+roanDzbOttb+xqa66r6my0bunpKizxMolSzkxSjTVMz5AOcC3tbjaQTVCWVlUVldeXFFcYllPT1pZTUtcYFVMWV5XSFFgXVBOUUI7REg9xbi8wrazxj47/u68rKeoqaunn56dmpWTmqOk"
+"qKettqyhnaKlpqunpqihpKGaoa/NK9bCD09LKefjPk1DRTNEWltUVlxhZmRhZWNeZGFaYGNjXlhXX1xTV11cXGBiYF1bUAjGBERECrKytbq7q6WosLi2q6mpp6Odm6Gor7eimqCqqq6xrbOvpqqoqL7TwMm5qKewtMC830NMT1ZeW0Y1UVlT"
+"Q01SRjpRXV1eYWJdV1thYl5bXFtbXV9dVT8/VFtTUFZYUTvJubq5wNbLztGppbKrqboG28KyrLGon6Cgnp6goJycnqK84Mzc0MCtpqysra6zvr+5qae4s7G6zSrT8jY1F9M1SUtQT1pdS0JLUE9RWVxYUlVeYV1XXGBcXmFcV1JFPTXQ2UdU"
+"TkI2SlAVusLitq28v721p6qrpqq3wr3MzreroaSpoqCjpautrqakrqqmp7HOwbi0raagp7eztco/QevSFElPVVxdVUpMV0xCUltiYmJiW1FQTkJUWkxOUSchLgo3RUxRVE5OWFhFLyQC28/oz8rGyyHEt66lpJ6eoaarqKmpqKinqK6/zbGt"
+"r6mlo6aorK+pp6Ceq7G4u+1JQC4+SktFR0tOVFJRSjLzykJXWlxaVEQ4REtRVlhaXFlVVVBFTVFSXF1ZVUPjtb82PUJKTuvEMtGxtbff1ry/w8S0usC1ws3h3rSxtq+qqK+uqaeprKussLa4sLkezb/LwcrOu8VFU1JJHtPM5T1IQ0lQUk48"
+"QEpMUUxFRT8zDS0sL0JKSAnOKzpAQD9RTC3t9yodO0xMP9LQwLzYzcPo2MK1tL3MsaW1zca7tc7hxxvduLCxzuzDsbrgwbGxvtwmPkLYsLESMcXROUVKOcIcRDBEU1FKL+k6QR0wT1FQUVdbXFhLTVBNRB4qTUs42sHS5EBLQjM1OxLAsLTp"
+"Sja7ubWrp6+7xtg3T07IrsbzJfzYMRK4tcPAucYMRlNPKDM947nAwckhJTUsxsIuPicqKkRUTzpFQjkn4dzCs7XHwayru9v4vKqqqKOnt7yzt7i5vLOvuLe7v7Gpq7CurbG1t9ghCNTP7CbJs8dBOPtBVVNKQT0uzMtKXFJCNjb34SFMWldP"
+"UkguS1tYVVtfWldMLtjaJTpCNTdAMreprwlMS0hD2LGsqKeywy1AHek7Oda7ur7tHMXq4LSzsrC3vcDIELm3IDdCQwUiQO3J6sSyvtTH5xvYHSzQ0jlIUE9EPkYnzc40Qj89OUAsGio+RDEoUV1UN0RJOCIZLT3EsN9B0+NRWlQ50O8awrjL"
+"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"
+"ODMTN0xPRjbP4D42LkZHR0QzLN+6sre9tqimrKmkpaetvcC1xsq/tK+0tra9wsvDwMbFt7kfOzg3REhEOBItNhXW7B9ATEdDRj1AVFdaYV5cW0tBSUI3PT03LsrMMzxQWVhWV1E+28XjPDTavbSuq6ioq7bQ0MPAuLa1raepqKqsqKmurK23"
+"tbC1tccb7SNHPw7UycvBvvcu0dEfJ+MwSU9QSUdPTU5MSk1MRkc1LkJEOEZJQE5YVVFRTklGOzguNCS4ubywvMW8u7Wwxwu/u7Wpqa6ooaCeo6ilsOMV5dgPKzxHQyrCxOQwHe4rN+a/yzxGR0FLU09DQUBKSU5RUVNQRVBZXFpWV1A/LjhK"
+"S09YUkBBRTHcMUdRTQPj2bWtrq2qq6qpq6mqrq2ppqSkp6Wgo6uwsK+zuLKvtNEZKz89J8rSMi8H2hk/QSDmOUNBUFJKREBGTUxET1xgWU9OT0tDRktRSkVQT0hHR1daUUtHQTM7LtjCucbnubOxrbO4sq+tq6iqqamrp6Wmoae1v8XEt7C0"
+"usQsPjLkyb2xtLa0ytkvSkw8JTZHVllQTkQyRUA8VV9eXlciIVFSVVlZYF9VVVFJTkxBSFNMRS7VLzbDutUf1basrcDKxriqo6Gkp6epqrKwqammpLG4trCuuMoizK+zt7O/1+IXREA7RCfd0L/GzuMXOUFKVEM6S0c5NTpHT1JYX1pCO1JW"
+"T0NOUk9YVCzQzMnaxLjuQsvEzru3ssIUtqeqrKiqsrbP0rmtp6mzv8vJ0smspKivs73M1jQ8587WJT9AQ01SRvDRL1BNNEM/LzxHT1thXlNHN0JEQkhNWFxZWFVPSEM10tTJv9fox7/Cws+9rs5H+7m2rqenp62tqa6wqqSpsa+z2zHFubiz"
+"tLe9MzTFussCz+AwQklUUEA1QTU8PTdPVEo7OkJRWVZXW1NPVFRaXFldX1NHRyEXSDoqQDwLxLS4xuEXNkE3uaeqqai3wMDZy6+jn6ayrqy1ubCrqbGwpq69urzT0sbn59/RxzM//ukwPkJEPkxOPUlOQElSRDxNS0ExIENUU05JSkxKSktD"
+"PUE2OTbMwcbExcS6y+fFy8O3vcK0uMjCwrmttLWqrba93OO3rKqrr6yuzCLLv8e/sbHDOkAtR08/JjpEMy88Qz4xQ0Uo3TVORD9TW1ZMTkhER0tSTENFTDzKxdTj0Awqx7S3v7G3zc3a3sW9wry9xLzP8ryurbW6s7bh68bQv7W6zNe8sb0n"
+"3swoHgQ3RUU5DT5VUEtVWFVNTUsrPFVWTE9QTE1IQ01MTVZVTEQ2HT5IQzItLBcGx8DT2cLDvquqsKyrt9LQ1s3AubGqr7u5s7+6rrO2srW50N/DyNG9tb/o58vYMy7LwsUVNjhERDcqOOa+zCoGHzg4JSBGTUtQU1hbVlRXTjo637K70r/F"
+"2Rsm0cLnKQ4uOijBxvbVvcf60Lm2uLq1tdgPySM2zri5vry79DgrzsfHu8PePEMvR0vwwBdGTEpFNw7CyDUzO1ZeVkhDRUc0QlJWUVRWTyXVIv7V6TJAQTHawbzONDXp2cK6tbCzvsC+xLqtrLGxtscdG/0j5Lqsq6+yuMwvJ9HWzsLG1TpN"
+"T0tQTzbKycve8tQfM8/KHCwTLkxWV1VRQDVBSkozHjwLq6OutLDCEiYb4NfDsq7AyMDYGdC5s7Sxq7HKPUQwKzv/wLy1t9LfwL3BwdPSxMvQ10JOSktJRExLTVJJPDk658QrSVJTUlNSU0xLUUhDUFA9K9zW4sK56ifZ79W+vsLJ0srLDem+"
+"saywuby9urKyvb60uQQ76cHCwLWxvuPLuiBILLi0wOQ6PkdENjcq0sTdPUZJS01IMjI5NzdFU1RUVlFENjM5MyI8Sk1LRTMV7N07T1BLJb+0qKOpudLOyMm9rq+6zz1KREc5vrGwra621y+7pKSvvMDBLU9GLhLexcMXRkHU1CjawLi77Csu"
+"Q0tEPkpOSEVSVkw/OdjK1MDQOjk3OeHXOh3D/kxUTCfHsaius7PYO0xLy6yuvcLiMkhVTT2/oJ+sudY8NzpC1bO600ZYWlI+7Ma4rq26GUE8ND8LxNIH9CFCTU9CN0I0w8QXSk0Iw8u8tsPE9ktPUUnHur2wqbO4yzfTtqiktMzkQk5NSOq6"
+"0+DUOzsmMsGvsayxFENOUSz5ORUuRE5XWlE6yKywubYoUVtfUiwP2MYxTlZbV049zbe4vMozSE1A0cq2sOg9OC0l3sGqoaetrbzm3b2tqqulqddCSEk1yrKopq22yBdARdqpoqe1KERPXFdJNMOzwDJKVVA8Pte8zuIfUltYUzjFxcfdM0dL"
+"WF1WRt3FEjM5TlVURuS4rqu5HDAnMSrQtqu0y/U6RkYhvLKxsb4ZPUQ+ENG9sq+8MUtRTD/eubCvuCFQVlFOSD3oubrX/zhHQjs12cvpKTpHUExDLuTHwN0kOUQz4dG9vyY0J0VKP/i7rbCzs7rLEzk00LKqttX/P0lGPC3ivrC19y4HLjDo"
+"1NDAw9QhQkErNTI7QzYZIj5KQgDbA8/P6+g1Oxs7LL3OHRMsNSrozLazrK29wPo9MuO/uMj50dHz19HMubGqrr/I0zAvKyfDwy46Rkk8JyDJvsS+ziU1R0suLj0bB0BLTkpANPjY9NHbKjxHQfbjOzg4SkdJTUhDKL6+0c7EvMLsz7O1ubjH"
+"JTgExdXPrqq83y8jwNEyzL/Y0RxFRkE6IDhUU0NATVI+1RNGTk5SVEopMUc3FEdUTEE+QTnk7C8x5Qs+DMj+Oh3NEzAs47WutLKusrGusbu4rqmos8O9wsnRxrWxtbezzkM43uLHr6mv4zs/TlVUTUVDPTtJV1ZMUlFOQhkPQVBbXVFHSkU7"
+"NCkzQT5JR9jL1dDcI0ZVUSXUy7i0uMTGurGqoqGipq+1uM8b0bWloaittM64q7W0sK6npsQzMUpKSEs9IzM1R1dTQjk5P0AqQ09PTVBPUEo9RkxJS0IY68vB08rKNk1SU0o+RkY/LwMOGsW0raWjoqOttrrG2dbHtamwurXAyberqKqsrq7H"
+"REc1MD8f5UhUTktPRTQe2CNGS1NZVE1PTkM4QldcWVZTQM+7sbTPQE9UUlJI6sjaO0lPT0XQrKKdnaOpr7m4uLGop6+xrsUXy7esp6alqK27ycXHwrm83D1JT1FUWVNEMOXF4EpXVVJVWk7t8UtcX15fX1hINxsvQ0ZFOyM7QvsTS09OTURG"
+"QyjVv7GoqKunn5+nraynpay1tLCyuMvgw7KknqKjn6axusnCtbXD6DlKUFhZTkgyyNAYRFpbWV1XP/0wT1ldYWZiWU3cwcwZRUxJVVhIKtMnU1RMVVdMJ7irqqWkq6+ysq6qp6SrtKy7MfPGu6mioJyfpqevv8vCtK+5zDZOUE1WVkPgu8Eu"
+"PkZXWFpZT0tHQlBeYGJkX1dC4tjS0jhQU1RSTU4+OFNXSzw7QDi6rLGtqKinp6mnrLmspau2ubizsbOqpqOcnaGosKqnsMbAuskhQ0RFTk5GMBMrOUBOVVNMUE9ERk9aYWFjY15ZVFBEHRNKUlBTU1NUTEdFOkZSSybEtLatoqGjoaCmrK6r"
+"rLS7rqivubKnpKSinZ2enqCksLvJ2QovLi5CTFBIREQ2LuMJMjlIUVZaW1laXF1fYWNkYF1YUEQsPlJYXF9fXVZEOElRU1NQRzG8qKGfnqGps7Gxv7mopqyzu7avqqihnJuZmpufqK2ttr/IDyY/T01JS0D709XW2NgmT1dXV1tcWFhbYGNk"
+"YFxZT0xJIh9OV1pfWlRZU0dGS1RZSwvSs6mop6emqbXCtKusrbSuq7vKwbSmoKCemp2cn6uyuMvQvLm+zR85SlNMN+bTwsjhQFFQU1ZTUVNXXFxdYF1XTT5JU1FOUFNVTz84RUhNUEpEOzpDBLCuubSvra25xLawr6urrqusra60sKWhnp6i"
+"oqKruLW0trjFyMUlR1FSTUIsITA5M0BNU1dSSU5VWVxcXmRmYVpNOkVTV1lUUFZWSjYyTllWTlJRSSy3q6qrsMjCsa6no6GfpKywr7KuqKSfnp+ip7Cyq6elpaKkstZCRijhITU6OzpJVVNOPeY6UE5NUFFYWFFSWVxcX19bV11gV1VUVFVP"
+"R0VFMzpAMzQ6Oh28r7fgxrGus7quoaKrqKSoqqmpqKmlnp+pq6u2vrmxr7S8v8cgQ01KOfYHKSQwQ1JTTE1JPzlAUlpaXGBfXVlPS0tQWVlUUk45KDY5O0FOVk9CQhm+xMG7wLm2tquhnZ+mqqmtr62tr66sqqqrr62mp7C8ubG2ytsp8NEr"
+"QUhJRjkwOTpAR1VbW1xaUUpQTU1ZXVhXVEpBN0JSV1lYVlA4AkNGGSJEQC7Ota+urrCwrbCwrKWeoq6wrbGrpaWjoqKlrLCztbGvtbi0xiFHUUc+Q0EaztEySk1SVk9LU1dWWFxlaGBYWFhXVlVUVFNTUElDRU1RSiw9TUQuIy80CtDJwLe3"
+"s7S2q6eno5+dnqGmoqKmpqenpKmysrC2s7W3tLa6vPYm3tXK6Tw0ETA7Q0tJTFNWW15aV1hcYF1UUVVVUEQoNUtPUFVWVks+TEQyRU5LNdLMwa2st7m6ubm5sKeioKCkqK+5ubGrpZ+foKvPDM++trOupqfBO0tPQDAzJxrX0T5VWFZTQzpJ"
+"UVRYXmRnYllST1FRUVRSTlFQNxY/UVFHREtOQjpBLtXk4L2wtrqspqSoraajqayzvrWwraelp6Kjs8PBtKuwwbm1xSA+SkxHLsHA+SHmJ09aWFFOSUdTVVZeY2ViWUU4NuskTEtQVUo4OThHTEtVXFpHJtGvqLLAu6+sraujm5+sscPJuLuy"
+"paGhoKexubywqaioqKu13zhET1Q80+bwLzEgR1BLSUVHS01QVltbWlxdXVhEQ0xOSUZTVEE4QjoqMEVRUlFTU0Lc5RfDtLXBwq2mpaOgnqOvs7W9wbuxraqprKyxubWzq6issLW83EBOUEtGOfXPGTo+QkFEQz9FRk1ZXF9dV1hZVEg7QEpR"
+"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"
+"rLm5qqu+EcmwsM3kx+o3HdLhMR67uTZF8MoK78DKN0ExO0xIL+UBIOseQkYiJkY26fM8RzY/U1VIPkpMSUBFTjzxNEEl0t0wO9C+yse8ucLc2b7I3sO4r6+zqqy6vLfK28bFubS9zdwC0sfMyb+6vMvI0BU4Ii5KTU9IPEhFOTc2Ih02P0M2"
+"NTktHzRDTVdYVVRLRDg0Pj5FRkdLSj0sNf/S8CAuMzH1zL25t6+rsbGsrbCxtLCsr66pqrCxtba0u7y9zL+1vLu7wb7YL/jVDQ7rJT1KS0lOT0xVVUhHS0hMQj1NTkE4PkZGRE5YV1RWWlhTUVBOQTUm18q9xM23tLu2sbKvr7SxrrK1uLes"
+"qqunpqips7Kprruxq7K+3sW4zdHBu8nx5dksQR3bPEhESFJdYFlWVk9ANUJLTE5RTDsxLz5NUVNWWlxcWFBUVUw/MiMU/u7n0cfKz8K1sK6ur6+wsK2urayopaivtrGvr7O5srG3uK+rra+rqK63vMHFzvrxGT9HSVBXWFRKSEk7OEdLSUVI"
+"TUc2N0VGTE5JUFJFPz4yO0FDVVxWUUouGvkfQ0Ii1buuraqprrG3wLavr62ssLa5vsTXzbCpqqyvqq27uLC3trCxtts3B94wQUlBN0FDOENMS1BOS1FOQ0lTVVE+MDsqEzVCRUE/RE1MS01SV1ZRUlRLPjQ3Ebq2yce0rbbQxLW5yMCvrLO5"
+"sq68uqikqKmopq66vL25tLe6u73FydHUxtPly8rvBu8TPFBUT1FWVE1OV1lTTk1LQi3g/DU4NDdCRkZLUVBNVFlcWVNSSi/nDQvoC+7Dvbqys77U387Du7Ssp6mpp6murq+qpqenqq+2wMW5srGvsLO2yR3n0vMpLDNHU1RVWlhTUExGSFBS"
+"UU9QUUk8RUpGTFJUUUZESEEzPEpOQjhERzUlQ1BTSzgUwrGtrrOysLq4q6amp6+zr7zSyMG8sa2rqK2vqautq62wsLfDws7eJUM+N0xPR0NJTkxKTlVTUFJWWFZRVVdSUU9SU01GTEpAQUBDQQDXMzg/RT9FQynbFRbc0M/MvbGzu6+qqquu"
+"rquvtbG1tLCyrqywsKyrrbCuqqu0w8TAwcnwHBUlNkNIRUpJQEBFTFBPU11dVlVXVVFNTFBGQU1OR0hRU0tCRUtGP0ZIREAk+8a4xsrAyc7J1s/Dw8W/xMe3tLW6wLKrsLGrpqets7W4wsC8vLmzsLDB9MrE2OvOvbzR4dIhPUJISUtKPUJO"
+"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"
+"/wABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAQEAAAEAAP//AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+"AAAAAAAAAAAAAAAAAAAAAAA=";
+static short *jsc_pcm; static int jsc_on; static float jsc_pos, jsc_vol;
 static short *evl_pcm, *brt_pcm;
 static int ev_on; static float ev_pos, br_want, br_cur, br_pos;
 static void trk_decode(const char *b64, short *dst, int n)
@@ -41949,7 +42442,9 @@ static void trk_init(void)
 {
     if (!evl_pcm) { evl_pcm = (short *)malloc(sizeof(short) * N_EVL); if (evl_pcm) trk_decode(evl_b64, evl_pcm, N_EVL); }
     if (!brt_pcm) { brt_pcm = (short *)malloc(sizeof(short) * N_BRT); if (brt_pcm) trk_decode(brt_b64, brt_pcm, N_BRT); }
+    if (!jsc_pcm) { jsc_pcm = (short *)malloc(sizeof(short) * N_JSC); if (jsc_pcm) trk_decode(jsc_b64, jsc_pcm, N_JSC); }
 }
+static void jsc_start(float vol) { if (jsc_pcm) { jsc_on = 1; jsc_pos = 0.0f; jsc_vol = vol; } }
 static void evil_start(void) { if (evl_pcm) { ev_on = 1; ev_pos = 0.0f; } }
 static short *sfx_data[SFX_N];
 static int    sfx_len[SFX_N];
@@ -92024,6 +92519,11 @@ static void audio_update(void)
                 acc += sv_; ev_pos += 0.5f;
             }
         }
+        if (jsc_on) {                                                      // sonido del susto del acechador (puerta / esquina)
+            int ip = (int)jsc_pos;
+            if (ip >= N_JSC - 2) jsc_on = 0;
+            else { float fr = jsc_pos - (float)ip; acc += ((float)jsc_pcm[ip] * (1.0f - fr) + (float)jsc_pcm[ip + 1] * fr) * jsc_vol; jsc_pos += 0.5f; }
+        }
         if (br_cur > 0.004f && brt_pcm) {
             int ip = (int)br_pos, ip2 = (ip + 1 >= N_BRT) ? 0 : ip + 1;
             float fr = br_pos - (float)ip;
@@ -96709,7 +97209,7 @@ static void menu_frame(u32 newp, float lv, int frame)
         }
     } else if (screen == SC_OPTZ) {                           // OPTIMIZACION: lista de optimizaciones
         int d = rt ? 1 : (lt ? -1 : (ok ? 1 : 0));
-        int *ov[OPTZ_N] = { &opt_on, &opt_cull, &opt_cullc, &opt_fastm, &opt_early, &opt_png, &opt_colg, &opt_prof, &opt_bake, &opt_vlit, &opt_spart, &opt_novl, &opt_stex };
+        int *ov[OPTZ_N] = { &opt_on, &opt_cull, &opt_cullc, &opt_fastm, &opt_early, &opt_png, &opt_colg, &opt_prof, &opt_bake, &opt_vlit, &opt_spart, &opt_novl, &opt_stex, &opt_spng };
         if (back || (ok && *sel == OPTZ_N)) screen = SC_OPT;
         else if (d != 0 && *sel < OPTZ_N) *ov[*sel] = !*ov[*sel];
     } else if (screen == SC_SND) {                            // SONIDO: encendido / volumen / chat de proximidad
@@ -96950,7 +97450,7 @@ static void menu_frame(u32 newp, float lv, int frame)
         }
     } else if (screen == SC_OPTZ) {
         draw_text_c(30.0f, "OPTIMIZACION", 5, sel_c);
-        static const char *const on_[OPTZ_N] = { "1 ARBOLES 144P", "2 CULLING", "3 CULLING PERSONAJES", "4 MATEMATICA RAPIDA", "5 DESCARTE TEMPRANO", "6 ARBOLES PNG", "7 COLISIONES RAPIDAS", "8 VER CARGA", "9 LIGHTMAP BAKING", "10 LUZ POR VERTICE", "11 PARTICION ESPACIAL", "12 SIN LUZ POR VERTICE", "13 ACECHADOR PSMT8" };
+        static const char *const on_[OPTZ_N] = { "1 ARBOLES 144P", "2 CULLING", "3 CULLING PERSONAJES", "4 MATEMATICA RAPIDA", "5 DESCARTE TEMPRANO", "6 ARBOLES PNG", "7 COLISIONES RAPIDAS", "8 VER CARGA", "9 LIGHTMAP BAKING", "10 LUZ POR VERTICE", "11 PARTICION ESPACIAL", "12 SIN LUZ POR VERTICE", "13 ACECHADOR PSMT8", "14 SKINS PNG" };
         static const char *const od_[OPTZ_N][2] = {
             { "ARBOLES PIXELADOS COMO A 144P Y MENOS LEJANOS", "" },
             { "NO DIBUJA CARAS TRASERAS, LO QUE ESTA FUERA DE CAMARA", "NI CASAS NI SUELO OCULTOS TRAS PAREDES ALTAS" },
@@ -96964,12 +97464,13 @@ static void menu_frame(u32 newp, float lv, int frame)
             { "LA LUZ DE CADA VERTICE SOLO SE CALCULA SI LE LLEGA", "LUZ; SI ESTA A OSCURAS SE SALTA EL CALCULO" },
             { "TABLA DE ARBOLES POR CASILLA Y OBSTACULOS POR ZONA", "BUSQUEDAS DE COLISION SOLO EN LO CERCANO" },
             { "QUITA LA LUZ CALCULADA EN CADA VERTICE: LA LUZ ES PLANA", "Y SOLO QUEDA EL CIRCULO DE LA LINTERNA (MAS FPS)" },
-            { "LA CARA DEL ACECHADOR USA UNA TEXTURA DE 256 COLORES", "(PSMT8) EN VEZ DE MUCHOS TRIANGULOS DE COLOR" } };
-        const int *ov[OPTZ_N] = { &opt_on, &opt_cull, &opt_cullc, &opt_fastm, &opt_early, &opt_png, &opt_colg, &opt_prof, &opt_bake, &opt_vlit, &opt_spart, &opt_novl, &opt_stex };
+            { "LA CARA DEL ACECHADOR USA UNA TEXTURA DE 256 COLORES", "(PSMT8) EN VEZ DE MUCHOS TRIANGULOS DE COLOR" },
+            { "LAS SKINS SON PNG: CADA PARTE ES UNA LAMINA CON LA CARA", "(FRENTE, ESPALDA O LADO); MANOS Y PIES SE SIGUEN MOVIENDO" } };
+        const int *ov[OPTZ_N] = { &opt_on, &opt_cull, &opt_cullc, &opt_fastm, &opt_early, &opt_png, &opt_colg, &opt_prof, &opt_bake, &opt_vlit, &opt_spart, &opt_novl, &opt_stex, &opt_spng };
         for (int i = 0; i <= OPTZ_N; i++) {
             if (i < OPTZ_N) snprintf(line, sizeof(line), i == optz_sel ? "> %s: %s <" : "%s: %s", on_[i], *ov[i] ? "SI" : "NO");
             else snprintf(line, sizeof(line), i == optz_sel ? "> VOLVER <" : "VOLVER");
-            draw_text_c(72.0f + i * 19.0f, line, 2, i == optz_sel ? sel_c : norm_c);
+            draw_text_c(72.0f + i * 17.0f, line, 2, i == optz_sel ? sel_c : norm_c);
         }
         if (optz_sel < OPTZ_N) { draw_text_c(334.0f, od_[optz_sel][0], 2, hint_c); draw_text_c(354.0f, od_[optz_sel][1], 2, hint_c); }
     } else if (screen == SC_SND) {
@@ -98161,7 +98662,7 @@ int main(void)
                     int ps = ps_a[mi_], pb = pb_a[mi_];
                     int lp = net_online ? net_local : 0;
                     if (mi_ == 0) br_want = 0.0f;
-                    if (stk_scare_ev) { stk_scare_ev = 0; sfx_play3(SFX_ROAR, 0.55f, sx_, sz_, 0, 45.0f); }       // susto de puerta
+                    if (stk_scare_ev) { stk_scare_ev = 0; { float dd_ = sqrtf((sx_ - px) * (sx_ - px) + (sz_ - pz) * (sz_ - pz)); jsc_start(clampf(1.25f - dd_ * 0.05f, 0.55f, 1.15f)); } }       // susto de puerta
                     float edx = sx_ - P[lp].px, edz = sz_ - P[lp].pz, ed = sqrtf(edx * edx + edz * edz);
                     if (frenzy_go) frenzy_go = 0;                                                                                          // (ya suena EVIL)                                 // enloquece: ruge
                     if (mon_seen && !ps && !STK_ON()) sfx_play3(SFX_ROAR, 1.0f, sx_, sz_, mlayer, 90.0f);          // te vio: ruge
